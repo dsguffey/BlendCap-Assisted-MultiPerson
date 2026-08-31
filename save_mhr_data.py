@@ -476,6 +476,10 @@ def run_preview(detector, video_path, output_path, step=10,
     detected = missed = 0
     prev_bbox = None  # last good box, for IoU continuity across samples
     sample_boxes = []  # one entry per vid_frames item: [x1,y1,x2,y2] or None
+    # Diagnostic-only payload for the existing combined-preview sidecar.
+    # Keep every post-threshold YOLO person box before _pick_box() collapses
+    # the detections to the single subject drawn by the existing preview.
+    sample_all_boxes = [] if boxes_out is not None else None
     n_samples = len(vid_frames)
     # Pass 1 spans 30->75 when we also render (pass 2 takes 75->100), or
     # the whole 30->100 when the render is skipped (boxes_out mode).
@@ -497,6 +501,11 @@ def run_preview(detector, video_path, output_path, step=10,
         except Exception as e:
             print(f"  Frame {vid_idx}: detection FAILED ({e})")
             boxes = None
+
+        if sample_all_boxes is not None:
+            sample_all_boxes.append(
+                [[float(v) for v in person_box[:4]] for person_box in boxes]
+                if boxes is not None else [])
 
         box = _pick_box(boxes, prev_bbox)
         if box is not None:
@@ -524,16 +533,22 @@ def run_preview(detector, video_path, output_path, step=10,
         boxes_path.parent.mkdir(parents=True, exist_ok=True)
         with open(boxes_path, "w", encoding="utf-8") as f:
             json.dump({
-                "version": 1,
+                "version": 2,
                 "fps": fps,
                 "start_frame": int(start_frame),
                 "end_frame": int(end),
                 "sample_indices": [int(i) for i in sample_indices],
                 "boxes": sample_boxes,
+                "all_boxes": sample_all_boxes,
             }, f)
         total_checked = detected + missed
+        zero_people = sum(len(frame_boxes) == 0 for frame_boxes in sample_all_boxes)
+        one_person = sum(len(frame_boxes) == 1 for frame_boxes in sample_all_boxes)
+        multiple_people = sum(len(frame_boxes) >= 2 for frame_boxes in sample_all_boxes)
         print(f"\nDetection samples saved: {boxes_path}")
         print(f"  {total_checked} frames checked: {detected} body OK, {missed} no person")
+        print(f"  People per sampled frame: 0={zero_people}, 1={one_person}, "
+              f"2+={multiple_people}")
         if total_checked > 0 and missed > total_checked * 0.3:
             # The [WARNING] form is parsed by the addon and shown in a popup.
             print(f"[WARNING] {missed * 100 // total_checked}% of preview frames had no person")
