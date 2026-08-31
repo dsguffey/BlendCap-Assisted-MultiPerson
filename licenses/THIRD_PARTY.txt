@@ -119,6 +119,15 @@ opencv-python
            as long as users can replace the bundled libraries. No
            additional action needed for v1.
 
+Torchreid OSNet-AIN x1.0 architecture (Kaiyang Zhou)
+  License : MIT (full text in licenses/TORCHREID_LICENSE.txt)
+  Source  : https://github.com/KaiyangZhou/deep-person-reid
+  Commit  : f6ba78eceb38712266318e8c7eefde174af15606
+  File    : torchreid/models/osnet_ain.py
+  Note    : appearance_osnet.py adapts only the checkpoint-compatible
+            inference architecture. No Torchreid package or model weights
+            are bundled or downloaded.
+
 onnx, NumPy, SciPy, einops, timm, safetensors, hydra-core, omegaconf,
 trimesh, roma, loguru, portalocker, pytorch-lightning, torchmetrics,
 fvcore, iopath, yacs, pycocotools, webdataset, requests, ultralytics-thop
