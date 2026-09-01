@@ -16,16 +16,29 @@ OUTPUT_ROOT = (SCRIPT_DIR / "checkpoints" / "dev-preview").resolve()
 SCHEMA = "blendcap-preview-target-appearance-diagnostic"
 VERSION = 1
 DEFAULT_LABELS = "0:2,11:2,22:2,33:3,44:3,52:3,55:3,58:3,67:3"
+DEFAULT_REFERENCE_FRAMES = (33, 52)
 VIEW_SPECS = {
     "whole_box": (0.0, 1.0, 0.0, 1.0),
     "inner_box": (0.08, 0.92, 0.05, 0.95),
 }
-SCORE_NAMES = (
-    "similarity_to_anchor_33",
-    "similarity_to_anchor_52",
-    "endpoint_mean_score",
-    "full_gallery_score",
-)
+
+
+def anchor_score_name(frame):
+    return f"similarity_to_anchor_{frame}"
+
+
+def score_names(reference_frames):
+    return tuple(anchor_score_name(frame) for frame in reference_frames) + (
+        "endpoint_mean_score",
+        "full_gallery_score",
+    )
+
+
+def anchor_agreement_name(reference_frames):
+    return "anchor_{}_and_{}_top_agree".format(*reference_frames)
+
+
+SCORE_NAMES = score_names(DEFAULT_REFERENCE_FRAMES)
 
 
 class AppearanceError(RuntimeError):
@@ -59,7 +72,7 @@ def parse_args():
     )
     parser.add_argument(
         "--reference-frames",
-        default="33,52",
+        default=",".join(str(frame) for frame in DEFAULT_REFERENCE_FRAMES),
         help="Two durable anchor frames (default: 33,52)",
     )
     parser.add_argument(
@@ -184,21 +197,32 @@ def parse_frame_range(value, sidecar):
     return frames
 
 
-def parse_reference_frames(value, anchors):
+def parse_reference_frames(value, sidecar, anchors):
     try:
-        frames = [int(part) for part in value.split(",")]
+        parts = value.split(",")
+        if len(parts) != 2:
+            raise ValueError
+        frames = [int(part) for part in parts]
     except ValueError as exc:
         raise AppearanceError("--reference-frames must contain two integers") from exc
-    if len(frames) != 2 or frames[0] == frames[1]:
+    if frames[0] == frames[1]:
         raise AppearanceError("--reference-frames must contain two distinct frames")
-    anchor_frames = {anchor["frame"] for anchor in anchors["anchors"]}
+    sampled_frames = sidecar["frame_to_position"]
+    if any(frame not in sampled_frames for frame in frames):
+        raise AppearanceError("Each reference frame must be a sampled frame")
+    forced_frames = anchors["forced_frames"]
+    if any(frame in forced_frames for frame in frames):
+        raise AppearanceError(
+            "Reference frames cannot be inside forced occlusion ranges"
+        )
+    anchor_frames = {
+        anchor["frame"]
+        for anchor in anchors["anchors"]
+        if "box_snapshot_xyxy" in anchor
+    }
     if any(frame not in anchor_frames for frame in frames):
         raise AppearanceError("Each reference frame must have a durable anchor")
-    if set(frames) != {33, 52}:
-        raise AppearanceError(
-            "This diagnostic requires reference anchor frames 33 and 52"
-        )
-    return (33, 52)
+    return tuple(sorted(frames))
 
 
 def parse_labels(value, sidecar):
@@ -404,6 +428,11 @@ def analyze_view(
     embedder,
     batch_size,
 ):
+    reference_score_names = tuple(
+        anchor_score_name(frame) for frame in reference_frames
+    )
+    current_score_names = score_names(reference_frames)
+    agreement_name = anchor_agreement_name(reference_frames)
     anchor_crops = [
         extract_rgb_crop(
             decoded[anchor["frame"]], anchor["box_snapshot_xyxy"], view_name
@@ -465,8 +494,8 @@ def analyze_view(
                         ),
                     },
                     "scores": {
-                        "similarity_to_anchor_33": separate[0],
-                        "similarity_to_anchor_52": separate[1],
+                        reference_score_names[0]: separate[0],
+                        reference_score_names[1]: separate[1],
                         "endpoint_mean_score": (
                             sum(endpoint_scores) / len(endpoint_scores)
                             if endpoint_scores
@@ -480,10 +509,12 @@ def analyze_view(
                     },
                 }
             )
-        rankings = {name: _rank(candidates, name) for name in SCORE_NAMES}
+        rankings = {
+            name: _rank(candidates, name) for name in current_score_names
+        }
         anchor_tops = [
-            rankings["similarity_to_anchor_33"]["top_temporary_candidate_index"],
-            rankings["similarity_to_anchor_52"]["top_temporary_candidate_index"],
+            rankings[name]["top_temporary_candidate_index"]
+            for name in reference_score_names
         ]
         record = {
             "frame": frame,
@@ -491,7 +522,7 @@ def analyze_view(
             "candidate_count": len(candidates),
             "candidates": candidates,
             "rankings": rankings,
-            "anchor_33_and_52_top_agree": (
+            agreement_name: (
                 anchor_tops[0] == anchor_tops[1]
                 if None not in anchor_tops
                 else None
@@ -508,16 +539,16 @@ def analyze_view(
                         if confirmed in rankings[name]["temporary_candidate_indexes"]
                         else None
                     )
-                    for name in SCORE_NAMES
+                    for name in current_score_names
                 },
             }
         frame_results.append(record)
     return frame_results
 
 
-def _label_measurements(frames, labels):
+def _label_measurements(frames, labels, current_score_names):
     measurements = {}
-    for score_name in SCORE_NAMES:
+    for score_name in current_score_names:
         labeled = [frame for frame in frames if frame["frame"] in labels]
         evaluable = [
             frame
@@ -541,13 +572,19 @@ def _label_measurements(frames, labels):
     return measurements
 
 
-def _critical_measurement(frames, frame_number, candidate, competitor):
+def _critical_measurement(
+    frames,
+    frame_number,
+    candidate,
+    competitor,
+    reference_frames,
+):
     frame = next(item for item in frames if item["frame"] == frame_number)
     by_index = {
         item["temporary_candidate_index"]: item for item in frame["candidates"]
     }
     differences = {}
-    for score_name in SCORE_NAMES:
+    for score_name in score_names(reference_frames):
         chosen_score = by_index[candidate]["scores"][score_name]
         competitor_score = by_index[competitor]["scores"][score_name]
         differences[score_name] = (
@@ -561,8 +598,8 @@ def _critical_measurement(frames, frame_number, candidate, competitor):
         "competing_temporary_candidate_index": competitor,
         "confirmed_minus_competing_score": differences,
         "rankings": frame["rankings"],
-        "anchor_33_and_52_top_agree": frame[
-            "anchor_33_and_52_top_agree"
+        anchor_agreement_name(reference_frames): frame[
+            anchor_agreement_name(reference_frames)
         ],
     }
 
@@ -579,6 +616,7 @@ def build_report(
     batch_size,
     source_metadata,
 ):
+    current_score_names = score_names(reference_frames)
     views = {}
     for view_name in VIEW_SPECS:
         frames = analyze_view(
@@ -594,9 +632,15 @@ def build_report(
         )
         views[view_name] = {
             "frames": frames,
-            "human_label_measurements": _label_measurements(frames, labels),
+            "human_label_measurements": _label_measurements(
+                frames, labels, current_score_names
+            ),
             "critical_frame_measurement": _critical_measurement(
-                frames, critical[0], critical[1], critical[2]
+                frames,
+                critical[0],
+                critical[1],
+                critical[2],
+                reference_frames,
             ),
         }
     return {
@@ -727,7 +771,7 @@ def main():
         )
         range_frames = parse_frame_range(args.frame_range, sidecar)
         reference_frames = parse_reference_frames(
-            args.reference_frames, anchors
+            args.reference_frames, sidecar, anchors
         )
         labels = parse_labels(args.labels, sidecar)
         validate_critical(

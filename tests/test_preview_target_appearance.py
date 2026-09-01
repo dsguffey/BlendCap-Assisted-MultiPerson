@@ -36,8 +36,12 @@ class FakeEmbedder:
         ]
 
 
-def synthetic_inputs(candidate_order=(0, 1)):
-    frames = [33, 34, 44, 52]
+def synthetic_inputs(
+    candidate_order=(0, 1),
+    frames=(33, 34, 44, 52),
+    reference_frames=(33, 52),
+):
+    frames = list(frames)
     red_box = (0.0, 0.0, 40.0, 80.0)
     black_box = (40.0, 0.0, 80.0, 80.0)
     base_boxes = [red_box, black_box]
@@ -55,13 +59,13 @@ def synthetic_inputs(candidate_order=(0, 1)):
         "track_id": "red-shorts-step1",
         "anchors": [
             {
-                "anchor_id": "red-033",
-                "frame": 33,
+                "anchor_id": f"red-{reference_frames[0]:03d}",
+                "frame": reference_frames[0],
                 "box_snapshot_xyxy": list(red_box),
             },
             {
-                "anchor_id": "red-052",
-                "frame": 52,
+                "anchor_id": f"red-{reference_frames[1]:03d}",
+                "frame": reference_frames[1],
                 "box_snapshot_xyxy": list(red_box),
             },
         ],
@@ -241,8 +245,115 @@ class AppearanceReportTests(unittest.TestCase):
         self.assertIn("possible", proxy["interpretation"])
         self.assertIn("not proof", proxy["interpretation"])
 
+    def test_alternate_references_drive_dynamic_report_fields(self):
+        decoded, sidecar, anchors = synthetic_inputs(
+            frames=(0, 7, 14), reference_frames=(0, 14)
+        )
+        report = diagnostic.build_report(
+            decoded=decoded,
+            sidecar=sidecar,
+            anchors=anchors,
+            evaluation_frames=[7],
+            reference_frames=(0, 14),
+            labels={7: 0},
+            critical=(7, 0, 1),
+            embedder=FakeEmbedder(),
+            batch_size=2,
+            source_metadata={},
+        )
+        self.assertEqual(
+            report["experiment"]["reference_anchor_frames"], [0, 14]
+        )
+        expected_scores = {
+            "similarity_to_anchor_0",
+            "similarity_to_anchor_14",
+            "endpoint_mean_score",
+            "full_gallery_score",
+        }
+        for view in report["views"].values():
+            frame = view["frames"][0]
+            self.assertEqual(set(frame["candidates"][0]["scores"]), expected_scores)
+            self.assertEqual(set(frame["rankings"]), expected_scores)
+            self.assertEqual(
+                set(frame["human_confirmed_label"]["ranks"]), expected_scores
+            )
+            self.assertIn("anchor_0_and_14_top_agree", frame)
+            self.assertIn(
+                "anchor_0_and_14_top_agree",
+                view["critical_frame_measurement"],
+            )
+            self.assertNotIn("anchor_33_and_52_top_agree", frame)
+            self.assertNotIn("similarity_to_anchor_33", frame["rankings"])
+
+    def test_default_references_preserve_legacy_report_field_names(self):
+        report = self.build_report()
+        frame = report["views"]["whole_box"]["frames"][0]
+        self.assertEqual(tuple(frame["rankings"]), diagnostic.SCORE_NAMES)
+        self.assertIn("anchor_33_and_52_top_agree", frame)
+
 
 class AppearanceValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.sidecar = {
+            "sample_indices": [0, 7, 14, 33, 42, 52],
+            "frame_to_position": {
+                frame: index
+                for index, frame in enumerate([0, 7, 14, 33, 42, 52])
+            },
+        }
+        self.anchors = {
+            "anchors": [
+                {"frame": 0, "box_snapshot_xyxy": [0, 0, 1, 1]},
+                {"frame": 14, "box_snapshot_xyxy": [0, 0, 1, 1]},
+                {"frame": 33, "box_snapshot_xyxy": [0, 0, 1, 1]},
+                {"frame": 42, "box_snapshot_xyxy": [0, 0, 1, 1]},
+                {"frame": 52, "box_snapshot_xyxy": [0, 0, 1, 1]},
+            ],
+            "forced_frames": {42},
+        }
+
+    def test_reference_frames_accept_valid_alternate_and_existing_pairs(self):
+        self.assertEqual(
+            diagnostic.parse_reference_frames(
+                "14,0", self.sidecar, self.anchors
+            ),
+            (0, 14),
+        )
+        self.assertEqual(
+            diagnostic.parse_reference_frames(
+                "33,52", self.sidecar, self.anchors
+            ),
+            (33, 52),
+        )
+
+    def test_reference_frames_reject_duplicates(self):
+        with self.assertRaisesRegex(
+            diagnostic.AppearanceError, "two distinct"
+        ):
+            diagnostic.parse_reference_frames(
+                "14,14", self.sidecar, self.anchors
+            )
+
+    def test_reference_frames_reject_sampled_non_anchor(self):
+        with self.assertRaisesRegex(diagnostic.AppearanceError, "durable anchor"):
+            diagnostic.parse_reference_frames(
+                "0,7", self.sidecar, self.anchors
+            )
+
+    def test_reference_frames_reject_unsampled_frame(self):
+        with self.assertRaisesRegex(diagnostic.AppearanceError, "sampled frame"):
+            diagnostic.parse_reference_frames(
+                "0,13", self.sidecar, self.anchors
+            )
+
+    def test_reference_frames_reject_forced_occlusion_frame(self):
+        with self.assertRaisesRegex(
+            diagnostic.AppearanceError, "forced occlusion"
+        ):
+            diagnostic.parse_reference_frames(
+                "0,42", self.sidecar, self.anchors
+            )
+
     def test_cli_accepts_runs_with_and_without_track(self):
         common = [
             "diagnose_preview_target_appearance.py",
