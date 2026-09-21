@@ -77,6 +77,13 @@ from .panels import (
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,
 )
+from .vta_review_ui import (
+    BLENDCAP_OT_vta_review_refresh,
+    BLENDCAP_OT_vta_review_assign,
+    VIEW3D_PT_blendcap_vta_review,
+    register_properties as register_vta_review_properties,
+    unregister_properties as unregister_vta_review_properties,
+)
 from . import retarget
 
 
@@ -217,6 +224,9 @@ classes = (
     BLENDCAP_OT_donate,
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,
+    BLENDCAP_OT_vta_review_refresh,
+    BLENDCAP_OT_vta_review_assign,
+    VIEW3D_PT_blendcap_vta_review,
 )
 
 @bpy.app.handlers.persistent
@@ -456,6 +466,7 @@ def register():
     # showing in the prefs panel. WindowManager-scoped, session-only.
     bpy.types.WindowManager.blendcap_uninstall_armed = bpy.props.BoolProperty(
         default=False)
+    register_vta_review_properties()
 
     # --- Retargeting v2 scene state ---
     bpy.types.Scene.blendcap_retarget_pairs = bpy.props.CollectionProperty(type=BlendCapBonePair)
@@ -777,6 +788,7 @@ def register():
 
 
 def unregister():
+    unregister_vta_review_properties()
     if _clear_dangling_retarget_rigs in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_clear_dangling_retarget_rigs)
     if _clear_dangling_retarget_rigs in bpy.app.handlers.load_post:
