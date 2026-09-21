@@ -22,6 +22,7 @@ class VtaReviewUiError(RuntimeError):
 class CandidateRow:
     analysis_revision_id: str
     observation_id: str
+    box_xyxy: tuple[float, float, float, float]
     label: str
     assigned_character_id: str | None
     assigned_character_name: str | None
@@ -47,6 +48,8 @@ class ReviewView:
     analysis_revision_id: str
     source_id: str
     source_frame: int
+    source_width: int | None
+    source_height: int | None
     state: str
     state_label: str
     candidates: tuple[CandidateRow, ...]
@@ -122,7 +125,10 @@ def map_vse_frame_to_source(
     return source_offset + blender_frame - visible_start
 
 
-def present_review(review: object) -> ReviewView:
+def present_review(
+    review: object,
+    source_dimensions: tuple[int, int] | None = None,
+) -> ReviewView:
     """Convert the private immutable projection into public immutable rows."""
     try:
         state = review.state.value
@@ -142,6 +148,7 @@ def present_review(review: object) -> ReviewView:
             CandidateRow(
                 analysis_revision_id=item.analysis_revision_id,
                 observation_id=item.observation_id,
+                box_xyxy=tuple(item.box_xyxy),
                 label=_candidate_label(index, item.observation_id),
                 assigned_character_id=assignments.get(item.observation_id),
                 assigned_character_name=names.get(assignments.get(item.observation_id)),
@@ -160,6 +167,8 @@ def present_review(review: object) -> ReviewView:
             analysis_revision_id=review.analysis_revision_id,
             source_id=review.source_id,
             source_frame=review.frame,
+            source_width=None if source_dimensions is None else source_dimensions[0],
+            source_height=None if source_dimensions is None else source_dimensions[1],
             state=state,
             state_label=state_label,
             candidates=candidates,
@@ -246,7 +255,10 @@ class PrivateCoreBackend:
             if exc.__class__.__module__.startswith("vta_core"):
                 raise VtaReviewUiError(str(exc)) from exc
             raise
-        return present_review(review)
+        source = getattr(cache, "source", None)
+        require_dimensions = getattr(source, "require_dimensions", None)
+        dimensions = require_dimensions() if callable(require_dimensions) else None
+        return present_review(review, dimensions)
 
     def apply(
         self,

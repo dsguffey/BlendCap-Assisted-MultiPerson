@@ -16,6 +16,7 @@ from ..blendcap_vta_review import (
     user_message,
 )
 from ..blendcap_vta_runtime import discover_vta_core
+from . import vta_overlay
 from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end, addon_prefs
 
 
@@ -91,10 +92,58 @@ def _location_from_context(context) -> ReviewLocation:
     )
 
 
+def _vse_source_path(strip) -> Path | None:
+    """Resolve the source identity stored by a VSE movie strip."""
+    if strip is None or getattr(strip, "type", "") != 'MOVIE':
+        return None
+    if "blendcap_source" in strip:
+        value = str(strip["blendcap_source"])
+    else:
+        value = getattr(strip, "filepath", "")
+    if not value:
+        return None
+    return Path(bpy.path.abspath(value)).resolve()
+
+
+def _active_movie_strips(scene):
+    sequence_editor = getattr(scene, "sequence_editor", None)
+    strip = _active_video_strip(sequence_editor)
+    return (strip,) if getattr(strip, "type", "") == 'MOVIE' else ()
+
+
+def _owning_vse_scene(context, location: ReviewLocation):
+    """Find the actual VSE owner of the hash-validated review source."""
+    try:
+        return vta_overlay.find_scene_owning_source(
+            bpy.data.scenes,
+            location.source_path,
+            _active_movie_strips,
+            _vse_source_path,
+            preferred_scene=getattr(context, "scene", None),
+        )
+    except ValueError as exc:
+        raise VtaReviewUiError(str(exc)) from exc
+
+
 def _sync_properties(context) -> None:
     wm = context.window_manager
     wm.blendcap_vta_candidate = _selection.observation_id or _NO_SELECTION
     wm.blendcap_vta_character = _selection.character_id or _NO_SELECTION
+    vta_overlay.request_redraw()
+
+
+def overlay_state():
+    """Read-only draw callback state; never queries or mutates private core."""
+    return _view, _selection.observation_id
+
+
+def ensure_vta_preview_context(context, owning_scene) -> int:
+    """Bind existing VSE Preview areas to the owning scene's workspace slot."""
+    workspace = getattr(context, "workspace", None)
+    window = getattr(context, "window", None)
+    screen = getattr(window, "screen", None)
+    areas = getattr(screen, "areas", ()) if screen is not None else ()
+    return vta_overlay.bind_vse_preview_scene(workspace, areas, owning_scene)
 
 
 def _rebuild_enum_items() -> None:
@@ -149,6 +198,9 @@ def refresh(context, *, force: bool = False) -> bool:
             _selection.accept_review(_view)
             _rebuild_enum_items()
             _sync_properties(context)
+        # Query validates the source hash against canonical private state before
+        # this selection is allowed to affect the Blender review workspace.
+        ensure_vta_preview_context(context, _owning_vse_scene(context, location))
         if force:
             _status = "Review refreshed from canonical state."
             _status_is_error = False
@@ -268,6 +320,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
             layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
             return
         layout.label(text=f"Review: {_view.state_label}")
+        layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Show VTA Candidate Overlay")
         for candidate in _view.candidates:
             if candidate.assigned_character_name:
                 layout.label(
@@ -295,6 +348,9 @@ classes = (
 
 
 def register_properties() -> None:
+    bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
+        name="Show VTA Candidate Overlay", default=True,
+        description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
     bpy.types.WindowManager.blendcap_vta_candidate = bpy.props.EnumProperty(
         name="Candidate",
         items=candidate_items,
@@ -305,8 +361,11 @@ def register_properties() -> None:
         items=character_items,
         update=_character_changed,
     )
+    vta_overlay.register(overlay_state)
 
 
 def unregister_properties() -> None:
+    vta_overlay.unregister()
+    del bpy.types.Scene.blendcap_show_vta_candidate_overlay
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character

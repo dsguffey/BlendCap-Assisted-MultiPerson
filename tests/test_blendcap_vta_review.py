@@ -20,6 +20,7 @@ class Candidate:
     analysis_revision_id: str
     observation_id: str
     frame: int = 12
+    box_xyxy: tuple[float, float, float, float] = (10.0, 20.0, 30.0, 40.0)
     assigned_character_id: str | None = None
 
 
