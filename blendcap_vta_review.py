@@ -218,13 +218,19 @@ def user_message(error: BaseException) -> str:
 class PrivateCoreBackend:
     """Late-bound adapter to the separately installed private ``vta_core``."""
 
-    def __init__(self, importer: Callable[[str], object] = importlib.import_module) -> None:
-        try:
-            self._core = importer("vta_core")
-        except (ImportError, ModuleNotFoundError) as exc:
-            raise VtaReviewUiError(
-                "Private VTA core is unavailable in Blender's Python environment."
-            ) from exc
+    def __init__(
+        self,
+        core: object | None = None,
+        importer: Callable[[str], object] = importlib.import_module,
+    ) -> None:
+        if core is None:
+            try:
+                core = importer("vta_core")
+            except (ImportError, ModuleNotFoundError) as exc:
+                raise VtaReviewUiError(
+                    "Private VTA core is unavailable in Blender's Python environment."
+                ) from exc
+        self._core = core
         self._source_digest_cache: dict[Path, tuple[int, int, str]] = {}
 
     def query(self, location: ReviewLocation) -> ReviewView:

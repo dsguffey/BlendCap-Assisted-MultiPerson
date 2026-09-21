@@ -213,6 +213,14 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         subtype='DIR_PATH', default="",
         description="Folder used for the BVH library when the option above is on")
 
+    # Separate private component root. This is persisted in Blender's normal
+    # user preferences and is used only by the public VTA runtime-discovery
+    # boundary; no private code is bundled with this extension.
+    vta_core_location: bpy.props.StringProperty(  # type: ignore
+        name="Video to Animation Core Location",
+        subtype='DIR_PATH', default="",
+        description="Folder containing the separately installed Video to Animation Core")
+
     # --- Capture & tracking ---
     capture_backend: bpy.props.EnumProperty(  # type: ignore
         name="Capture Backend",
@@ -343,6 +351,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
 
         self._draw_dependencies(context, layout)
         self._draw_locations(context, layout)
+        self._draw_vta_core(context, layout)
         self._draw_capture(context, layout)
         self._draw_interface(context, layout)
 
@@ -454,6 +463,13 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         sub = box.column(align=True)
         sub.enabled = self.bvh_library_use_custom
         sub.prop(self, "bvh_library_path")
+
+    def _draw_vta_core(self, context, layout):
+        box = layout.box()
+        box.label(text="Video to Animation", icon='FILE_FOLDER')
+        box.label(text="Optional separate review component", icon='INFO')
+        box.prop(self, "vta_core_location")
+        box.label(text="Leave blank to use an installed default when available.")
 
     def _draw_capture(self, context, layout):
         box = layout.box()

@@ -15,7 +15,8 @@ from ..blendcap_vta_review import (
     map_vse_frame_to_source,
     user_message,
 )
-from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end
+from ..blendcap_vta_runtime import discover_vta_core
+from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end, addon_prefs
 
 
 _selection = SelectionState()
@@ -24,15 +25,38 @@ _location = None
 _status = ""
 _status_is_error = False
 _backend = None
+_backend_location = None
+_backend_root = None
 _project_signature = None
-_candidate_enum_items = [("", "No candidate", "Refresh the current frame")]
-_character_enum_items = [("", "No Character", "Refresh the current frame")]
+_NO_SELECTION = "__blendcap_vta_no_selection__"
+_candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
+_character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
 
 
-def _get_backend():
-    global _backend
-    if _backend is None:
-        _backend = PrivateCoreBackend()
+def _configured_core_location(context) -> str:
+    prefs = addon_prefs(context)
+    if prefs is None:
+        return ""
+    value = getattr(prefs, "vta_core_location", "") or ""
+    return bpy.path.abspath(value) if value else ""
+
+
+def _get_backend(context, *, force: bool = False):
+    global _backend, _backend_location, _backend_root
+    configured = _configured_core_location(context)
+    cached_root_missing = _backend_root is not None and not (
+        _backend_root / "vta_core" / "__init__.py"
+    ).is_file()
+    if force or _backend is None or configured != _backend_location or cached_root_missing:
+        resolution = discover_vta_core(configured)
+        if not resolution.available:
+            _backend = None
+            _backend_location = configured
+            _backend_root = None
+            raise VtaReviewUiError(resolution.message)
+        _backend = PrivateCoreBackend(core=resolution.core)
+        _backend_location = configured
+        _backend_root = resolution.root
     return _backend
 
 
@@ -69,17 +93,17 @@ def _location_from_context(context) -> ReviewLocation:
 
 def _sync_properties(context) -> None:
     wm = context.window_manager
-    wm.blendcap_vta_candidate = _selection.observation_id
-    wm.blendcap_vta_character = _selection.character_id
+    wm.blendcap_vta_candidate = _selection.observation_id or _NO_SELECTION
+    wm.blendcap_vta_character = _selection.character_id or _NO_SELECTION
 
 
 def _rebuild_enum_items() -> None:
     global _candidate_enum_items, _character_enum_items
     if _view is None:
-        _candidate_enum_items = [("", "No candidate", "Refresh the current frame")]
-        _character_enum_items = [("", "No Character", "Refresh the current frame")]
+        _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
+        _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
         return
-    _candidate_enum_items = [("", "Select candidate...", "No candidate is selected")]
+    _candidate_enum_items = [(_NO_SELECTION, "Select candidate...", "No candidate is selected")]
     _candidate_enum_items.extend(
         (
             row.observation_id,
@@ -89,7 +113,7 @@ def _rebuild_enum_items() -> None:
         )
         for row in _view.candidates
     )
-    _character_enum_items = [("", "Select Character...", "No Character is selected")]
+    _character_enum_items = [(_NO_SELECTION, "Select Character...", "No Character is selected")]
     _character_enum_items.extend(
         (
             row.character_id,
@@ -103,6 +127,7 @@ def _rebuild_enum_items() -> None:
 def refresh(context, *, force: bool = False) -> bool:
     global _view, _location, _project_signature, _status, _status_is_error
     try:
+        backend = _get_backend(context, force=force)
         location = _location_from_context(context)
         project_path = location.companion_root / "project_state.json"
         try:
@@ -118,7 +143,7 @@ def refresh(context, *, force: bool = False) -> bool:
             or _project_signature != project_signature
         )
         if force or key_changed or _view is None:
-            _view = _get_backend().query(location)
+            _view = backend.query(location)
             _location = location
             _project_signature = project_signature
             _selection.accept_review(_view)
@@ -150,11 +175,15 @@ def character_items(_self, context):
 
 
 def _candidate_changed(self, _context):
-    _selection.observation_id = self.blendcap_vta_candidate
+    _selection.observation_id = (
+        "" if self.blendcap_vta_candidate == _NO_SELECTION else self.blendcap_vta_candidate
+    )
 
 
 def _character_changed(self, _context):
-    _selection.character_id = self.blendcap_vta_character
+    _selection.character_id = (
+        "" if self.blendcap_vta_character == _NO_SELECTION else self.blendcap_vta_character
+    )
 
 
 class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
@@ -192,7 +221,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
         observation_id = _selection.observation_id
         character_id = _selection.character_id
         try:
-            _receipt, refreshed = _get_backend().apply(
+            _receipt, refreshed = _get_backend(context).apply(
                 _location,
                 observation_id=observation_id,
                 character_id=character_id,
@@ -233,6 +262,9 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
             layout.label(text=f"Source Frame: {_location.source_frame}")
         if _view is None:
             layout.label(text=_status or "Review unavailable", icon='ERROR')
+            prefs = addon_prefs(context)
+            if prefs is not None:
+                layout.prop(prefs, "vta_core_location", text="Video to Animation Core")
             layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
             return
         layout.label(text=f"Review: {_view.state_label}")

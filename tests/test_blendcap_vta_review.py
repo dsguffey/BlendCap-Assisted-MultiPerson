@@ -171,7 +171,7 @@ class ReviewPresentationTests(unittest.TestCase):
             source = Path(directory) / "source.mp4"
             source.write_bytes(b"video")
             source_hash = review_ui.sha256_file(source)
-            backend = review_ui.PrivateCoreBackend(lambda _name: Core())
+            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
             location = review_ui.ReviewLocation(
                 Path(directory) / "scene_vta", source, 12, 13
             )
