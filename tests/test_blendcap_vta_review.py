@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
+import ast
 from pathlib import Path
 import tempfile
 import unittest
@@ -63,6 +64,66 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertEqual(selection.observation_id, "")
         self.assertTrue(all(candidate.assigned_character_id is None for candidate in view.candidates))
         self.assertFalse(selection.can_assign(view))
+
+    def test_blender_create_action_is_drawn_and_registered(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        ui_tree = ast.parse((repo_root / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8"))
+        registration_tree = ast.parse(
+            (repo_root / "blendcap" / "registration.py").read_text(encoding="utf-8")
+        )
+
+        create_class = next(
+            node for node in ui_tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "BLENDCAP_OT_vta_review_create_character"
+        )
+        self.assertIn(
+            "blendcap.vta_review_create_character",
+            {
+                node.value.value
+                for node in create_class.body
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "bl_idname"
+                    for target in node.targets
+                )
+                and isinstance(node.value, ast.Constant)
+            },
+        )
+
+        panel = next(
+            node for node in ui_tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "VIEW3D_PT_blendcap_vta_review"
+        )
+        draw = next(node for node in panel.body if isinstance(node, ast.FunctionDef) and node.name == "draw")
+        drawn_operator_ids = {
+            call.args[0].value
+            for call in ast.walk(draw)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "operator"
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
+            and isinstance(call.args[0].value, str)
+        }
+        self.assertIn("blendcap.vta_review_create_character", drawn_operator_ids)
+
+        review_import = next(
+            node for node in registration_tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == "vta_review_ui"
+        )
+        imported_names = {alias.name for alias in review_import.names}
+        self.assertIn("BLENDCAP_OT_vta_review_create_character", imported_names)
+
+        classes_assignment = next(
+            node for node in registration_tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "classes" for target in node.targets)
+        )
+        registered_names = {
+            node.id for node in ast.walk(classes_assignment.value) if isinstance(node, ast.Name)
+        }
+        self.assertIn("BLENDCAP_OT_vta_review_create_character", registered_names)
 
     def test_character_selector_is_alphabetical_by_display_name(self):
         review = Review(characters=(Character("z-id", "Zebra"), Character("a-id", "Amy")))

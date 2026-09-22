@@ -81,6 +81,7 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
+    BLENDCAP_OT_vta_review_create_character,
     VIEW3D_PT_blendcap_vta_review,
     register_properties as register_vta_review_properties,
     unregister_properties as unregister_vta_review_properties,
@@ -228,6 +229,7 @@ classes = (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
+    BLENDCAP_OT_vta_review_create_character,
     VIEW3D_PT_blendcap_vta_review,
 )
 
