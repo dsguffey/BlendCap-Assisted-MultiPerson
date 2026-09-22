@@ -199,9 +199,21 @@ class SelectionState:
         valid_characters = {item.character_id for item in view.characters if item.available}
         if self.character_id not in valid_characters:
             self.character_id = ""
-        valid_candidates = {item.observation_id for item in view.candidates if item.assignable}
+        # Selection is inspection-only UI state, so assigned candidates remain
+        # selectable.  ``can_assign`` independently enforces assignment rules.
+        valid_candidates = {item.observation_id for item in view.candidates}
         if self.observation_id not in valid_candidates:
             self.observation_id = ""
+
+    def select_observation(self, view: ReviewView, observation_id: str) -> bool:
+        """Select one durable observation from the current immutable review."""
+        self.accept_review(view)
+        if view.state != "analyzed-with-candidates":
+            return False
+        if observation_id not in {item.observation_id for item in view.candidates}:
+            return False
+        self.observation_id = observation_id
+        return True
 
     def can_assign(self, view: ReviewView) -> bool:
         return (

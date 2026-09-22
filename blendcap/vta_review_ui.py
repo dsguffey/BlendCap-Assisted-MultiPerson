@@ -238,6 +238,140 @@ def _character_changed(self, _context):
     )
 
 
+def _overlay_enabled(context) -> bool:
+    scene = getattr(context, "sequencer_scene", None) or getattr(context, "scene", None)
+    return bool(
+        scene is not None
+        and getattr(scene, "blendcap_show_vta_candidate_overlay", True)
+    )
+
+
+def select_overlay_candidate_at(context, point) -> bool:
+    """Select a current visible hit without assigning or persisting anything."""
+    area = getattr(context, "area", None)
+    region = getattr(context, "region", None)
+    space = getattr(context, "space_data", None)
+    if not vta_overlay.is_vse_preview_region(
+        getattr(area, "type", None),
+        getattr(region, "type", None),
+        getattr(space, "view_type", None),
+    ):
+        return False
+    if not _overlay_enabled(context):
+        return False
+    if not refresh(context) or _view is None:
+        return False
+    regions = vta_overlay.build_overlay_region_candidates(
+        _view, _selection.observation_id, context.region.view2d
+    )
+    observation_id = vta_overlay.hit_test_overlay_candidates(
+        regions, point
+    )
+    if observation_id is None:
+        return False
+    selected = _selection.select_observation(_view, observation_id)
+    if selected:
+        try:
+            _sync_properties(context)
+        except (AttributeError, TypeError, ValueError):
+            selected = False
+    synchronized = bool(
+        selected
+        and _selection.observation_id == observation_id
+        and getattr(context.window_manager, "blendcap_vta_candidate", None)
+        == observation_id
+    )
+    return synchronized
+
+
+class BLENDCAP_OT_vta_candidate_select(bpy.types.Operator):
+    """Select one visible candidate while the VTA Preview tool is active."""
+    bl_idname = "blendcap.vta_candidate_select"
+    bl_label = "Select VTA Candidate"
+    bl_description = "Select the VTA candidate under the pointer for inspection"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        area = getattr(context, "area", None)
+        region = getattr(context, "region", None)
+        space = getattr(context, "space_data", None)
+        return vta_overlay.is_vse_preview_region(
+            getattr(area, "type", None),
+            getattr(region, "type", None),
+            getattr(space, "view_type", None),
+        )
+
+    def invoke(self, context, event):
+        return (
+            {'FINISHED'}
+            if select_overlay_candidate_at(
+                context, (event.mouse_region_x, event.mouse_region_y)
+            )
+            else {'PASS_THROUGH'}
+        )
+
+
+class BLENDCAP_WST_vta_candidate_select_preview(bpy.types.WorkSpaceTool):
+    """Explicit candidate-selection tool for standalone VSE Preview."""
+    bl_space_type = 'SEQUENCE_EDITOR'
+    bl_context_mode = 'PREVIEW'
+    bl_idname = "blendcap.vta_candidate_select_preview"
+    bl_label = "Select VTA Candidate"
+    bl_description = "Select a visible VTA candidate for inspection"
+    bl_icon = "ops.generic.select"
+    bl_widget = None
+    bl_keymap = (
+        (BLENDCAP_OT_vta_candidate_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+    )
+
+
+class BLENDCAP_WST_vta_candidate_select_combined(bpy.types.WorkSpaceTool):
+    """Explicit candidate-selection tool for combined Sequencer & Preview."""
+    bl_space_type = 'SEQUENCE_EDITOR'
+    bl_context_mode = 'SEQUENCER_PREVIEW'
+    bl_idname = "blendcap.vta_candidate_select_combined"
+    bl_label = "Select VTA Candidate"
+    bl_description = "Select a visible VTA candidate for inspection"
+    bl_icon = "ops.generic.select"
+    bl_widget = None
+    bl_keymap = (
+        (BLENDCAP_OT_vta_candidate_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+    )
+
+
+_registered_tools = []
+
+
+def _register_preview_tools() -> None:
+    if _registered_tools:
+        return
+    specifications = (
+        (BLENDCAP_WST_vta_candidate_select_preview, {"builtin.select"}, True),
+        (BLENDCAP_WST_vta_candidate_select_combined, {"builtin.select_box"}, False),
+    )
+    try:
+        for tool, after, group in specifications:
+            bpy.utils.register_tool(
+                tool, after=after, separator=True, group=group
+            )
+            _registered_tools.append(tool)
+    except Exception:
+        _unregister_preview_tools()
+        raise
+
+
+def _unregister_preview_tools() -> None:
+    for tool in reversed(_registered_tools):
+        try:
+            bpy.utils.unregister_tool(tool)
+        except (RuntimeError, ValueError):
+            pass
+    _registered_tools.clear()
+
+
 class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_refresh"
     bl_label = "Refresh VTA Review"
@@ -341,6 +475,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
 
 
 classes = (
+    BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     VIEW3D_PT_blendcap_vta_review,
@@ -361,11 +496,13 @@ def register_properties() -> None:
         items=character_items,
         update=_character_changed,
     )
+    _register_preview_tools()
     vta_overlay.register(overlay_state)
 
 
 def unregister_properties() -> None:
     vta_overlay.unregister()
+    _unregister_preview_tools()
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character

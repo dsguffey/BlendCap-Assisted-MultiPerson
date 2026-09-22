@@ -2,12 +2,16 @@
 import unittest
 
 from blendcap.vta_overlay import (
+    OverlayRegionCandidate,
     bind_vse_preview_scene,
     build_overlay_candidates,
     find_scene_owning_source,
+    hit_test_overlay_candidates,
+    hit_test_review_candidate,
+    is_vse_preview_region,
     source_box_to_region,
 )
-from blendcap_vta_review import CandidateRow, ReviewView
+from blendcap_vta_review import CandidateRow, ReviewView, SelectionState
 
 
 class View2D:
@@ -23,6 +27,12 @@ def view(state="analyzed-with-candidates"):
 
 
 class OverlayTests(unittest.TestCase):
+    @staticmethod
+    def region(observation_id, box, assigned=None):
+        return OverlayRegionCandidate(
+            observation_id, observation_id, box, assigned, False
+        )
+
     def test_mapping_uses_single_lower_left_view_transform(self):
         self.assertEqual(
             source_box_to_region(View2D(), (0, 0, 100, 50), 100, 50),
@@ -38,6 +48,85 @@ class OverlayTests(unittest.TestCase):
     def test_empty_states_clear_overlay(self):
         self.assertEqual(build_overlay_candidates(view("not-analyzed"), "a"), ())
         self.assertEqual(build_overlay_candidates(view("analyzed-empty"), "a"), ())
+
+    def test_single_candidate_hit_and_empty_click(self):
+        candidates = (self.region("durable-a", (10, 20, 30, 40)),)
+        self.assertEqual(
+            hit_test_overlay_candidates(candidates, (20, 30)), "durable-a"
+        )
+        self.assertIsNone(hit_test_overlay_candidates(candidates, (9, 30)))
+
+    def test_only_vse_preview_region_accepts_tool_context(self):
+        self.assertTrue(
+            is_vse_preview_region('SEQUENCE_EDITOR', 'PREVIEW', 'PREVIEW')
+        )
+        self.assertTrue(
+            is_vse_preview_region(
+                'SEQUENCE_EDITOR', 'PREVIEW', 'SEQUENCER_PREVIEW'
+            )
+        )
+        self.assertFalse(
+            is_vse_preview_region('SEQUENCE_EDITOR', 'WINDOW', 'PREVIEW')
+        )
+        self.assertFalse(
+            is_vse_preview_region('SEQUENCE_EDITOR', 'PREVIEW', 'SEQUENCER')
+        )
+        self.assertFalse(
+            is_vse_preview_region('VIEW_3D', 'PREVIEW', 'PREVIEW')
+        )
+
+    def test_global_coordinates_do_not_match_region_local_box(self):
+        candidates = (self.region("durable-a", (10, 20, 30, 40)),)
+        self.assertIsNone(hit_test_overlay_candidates(candidates, (1010, 1020)))
+
+    def test_smallest_containing_box_wins(self):
+        candidates = (
+            self.region("large", (0, 0, 100, 100)),
+            self.region("small", (25, 25, 50, 50)),
+        )
+        self.assertEqual(hit_test_overlay_candidates(candidates, (30, 30)), "small")
+
+    def test_equal_area_tie_and_reorder_use_observation_id(self):
+        first = self.region("observation-b", (0, 0, 20, 20))
+        second = self.region("observation-a", (5, 5, 25, 25))
+        self.assertEqual(
+            hit_test_overlay_candidates((first, second), (10, 10)),
+            "observation-a",
+        )
+        self.assertEqual(
+            hit_test_overlay_candidates((second, first), (10, 10)),
+            "observation-a",
+        )
+
+    def test_overlay_disabled_has_no_hit(self):
+        candidates = (self.region("durable-a", (0, 0, 20, 20)),)
+        self.assertIsNone(
+            hit_test_overlay_candidates(candidates, (10, 10), enabled=False)
+        )
+
+    def test_replacement_with_empty_review_has_no_stale_hit_region(self):
+        old = view()
+        replacement = view("analyzed-empty")
+        self.assertIsNotNone(
+            hit_test_review_candidate(old, "", View2D(), (-50, -40))
+        )
+        self.assertIsNone(
+            hit_test_review_candidate(replacement, "", View2D(), (-50, -40))
+        )
+
+    def test_overlay_selection_uses_panel_selection_store(self):
+        current = view()
+        selection = SelectionState()
+        selection.accept_review(current)
+        self.assertTrue(selection.select_observation(current, "a"))
+        rows = build_overlay_candidates(current, selection.observation_id)
+        self.assertEqual([row.observation_id for row in rows if row.selected], ["a"])
+
+    def test_assigned_candidate_remains_clickable(self):
+        assigned = self.region("assigned", (0, 0, 20, 20), "Ada")
+        self.assertEqual(
+            hit_test_overlay_candidates((assigned,), (10, 10)), "assigned"
+        )
 
     def test_preview_binds_scene_owning_authoritative_strip_without_hardcoded_name(self):
         class Strip:

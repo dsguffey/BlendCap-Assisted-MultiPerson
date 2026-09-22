@@ -10,6 +10,26 @@ new immutable anchor/track revisions.
 This milestone does not change Blender capture, run new appearance inference,
 promote appearance results, or implement automatic reacquisition.
 
+## Blender Preview review surface
+
+The Blender-native candidate-review surface is implemented in the public
+BlendCap integration. Standalone VSE Preview is the primary interactive
+surface; the Preview region in Sequencer & Preview is also supported. A
+Sequencer-only view is timeline-only and has no box interaction.
+
+Candidate inspection uses Blender's native `WorkSpaceTool`. Temporary
+selection is keyed by the durable `observation_id` in the current analysis
+revision. Clicking selects for inspection only; assigning a Character remains
+a separate explicit command. When boxes overlap, the smallest containing box
+wins, with stable `observation_id` ordering for equal-area ties.
+
+Live Blender 5.2 user QA passed for box selection, candidate-dropdown
+synchronization, panel-to-overlay synchronization, empty clicks, overlay-off
+behavior, and stale-selection clearing after frame changes. The Preview tool
+is registered as its own visible toolbar group. The current tool icon is
+accepted for this milestone; icon improvement and broader VTA UI reorganization
+are deferred.
+
 ## Proposed files
 
 Add:
@@ -24,8 +44,9 @@ Add:
 
 The first milestone should reuse `track_preview_target.py` validation and
 tracking functions without modifying existing capture or diagnostic scripts.
-A later Blender wrapper may add properties, operators, registration, and panel
-controls using the same schemas; that wrapper is not part of this milestone.
+A later Blender timeline and panel workflow may add controls around the same
+schemas; the current overlay and temporary candidate-selection surface does
+not persist decisions or replace the standalone review-and-apply workflow.
 
 ## Data flow
 

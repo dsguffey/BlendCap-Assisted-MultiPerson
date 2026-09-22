@@ -78,6 +78,7 @@ from .panels import (
     OUTPUT_PT_blendcap_ui,
 )
 from .vta_review_ui import (
+    BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     VIEW3D_PT_blendcap_vta_review,
@@ -224,6 +225,7 @@ classes = (
     BLENDCAP_OT_donate,
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,
+    BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     VIEW3D_PT_blendcap_vta_review,

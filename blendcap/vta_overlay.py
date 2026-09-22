@@ -13,6 +13,16 @@ class OverlayCandidate:
     selected: bool
 
 
+@dataclass(frozen=True)
+class OverlayRegionCandidate:
+    """One current-review candidate projected into VSE region pixels."""
+    observation_id: str
+    label: str
+    region_box: tuple[float, float, float, float]
+    assigned_character_name: str | None
+    selected: bool
+
+
 def build_overlay_candidates(view, selected_observation_id: str) -> tuple[OverlayCandidate, ...]:
     """Project only immutable review rows; order is never an identity key."""
     if view is None or view.state != "analyzed-with-candidates":
@@ -40,6 +50,65 @@ def source_box_to_region(view2d, box_xyxy, source_width, source_height):
     p1 = view2d.view_to_region(x1 - half_width, y1 - half_height, clip=False)
     p2 = view2d.view_to_region(x2 - half_width, y2 - half_height, clip=False)
     return (float(p1[0]), float(p1[1]), float(p2[0]), float(p2[1]))
+
+
+def build_overlay_region_candidates(view, selected_observation_id: str, view2d):
+    """Use the draw transform once for both rendering and click hit-testing."""
+    if view is None or view.source_width is None or view.source_height is None:
+        return ()
+    return tuple(
+        OverlayRegionCandidate(
+            item.observation_id,
+            item.label,
+            source_box_to_region(
+                view2d, item.box_xyxy, view.source_width, view.source_height
+            ),
+            item.assigned_character_name,
+            item.selected,
+        )
+        for item in build_overlay_candidates(view, selected_observation_id)
+    )
+
+
+def hit_test_overlay_candidates(candidates, point, *, enabled: bool = True):
+    """Return a durable observation ID using the overlay overlap policy.
+
+    The smallest containing display box wins; equal-area boxes are ordered by
+    observation ID.  This is interaction policy only and never changes the
+    candidate inventory or its identity.
+    """
+    if not enabled:
+        return None
+    px, py = point
+    hits = []
+    for candidate in candidates:
+        x1, y1, x2, y2 = candidate.region_box
+        left, right = sorted((x1, x2))
+        bottom, top = sorted((y1, y2))
+        if left <= px <= right and bottom <= py <= top:
+            area = (right - left) * (top - bottom)
+            hits.append((area, candidate.observation_id))
+    return min(hits)[1] if hits else None
+
+
+def hit_test_review_candidate(
+    view, selected_observation_id: str, view2d, point, *, enabled: bool = True
+):
+    """Hit-test only the currently supplied immutable FrameReview."""
+    return hit_test_overlay_candidates(
+        build_overlay_region_candidates(view, selected_observation_id, view2d),
+        point,
+        enabled=enabled,
+    )
+
+
+def is_vse_preview_region(area_type, region_type, view_type) -> bool:
+    """True only for Blender's dedicated VSE video-canvas region."""
+    return (
+        area_type == 'SEQUENCE_EDITOR'
+        and region_type == 'PREVIEW'
+        and view_type in {'PREVIEW', 'SEQUENCER_PREVIEW'}
+    )
 
 
 _handler = None
@@ -102,10 +171,11 @@ def bind_vse_preview_scene(workspace, areas, owning_scene) -> int:
 def register(state_provider) -> None:
     global _handler, _state_provider
     _state_provider = state_provider
-    if _handler is not None:
-        return
-    import bpy
-    _handler = bpy.types.SpaceSequenceEditor.draw_handler_add(_draw, (), 'PREVIEW', 'POST_PIXEL')
+    if _handler is None:
+        import bpy
+        _handler = bpy.types.SpaceSequenceEditor.draw_handler_add(
+            _draw, (), 'PREVIEW', 'POST_PIXEL'
+        )
 
 
 def unregister() -> None:
@@ -136,16 +206,15 @@ def _draw() -> None:
         if area is None or region is None or area.type != 'SEQUENCE_EDITOR':
             return
         space = area.spaces.active
-        if space.view_type != 'PREVIEW' or not getattr(bpy.context.scene, 'blendcap_show_vta_candidate_overlay', True):
+        preview_scene = getattr(bpy.context, "sequencer_scene", None) or bpy.context.scene
+        if space.view_type not in {'PREVIEW', 'SEQUENCER_PREVIEW'} or not getattr(preview_scene, 'blendcap_show_vta_candidate_overlay', True):
             return
         view, selected = _state_provider() if _state_provider else (None, "")
         if view is None or view.source_width is None or view.source_height is None:
             return
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        for item in build_overlay_candidates(view, selected):
-            x1, y1, x2, y2 = source_box_to_region(
-                region.view2d, item.box_xyxy, view.source_width, view.source_height
-            )
+        for item in build_overlay_region_candidates(view, selected, region.view2d):
+            x1, y1, x2, y2 = item.region_box
             color = (1.0, .75, .1, 1.0) if item.selected else (.1, .85, 1.0, 1.0)
             batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ((x1,y1),(x2,y1),(x2,y2),(x1,y2),(x1,y1))})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)

@@ -112,7 +112,8 @@ class ReviewPresentationTests(unittest.TestCase):
         )
         selection = review_ui.SelectionState()
         selection.accept_review(view)
-        selection.observation_id = "observation-a"
+        self.assertTrue(selection.select_observation(view, "observation-a"))
+        self.assertEqual(selection.observation_id, "observation-a")
         selection.character_id = "character-red"
         self.assertFalse(selection.can_assign(view))
 
