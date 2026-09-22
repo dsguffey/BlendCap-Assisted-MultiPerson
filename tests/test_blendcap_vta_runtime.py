@@ -97,6 +97,17 @@ class RuntimeDiscoveryTests(unittest.TestCase):
         self.assertEqual(broken.status, runtime.VtaCoreStatus.IMPORT_FAILED)
         self.assertEqual(incompatible.status, runtime.VtaCoreStatus.INCOMPATIBLE)
 
+    def test_character_creation_api_is_required_for_compatible_core(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(directory)
+            incomplete = self._core_for(root)
+            delattr(incomplete, "create_character_and_persist")
+            result = runtime.discover_vta_core(
+                root, importer=lambda _name: incomplete, sys_path=[]
+            )
+
+        self.assertEqual(result.status, runtime.VtaCoreStatus.INCOMPATIBLE)
+
     def test_existing_review_backend_accepts_discovered_core_module(self):
         from blendcap_vta_review import PrivateCoreBackend
 

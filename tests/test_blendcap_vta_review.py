@@ -54,6 +54,52 @@ class Review:
 
 
 class ReviewPresentationTests(unittest.TestCase):
+    def test_new_character_selection_does_not_select_or_assign_candidate(self):
+        view = review_ui.present_review(Review(characters=(Character("new-id", "Wrestler A"),)))
+        selection = review_ui.SelectionState()
+
+        self.assertTrue(selection.select_character(view, "new-id"))
+        self.assertEqual(selection.character_id, "new-id")
+        self.assertEqual(selection.observation_id, "")
+        self.assertTrue(all(candidate.assigned_character_id is None for candidate in view.candidates))
+        self.assertFalse(selection.can_assign(view))
+
+    def test_character_selector_is_alphabetical_by_display_name(self):
+        review = Review(characters=(Character("z-id", "Zebra"), Character("a-id", "Amy")))
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"video")
+            source_hash = review_ui.sha256_file(source)
+
+            class Project:
+                def to_dict(self):
+                    return {
+                        "sources": [{
+                            "source_id": "source-1", "video_sha256": source_hash,
+                            "start_frame": 0, "end_frame": 20,
+                        }],
+                        "active_analysis_revision_by_source": {"source-1": "revision-1"},
+                    }
+
+            class Core:
+                load_project_state = staticmethod(lambda _root: Project())
+                load_analysis_cache = staticmethod(lambda _root, _revision: object())
+                build_frame_review = staticmethod(lambda *_args, **_kwargs: review)
+
+            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            queried = backend.query(review_ui.ReviewLocation(
+                Path(directory) / "scene_vta", source, 12, 13
+            ))
+
+        self.assertEqual([row.display_name for row in queried.characters], ["Amy", "Zebra"])
+
+    def test_character_name_collision_matches_private_trim_casefold_rule(self):
+        view = review_ui.present_review(Review())
+
+        self.assertTrue(review_ui.character_name_exists(view, " RED "))
+        self.assertFalse(review_ui.character_name_exists(view, "Red Wrestler"))
+        self.assertFalse(review_ui.character_name_exists(view, "  "))
+
     def test_review_states_translate_explicitly(self):
         expected = {
             State.NOT_ANALYZED: "Not Analyzed",
@@ -190,6 +236,60 @@ class ReviewPresentationTests(unittest.TestCase):
             "character_id": "character-black",
         })
         self.assertEqual(refreshed.source_frame, 12)
+        self.assertEqual(calls.count("load-project"), 2)
+
+    def test_backend_creates_through_private_persistence_then_reloads(self):
+        calls = []
+        created = Character("character-new", "Wrestler A")
+
+        class Project:
+            def to_dict(self):
+                return {
+                    "sources": [{
+                        "source_id": "source-1",
+                        "video_sha256": source_hash,
+                        "start_frame": 0,
+                        "end_frame": 20,
+                    }],
+                    "active_analysis_revision_by_source": {"source-1": "revision-1"},
+                }
+
+        class Core:
+            @staticmethod
+            def load_project_state(_root):
+                calls.append("load-project")
+                return Project()
+
+            @staticmethod
+            def load_analysis_cache(_root, revision_id):
+                calls.append(("load-cache", revision_id))
+                return object()
+
+            @staticmethod
+            def create_character_and_persist(root, display_name):
+                calls.append(("create-character", root, display_name))
+                return created
+
+            @staticmethod
+            def build_frame_review(_project, _cache, **values):
+                calls.append(("build-review", values))
+                return Review(characters=(created,))
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"video")
+            source_hash = review_ui.sha256_file(source)
+            root = Path(directory) / "scene_vta"
+            location = review_ui.ReviewLocation(root, source, 12, 13)
+            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            character, refreshed = backend.create_character(
+                location, display_name="Wrestler A"
+            )
+
+        self.assertEqual(character, created)
+        self.assertEqual([row.character_id for row in refreshed.characters], ["character-new"])
+        self.assertEqual(refreshed.candidates[0].assigned_character_id, None)
+        self.assertIn(("create-character", root, "Wrestler A"), calls)
         self.assertEqual(calls.count("load-project"), 2)
 
     def test_private_error_codes_map_to_user_messages(self):

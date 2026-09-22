@@ -156,12 +156,17 @@ def present_review(
             for index, item in enumerate(review.candidates, start=1)
         )
         characters = tuple(
-            CharacterRow(
-                character_id=item.character_id,
-                display_name=item.display_name,
-                occupied_observation_id=occupied_by_character.get(item.character_id),
+            sorted(
+                (
+                    CharacterRow(
+                        character_id=item.character_id,
+                        display_name=item.display_name,
+                        occupied_observation_id=occupied_by_character.get(item.character_id),
+                    )
+                    for item in review.characters
+                ),
+                key=lambda item: item.display_name.casefold(),
             )
-            for item in review.characters
         )
         return ReviewView(
             analysis_revision_id=review.analysis_revision_id,
@@ -226,6 +231,16 @@ class SelectionState:
             }
         )
 
+    def select_character(self, view: ReviewView, character_id: str) -> bool:
+        """Select an available Character for intent without touching candidates."""
+        self.accept_review(view)
+        if character_id not in {
+            item.character_id for item in view.characters if item.available
+        }:
+            return False
+        self.character_id = character_id
+        return True
+
 
 def user_message(error: BaseException) -> str:
     code = getattr(getattr(error, "code", None), "value", None)
@@ -234,6 +249,14 @@ def user_message(error: BaseException) -> str:
     if isinstance(error, VtaReviewUiError):
         return str(error)
     return f"VTA review failed: {error}"
+
+
+def character_name_exists(view: ReviewView, display_name: str) -> bool:
+    """Use the private core's existing trim/casefold uniqueness rule."""
+    key = display_name.strip().casefold()
+    return bool(key) and any(
+        row.display_name.strip().casefold() == key for row in view.characters
+    )
 
 
 class PrivateCoreBackend:
@@ -304,6 +327,26 @@ class PrivateCoreBackend:
             raise
         # Canonical reload is mandatory; never infer success by mutating review.
         return receipt, self.query(location)
+
+    def create_character(
+        self, location: ReviewLocation, *, display_name: str
+    ) -> tuple[object, ReviewView]:
+        """Create via private authority, then return a canonical re-query."""
+        self._load_context(location)
+        try:
+            character = self._core.create_character_and_persist(
+                location.companion_root, display_name
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                if exc.__class__.__name__ == "NameConflictError":
+                    name = getattr(exc, "display_name", display_name)
+                    raise VtaReviewUiError(
+                        f"Character {name!r} already exists. Select it or enter a different name."
+                    ) from exc
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+        return character, self.query(location)
 
     def _load_context(self, location: ReviewLocation) -> tuple[object, object, str]:
         try:

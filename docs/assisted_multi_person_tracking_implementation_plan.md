@@ -25,10 +25,13 @@ wins, with stable `observation_id` ordering for equal-area ties.
 
 Live Blender 5.2 user QA passed for box selection, candidate-dropdown
 synchronization, panel-to-overlay synchronization, empty clicks, overlay-off
-behavior, and stale-selection clearing after frame changes. The Preview tool
-is registered as its own visible toolbar group. The current tool icon is
-accepted for this milestone; icon improvement and broader VTA UI reorganization
-are deferred.
+behavior, stale-selection clearing after frame changes, and explicit candidate
+assignment with persistence/reload. New semantic Characters are now created
+explicitly from the review panel through private-core authority and canonical
+project-state persistence. Creation selects the new Character only as
+temporary UI intent; Assign remains the sole candidate-to-Character action.
+The Preview tool is registered as its own visible toolbar group. Broader VTA UI
+reorganization and Character rename/delete remain deferred.
 
 ## Proposed files
 

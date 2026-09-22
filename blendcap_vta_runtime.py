@@ -22,6 +22,7 @@ REQUIRED_API = (
     "build_frame_review",
     "build_review_decision_request",
     "apply_review_decision_and_persist",
+    "create_character_and_persist",
 )
 
 

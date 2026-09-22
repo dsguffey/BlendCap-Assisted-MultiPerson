@@ -11,6 +11,7 @@ from ..blendcap_vta_review import (
     ReviewLocation,
     SelectionState,
     VtaReviewUiError,
+    character_name_exists,
     companion_root_for_blend,
     map_vse_frame_to_source,
     user_message,
@@ -431,6 +432,51 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
+    bl_idname = "blendcap.vta_review_create_character"
+    bl_label = "Create Character"
+    bl_description = "Create and persist a semantic Character in the VTA project"
+
+    def execute(self, context):
+        global _view, _status, _status_is_error
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        name = (context.window_manager.blendcap_vta_new_character_name or "").strip()
+        if not name:
+            _status = "Enter a non-blank Character name."
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        if character_name_exists(_view, name):
+            _status = (
+                f"Character {name!r} already exists. Select it from the Character dropdown "
+                "or enter a different name."
+            )
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        try:
+            character, refreshed = _get_backend(context).create_character(
+                _location, display_name=name
+            )
+            _view = refreshed
+            if not _selection.select_character(refreshed, character.character_id):
+                raise VtaReviewUiError("The new Character is not available after reload.")
+            context.window_manager.blendcap_vta_new_character_name = ""
+            _rebuild_enum_items()
+            _sync_properties(context)
+            _status = f"Created Character {character.display_name}. Select a candidate and Assign it separately."
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_label = "VTA Current Frame Review"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
@@ -463,6 +509,15 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                 )
         layout.prop(context.window_manager, "blendcap_vta_candidate", text="Candidate")
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
+        create_row = layout.row(align=True)
+        create_row.prop(
+            context.window_manager,
+            "blendcap_vta_new_character_name",
+            text="New Character",
+        )
+        create_row.operator(
+            "blendcap.vta_review_create_character", text="Create", icon='ADD'
+        )
         row = layout.row(align=True)
         row.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
         assign = row.row(align=True)
@@ -478,6 +533,7 @@ classes = (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
+    BLENDCAP_OT_vta_review_create_character,
     VIEW3D_PT_blendcap_vta_review,
 )
 
@@ -496,6 +552,11 @@ def register_properties() -> None:
         items=character_items,
         update=_character_changed,
     )
+    bpy.types.WindowManager.blendcap_vta_new_character_name = bpy.props.StringProperty(
+        name="New Character",
+        description="Display name for a new semantic Character",
+        default="",
+    )
     _register_preview_tools()
     vta_overlay.register(overlay_state)
 
@@ -506,3 +567,4 @@ def unregister_properties() -> None:
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character
+    del bpy.types.WindowManager.blendcap_vta_new_character_name
