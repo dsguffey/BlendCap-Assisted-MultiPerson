@@ -136,7 +136,7 @@ class BlenderTimelineTests(unittest.TestCase):
         cls.ui = sys.modules[package + ".blendcap.vta_review_ui"]
         cls.overlay = sys.modules[package + ".blendcap.vta_timeline_overlay"]
 
-    def test_tool_and_menu_share_management_operator(self):
+    def test_tool_and_native_menu_share_management_operator(self):
         ui = self.ui
         self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select.bl_context_mode, 'SEQUENCER')
         self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select_combined.bl_context_mode,
@@ -145,7 +145,9 @@ class BlenderTimelineTests(unittest.TestCase):
         self.assertEqual({item[0] for item in ui.BLENDCAP_WST_vta_review_key_select.bl_keymap},
                          {"blendcap.vta_review_key_select"})
         self.assertIn(ui.BLENDCAP_OT_vta_review_manage, ui.classes)
-        self.assertIn(ui.BLENDCAP_MT_vta_review, ui.classes)
+        self.assertNotIn("BLENDCAP_MT_vta_review", vars(ui))
+        self.assertTrue(callable(ui._draw_vta_select))
+        self.assertTrue(callable(ui._draw_vta_context))
 
     def test_click_selection_navigates_by_key_id(self):
         ui = self.ui

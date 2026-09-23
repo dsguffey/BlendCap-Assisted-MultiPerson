@@ -308,8 +308,8 @@ strips, channels, and the playhead are never identity authority.
 
 The explicit Select VTA Review Key tool supports click navigation and Ctrl-click
 multi-selection by keyframe ID. Box selection and default shortcuts are deferred.
-The panel, Sequencer VTA Review menu, and right-click submenu use the same
-management operator. Clear Assignment removes only a candidate-bearing key;
+The panel and native Sequencer context menu use the same management operator.
+Clear Assignment removes only a candidate-bearing key;
 Clear Review Key, Clear Selected Review Keys, and Clear All Review Keys on Frame
 remove user decisions and leave No Decision, never a synthetic key. Rename
 preserves stable Character ID and evidence. Confirmed Delete Character removes
@@ -334,3 +334,26 @@ An edited key invalidates only dependent local derived revisions; Character
 rename leaves them intact, and deletion removes them. Current-frame derived
 labels and subdued timeline ticks remain visibly distinct from hard review
 keys. Live visual QA remains a manual acceptance step.
+
+## Blender 5.2 Sequencer integration hardening (2026-09-23)
+
+Standing rule: prefer Blender's existing organizational UI and native
+conventions whenever reasonably possible. Review-key selection is exposed
+through Blender's Sequencer Select menu and normal WorkSpaceTool; selected-key
+management actions appear in Blender's existing Sequencer context menu. The
+separate top-level VTA menu was removed. A native one-click gizmo target may
+be worth a later, visually tested prototype; generic left-mouse interception
+is not an acceptable substitute.
+
+Blender 5.2 does not expose an add-on API for creating a new, synchronized
+reserved Sequencer region. As a supported fallback, the draw handler
+suppresses VTA lanes and key hit targets where native strip channels are
+occupied, and no longer draws guide lines through strips. The selected
+Character is brought into the available lane window automatically; the
+internal First Lane pagination control is not shown. Live visual confirmation
+is still needed for frame-label/playhead overlap and lane discoverability.
+
+The private Update Tracking command now emits records only on analyzed cache
+frames. Missing source frames remain a direction-chain stop, not a bridge; the
+three-frame smoke fixture creates no derived records beyond analyzed frames.
+Expected no-cache/no-anchor outcomes have persistent, concise panel messages.

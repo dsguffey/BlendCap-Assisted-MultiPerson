@@ -26,21 +26,38 @@ def is_timeline_region(area, region, space) -> bool:
     )
 
 
-def visible_lanes(view, region_height: int, scroll: int = 0):
+def visible_lanes(view, region_height: int, scroll: int = 0,
+                  *, view2d=None, occupied_channels=()):
     count = max(1, int((region_height - TOP_PADDING - BOTTOM_PADDING) // ROW_HEIGHT))
-    selected = view.characters[max(0, scroll):max(0, scroll) + count]
+    first = min(max(0, scroll), max(0, len(view.characters) - count))
+    selected = view.characters[first:first + count]
     top = region_height - TOP_PADDING
-    return tuple((item.character_id, top - ROW_HEIGHT * (index + .5))
-                 for index, item in enumerate(selected))
+    lanes = tuple((item.character_id, top - ROW_HEIGHT * (index + .5))
+                  for index, item in enumerate(selected))
+    if view2d is None:
+        return lanes
+    # WINDOW shares native strip channel Y. Never draw or hit-test a VTA lane
+    # over an occupied strip channel; no fake spacer strips or region hacks.
+    return tuple((character_id, y) for character_id, y in lanes
+                 if not any(channel - .1 <= view2d.region_to_view(0, y)[1] <= channel + 1.1
+                            for channel in occupied_channels))
 
 
-def hit_key(view, view2d, region_height, point, frame_offset, scroll=0):
-    lanes = visible_lanes(view, region_height, scroll)
+def hit_key(view, view2d, region_height, point, frame_offset, scroll=0,
+            occupied_channels=()):
+    lanes = visible_lanes(view, region_height, scroll, view2d=view2d,
+                          occupied_channels=occupied_channels)
     return hit_test_keys(
         view, lanes,
         frame_to_x=lambda frame: view2d.view_to_region(frame + frame_offset, 0, clip=False)[0],
         point=point,
     )
+
+
+def occupied_strip_channels(context):
+    scene = getattr(context, "sequencer_scene", None) or getattr(context, "scene", None)
+    editor = getattr(scene, "sequence_editor", None)
+    return tuple(sorted({int(strip.channel) for strip in getattr(editor, "strips", ())}))
 
 
 def register(state_provider) -> None:
@@ -74,7 +91,8 @@ def _draw() -> None:
         view, selected_ids, frame_offset, scroll = _state_provider()
         if view is None:
             return
-        lanes = visible_lanes(view, region.height, scroll)
+        lanes = visible_lanes(view, region.height, scroll, view2d=region.view2d,
+                              occupied_channels=occupied_strip_channels(context))
         if not lanes:
             return
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -87,22 +105,12 @@ def _draw() -> None:
             batch = batch_for_shader(shader, 'TRIS', {"pos": vertices})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)
 
-        # VTA-owned gutter sits inside the timeline WINDOW. It never edits the
-        # native channel-name region or changes strip/channel ownership.
-        fill(((0, region.height), (GUTTER_WIDTH, region.height),
-              (0, region.height - TOP_PADDING),
-              (GUTTER_WIDTH, region.height), (GUTTER_WIDTH, region.height - TOP_PADDING),
-              (0, region.height - TOP_PADDING)), (.07, .09, .12, .94))
-        blf.position(0, 7, region.height - 18, 0)
-        blf.size(0, 12); blf.color(0, .9, .9, .9, 1)
-        blf.draw(0, "VTA REVIEW")
         lane_by_id = dict(lanes)
         name_by_id = {item.character_id: item.display_name for item in view.characters}
         for char_id, y in lanes:
             fill(((0, y + 11), (GUTTER_WIDTH, y + 11), (0, y - 11),
                   (GUTTER_WIDTH, y + 11), (GUTTER_WIDTH, y - 11), (0, y - 11)),
                  (.09, .12, .16, .91))
-            line(((GUTTER_WIDTH, y - 12), (region.width, y - 12)), (.4, .4, .45, .5))
             blf.position(0, 6, y - 5, 0); blf.size(0, 12)
             blf.color(0, .9, .9, .93, 1)
             blf.draw(0, name_by_id[char_id][:24])

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import textwrap
+import traceback
 
 import bpy
 
@@ -17,6 +19,8 @@ from ..blendcap_vta_review import (
     confirmation_lines,
     hard_state_confirmation_lines,
     map_vse_frame_to_source,
+    tracking_update_error,
+    tracking_update_success,
     user_message,
 )
 from ..blendcap_vta_runtime import discover_vta_core
@@ -147,12 +151,15 @@ def overlay_state():
 
 def timeline_state():
     offset = 0 if _location is None else _location.blender_frame - _location.source_frame
-    scroll = 0
-    try:
-        scroll = int(bpy.context.window_manager.blendcap_vta_lane_scroll)
-    except (AttributeError, RuntimeError):
-        pass
-    return _timeline, _review_key_selection.keyframe_ids, offset, scroll
+    return _timeline, _review_key_selection.keyframe_ids, offset, _lane_scroll()
+
+
+def _lane_scroll() -> int:
+    """Focus the selected Character automatically; no exposed pagination knob."""
+    if _timeline is None or not _selection.character_id:
+        return 0
+    return next((index for index, item in enumerate(_timeline.characters)
+                 if item.character_id == _selection.character_id), 0)
 
 
 def ensure_vta_preview_context(context, owning_scene) -> int:
@@ -686,7 +693,8 @@ def select_review_key_at(context, point, *, extend: bool = False) -> bool:
     key_id = vta_timeline_overlay.hit_key(
         _timeline, region.view2d, region.height, point,
         _location.blender_frame - _location.source_frame,
-        int(context.window_manager.blendcap_vta_lane_scroll),
+        _lane_scroll(),
+        vta_timeline_overlay.occupied_strip_channels(context),
     )
     if key_id is None or not _review_key_selection.click(_timeline, key_id, extend=extend):
         return False
@@ -900,9 +908,11 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def _draw_management_actions(layout):
+def _draw_management_actions(layout, *, actions=None):
     layout.operator_context = 'INVOKE_DEFAULT'
     for action, label, _description in _MANAGEMENT_ACTIONS:
+        if actions is not None and action not in actions:
+            continue
         if action == "clear-assignment":
             row = next((item for item in _view.characters
                         if item.character_id == _selection.character_id), None) if _view else None
@@ -924,17 +934,57 @@ def _draw_management_actions(layout):
         layout.operator("blendcap.vta_review_manage", text=label).action = action
 
 
-class BLENDCAP_MT_vta_review(bpy.types.Menu):
-    bl_label = "VTA Review"
-    bl_idname = "BLENDCAP_MT_vta_review"
+def _draw_vta_select(self, context):
+    """Expose the existing native WorkSpaceTool in Blender's Select menu."""
+    view_type = getattr(getattr(context, "space_data", None), "view_type", None)
+    if view_type not in {'SEQUENCER', 'SEQUENCER_PREVIEW'}:
+        return
+    tool_id = (BLENDCAP_WST_vta_review_key_select.bl_idname
+               if view_type == 'SEQUENCER'
+               else BLENDCAP_WST_vta_review_key_select_combined.bl_idname)
+    self.layout.separator()
+    self.layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
 
-    def draw(self, context):
-        refresh(context)
-        _draw_management_actions(self.layout)
+
+def _draw_vta_context(self, context):
+    """Add relevant actions to Blender's own Sequencer context menu."""
+    if not refresh(context) or _timeline is None:
+        return
+    self.layout.separator()
+    view_type = getattr(getattr(context, "space_data", None), "view_type", None)
+    tool_id = (BLENDCAP_WST_vta_review_key_select.bl_idname
+               if view_type == 'SEQUENCER'
+               else BLENDCAP_WST_vta_review_key_select_combined.bl_idname)
+    self.layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
+    if not _review_key_selection.keyframe_ids:
+        return
+    self.layout.label(text="Selected VTA Review Keys")
+    _draw_management_actions(self.layout, actions={
+        "clear-assignment", "clear-review-key", "clear-selected-review-keys",
+    })
 
 
-def _draw_vta_menu(self, _context):
-    self.layout.menu(BLENDCAP_MT_vta_review.bl_idname)
+def _set_menu_hook(menu, callback):
+    """Replace only our own stale/reloaded callback; retain Blender's hooks."""
+    for item in tuple(getattr(menu.draw, "_draw_funcs", ())):
+        if (getattr(item, "__name__", None) == callback.__name__
+                and getattr(item, "__module__", "").endswith(".vta_review_ui")):
+            menu.remove(item)
+    menu.append(callback)
+
+
+def _remove_menu_hook(menu, callback):
+    for item in tuple(getattr(menu.draw, "_draw_funcs", ())):
+        if (getattr(item, "__name__", None) == callback.__name__
+                and getattr(item, "__module__", "").endswith(".vta_review_ui")):
+            menu.remove(item)
+
+
+def _remove_legacy_vta_menu_hook(menu):
+    for item in tuple(getattr(menu.draw, "_draw_funcs", ())):
+        if (getattr(item, "__name__", None) == "_draw_vta_menu"
+                and getattr(item, "__module__", "").endswith(".vta_review_ui")):
+            menu.remove(item)
 
 
 class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
@@ -953,15 +1003,19 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             result, _review, _timeline_result = _get_backend(context).update_tracking(
                 location, _selection.character_id
             )
-            refresh(context, force=True)
-            _status = (f"Tracking updated: {result.matched} matched, "
-                       f"{result.unresolved} unresolved; bounded by "
-                       f"{result.scope.left_boundary.frame}–{result.scope.right_boundary.frame}.")
+            if not refresh(context, force=True):
+                _status = f"Tracking saved, but review refresh failed: {_status}"
+                _status_is_error = True
+                self.report({'WARNING'}, _status)
+                return {'FINISHED'}
+            _status = tracking_update_success(result)
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
         except Exception as exc:
-            _status = user_message(exc)
+            if not isinstance(exc, VtaReviewUiError):
+                traceback.print_exc()
+            _status = tracking_update_error(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
@@ -1052,15 +1106,17 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
             "blendcap.vta_review_hard_state", text="No Valid Candidate"
         ).decision_kind = "no-valid-candidate"
         layout.separator()
-        layout.label(text="Sequencer VTA Review Lanes")
-        layout.prop(context.window_manager, "blendcap_vta_lane_scroll", text="First Lane")
+        layout.label(text="Sequencer review keys: Select menu / toolbar")
+        layout.label(text="Lanes hide over strips; scroll to empty channels")
         layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
         layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
         _draw_management_actions(layout)
         if not _view.characters:
             layout.label(text="No existing Characters in this VTA project.", icon='INFO')
         if _status:
-            layout.label(text=_status, icon=('ERROR' if _status_is_error else 'INFO'))
+            for index, line in enumerate(textwrap.wrap(_status, width=54)):
+                layout.label(text=line, icon=('ERROR' if _status_is_error else 'INFO')
+                             if index == 0 else 'NONE')
 
 
 classes = (
@@ -1072,7 +1128,6 @@ classes = (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
-    BLENDCAP_MT_vta_review,
     VIEW3D_PT_blendcap_vta_review,
 )
 
@@ -1096,21 +1151,19 @@ def register_properties() -> None:
         description="Display name for a new semantic Character",
         default="",
     )
-    bpy.types.WindowManager.blendcap_vta_lane_scroll = bpy.props.IntProperty(
-        name="First Lane", min=0, default=0,
-        description="Scroll VTA-owned Character review lanes without changing VSE channels",
-    )
     _register_preview_tools()
     _register_timeline_tools()
     vta_overlay.register(overlay_state)
     vta_timeline_overlay.register(timeline_state)
-    bpy.types.SEQUENCER_MT_context_menu.append(_draw_vta_menu)
-    bpy.types.SEQUENCER_MT_editor_menus.append(_draw_vta_menu)
+    _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_context_menu)
+    _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_editor_menus)
+    _set_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
+    _set_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
 
 
 def unregister_properties() -> None:
-    bpy.types.SEQUENCER_MT_editor_menus.remove(_draw_vta_menu)
-    bpy.types.SEQUENCER_MT_context_menu.remove(_draw_vta_menu)
+    _remove_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
+    _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     vta_timeline_overlay.unregister()
     vta_overlay.unregister()
     _unregister_timeline_tools()
@@ -1119,4 +1172,3 @@ def unregister_properties() -> None:
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character
     del bpy.types.WindowManager.blendcap_vta_new_character_name
-    del bpy.types.WindowManager.blendcap_vta_lane_scroll

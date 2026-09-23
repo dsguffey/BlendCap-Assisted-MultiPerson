@@ -406,6 +406,22 @@ def user_message(error: BaseException) -> str:
     return f"VTA review failed: {error}"
 
 
+def tracking_update_success(result: object) -> str:
+    return (f"Tracking updated: {result.matched + result.unresolved} analyzed frames, "
+            f"{result.matched} matched, {result.unresolved} unresolved. "
+            f"Bounds: {result.scope.left_boundary.frame}–"
+            f"{result.scope.right_boundary.frame}.")
+
+
+def tracking_update_error(error: BaseException) -> str:
+    detail = user_message(error)
+    if "no analyzed candidate data" in detail:
+        return "Tracking not changed: No analyzed candidate data in this range."
+    if "no usable candidate-assignment anchor" in detail:
+        return "Tracking not changed: No candidate identity anchor in this range."
+    return f"Update Tracking could not run: {detail}"
+
+
 def character_name_exists(view: ReviewView, display_name: str) -> bool:
     """Use the private core's existing trim/casefold uniqueness rule."""
     key = display_name.strip().casefold()
