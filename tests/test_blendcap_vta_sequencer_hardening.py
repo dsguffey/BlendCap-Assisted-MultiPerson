@@ -36,11 +36,13 @@ class SequencerHardeningTests(unittest.TestCase):
         names = {node.id for node in ast.walk(registered) if isinstance(node, ast.Name)}
         self.assertIn("BLENDCAP_OT_vta_review_manage", names)
         self.assertIn("BLENDCAP_OT_vta_review_key_select", names)
+        self.assertIn("BLENDCAP_MT_vta_commands", names)
 
     def test_select_and_context_hooks_use_existing_blender_menus(self):
         source = (ROOT / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8")
         self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)", source)
         self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)", source)
+        self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)", source)
         self.assertNotIn("SEQUENCER_MT_editor_menus.append", source)
         self.assertNotIn("BLENDCAP_MT_vta_review", source)
         self.assertNotIn('text="First Lane"', source)
@@ -74,14 +76,92 @@ class SequencerHardeningTests(unittest.TestCase):
 
 @unittest.skipUnless(bpy is not None, "requires Blender background runtime")
 class BlenderSequencerRegistryTests(unittest.TestCase):
-    def test_operator_poll_and_native_hooks_survive_reregister_without_duplicates(self):
+    @classmethod
+    def setUpClass(cls):
         name = "_vta_sequencer_registry_test"
         spec = importlib.util.spec_from_file_location(
             name, ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
         addon = importlib.util.module_from_spec(spec)
         sys.modules[name] = addon
         spec.loader.exec_module(addon)
-        ui = sys.modules[name + ".blendcap.vta_review_ui"]
+        cls.addon = addon
+        cls.ui = sys.modules[name + ".blendcap.vta_review_ui"]
+
+    def test_shared_action_availability_and_menu_operator_paths(self):
+        ui = self.ui
+        character = SimpleNamespace(character_id="red", occupied_observation_id="box")
+        view = SimpleNamespace(characters=(character,), source_frame=11)
+        timeline = SimpleNamespace(keys=(SimpleNamespace(source_frame=11),))
+        context = SimpleNamespace(space_data=SimpleNamespace(view_type='SEQUENCER'))
+
+        class Layout:
+            def __init__(self, calls=None):
+                self.calls = [] if calls is None else calls
+                self.enabled = True
+
+            def row(self):
+                return Layout(self.calls)
+
+            def operator(self, operator, *, text):
+                self.calls.append((operator, text, self.enabled))
+                return SimpleNamespace()
+
+            def separator(self):
+                pass
+
+            def label(self, **_kwargs):
+                pass
+
+        with mock.patch.object(ui, "_view", view), mock.patch.object(ui, "_timeline", timeline), \
+             mock.patch.object(ui, "_location", object()), \
+             mock.patch.object(ui, "_selection", SimpleNamespace(character_id="red")), \
+             mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=("key",))), \
+             mock.patch.object(ui, "refresh", return_value=True):
+            enabled = ui._action_availability()
+            self.assertTrue(all(enabled.values()))
+            panel = Layout()
+            ui._draw_management_actions(panel)
+            menu = Layout()
+            ui.BLENDCAP_MT_vta_commands.draw(SimpleNamespace(layout=menu), context)
+            self.assertEqual(panel.calls, [call for call in menu.calls
+                                           if call[0] == "blendcap.vta_review_manage"])
+            self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
+            self.assertIn(("wm.tool_set_by_id", "Select VTA Review Keys", True), menu.calls)
+            self.assertEqual({call[0] for call in menu.calls}, {
+                "blendcap.vta_review_manage", "blendcap.vta_update_tracking", "wm.tool_set_by_id"
+            })
+            with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
+                disabled = ui._action_availability()
+                self.assertFalse(disabled["clear-review-key"])
+                self.assertFalse(disabled["clear-selected-review-keys"])
+            with mock.patch.object(ui, "_timeline", SimpleNamespace(keys=())):
+                self.assertFalse(ui._action_availability()["clear-all-review-keys-on-frame"])
+            with mock.patch.object(ui, "_view", SimpleNamespace(
+                    characters=(SimpleNamespace(character_id="red", occupied_observation_id=None),),
+                    source_frame=11)):
+                self.assertFalse(ui._action_availability()["clear-assignment"])
+            with mock.patch.object(ui, "_selection", SimpleNamespace(character_id="")):
+                missing = ui._action_availability()
+                self.assertFalse(missing["rename-character"])
+                self.assertFalse(missing["delete-character"])
+                self.assertFalse(missing["update-tracking"])
+
+    def test_header_context_and_select_use_native_menu_and_shared_tool(self):
+        ui = self.ui
+        context = SimpleNamespace(space_data=SimpleNamespace(view_type='SEQUENCER'))
+        header = mock.Mock()
+        ui._draw_vta_header(SimpleNamespace(layout=header), context)
+        header.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
+        right_click = mock.Mock()
+        ui._draw_vta_context(SimpleNamespace(layout=right_click), context)
+        right_click.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
+        select = mock.Mock()
+        ui._draw_vta_select(SimpleNamespace(layout=select), context)
+        select.operator.assert_called_once_with("wm.tool_set_by_id", text="Select VTA Review Keys")
+
+    def test_operator_poll_and_native_hooks_survive_reregister_without_duplicates(self):
+        addon = self.addon
+        ui = self.ui
 
         def hooks(menu, callback_name):
             return [item for item in getattr(menu.draw, "_draw_funcs", ())
@@ -94,14 +174,18 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                                  "BLENDCAP_OT_vta_review_manage")
                 self.assertEqual(bpy.ops.blendcap.vta_review_key_select.get_rna_type().identifier,
                                  "BLENDCAP_OT_vta_review_key_select")
+                self.assertEqual(bpy.types.Menu.bl_rna_get_subclass_py("BLENDCAP_MT_vta_commands"),
+                                 ui.BLENDCAP_MT_vta_commands)
                 with mock.patch.object(ui, "_view", object()), mock.patch.object(ui, "_location", object()):
                     self.assertTrue(bpy.ops.blendcap.vta_review_manage.poll())
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context")), 1)
+                self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header")), 1)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context"))
+                self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header"))
         finally:
             if getattr(ui.vta_timeline_overlay, "_handler", None) is not None:
                 addon.unregister()

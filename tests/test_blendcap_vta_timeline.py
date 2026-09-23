@@ -271,12 +271,15 @@ class BlenderTimelineTests(unittest.TestCase):
                              {'CANCELLED'})
         backend.apply_management.assert_not_called()
 
-    def test_panel_and_menus_expose_same_six_actions(self):
+    def test_shared_management_renderer_exposes_six_operator_actions(self):
         ui = self.ui
         class Layout:
             def __init__(self):
                 self.actions = []
                 self.operator_context = None
+
+            def row(self):
+                return self
 
             def operator(self, name, text):
                 self.actions.append((name, text))

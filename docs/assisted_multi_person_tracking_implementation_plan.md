@@ -339,9 +339,11 @@ keys. Live visual QA remains a manual acceptance step.
 
 Standing rule: prefer Blender's existing organizational UI and native
 conventions whenever reasonably possible. Review-key selection is exposed
-through Blender's Sequencer Select menu and normal WorkSpaceTool; selected-key
-management actions appear in Blender's existing Sequencer context menu. The
-separate top-level VTA menu was removed. A native one-click gizmo target may
+through Blender's Sequencer Select menu and normal WorkSpaceTool. The
+Sequencer header and normal context menu both expose a grouped **VTA Commands**
+menu; its entries and the frequent panel buttons use the same operators and
+per-action availability checks. This is scoped to the Sequencer, not a global
+application menu. A native one-click gizmo target may
 be worth a later, visually tested prototype; generic left-mouse interception
 is not an acceptable substitute.
 

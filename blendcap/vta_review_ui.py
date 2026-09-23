@@ -908,60 +908,102 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def _draw_management_actions(layout, *, actions=None):
-    layout.operator_context = 'INVOKE_DEFAULT'
+def _action_availability():
+    """Sequencer review availability shared by panel, header, and context."""
+    character = next((item for item in _view.characters
+                      if item.character_id == _selection.character_id), None) if _view else None
+    selected_keys = _review_key_selection.keyframe_ids
+    frame_has_key = bool(_view and _timeline and any(
+        key.source_frame == _view.source_frame for key in _timeline.keys
+    ))
+    return {
+        "clear-assignment": bool(character and character.occupied_observation_id),
+        "clear-review-key": len(selected_keys) == 1,
+        "clear-selected-review-keys": bool(selected_keys),
+        "clear-all-review-keys-on-frame": frame_has_key,
+        "rename-character": character is not None,
+        "delete-character": character is not None,
+        "update-tracking": character is not None and _location is not None,
+    }
+
+
+def _draw_management_actions(layout, *, actions=None, availability=None):
+    availability = _action_availability() if availability is None else availability
     for action, label, _description in _MANAGEMENT_ACTIONS:
         if actions is not None and action not in actions:
             continue
-        if action == "clear-assignment":
-            row = next((item for item in _view.characters
-                        if item.character_id == _selection.character_id), None) if _view else None
-            if row is None or not row.occupied_observation_id:
-                continue
-        elif action in {"rename-character", "delete-character"}:
-            if not _selection.character_id:
-                continue
-        elif action in {"clear-review-key", "clear-selected-review-keys"}:
-            if not _review_key_selection.keyframe_ids:
-                continue
-            if action == "clear-review-key" and len(_review_key_selection.keyframe_ids) != 1:
-                continue
-        elif action == "clear-all-review-keys-on-frame":
-            if _view is None or _timeline is None or not any(
-                key.source_frame == _view.source_frame for key in _timeline.keys
-            ):
-                continue
-        layout.operator("blendcap.vta_review_manage", text=label).action = action
+        row = layout.row()
+        row.enabled = availability[action]
+        row.operator_context = 'INVOKE_DEFAULT'
+        row.operator("blendcap.vta_review_manage", text=label).action = action
 
 
-def _draw_vta_select(self, context):
-    """Expose the existing native WorkSpaceTool in Blender's Select menu."""
+def _draw_select_review_keys(layout, context):
     view_type = getattr(getattr(context, "space_data", None), "view_type", None)
     if view_type not in {'SEQUENCER', 'SEQUENCER_PREVIEW'}:
         return
     tool_id = (BLENDCAP_WST_vta_review_key_select.bl_idname
                if view_type == 'SEQUENCER'
                else BLENDCAP_WST_vta_review_key_select_combined.bl_idname)
+    layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
+
+
+def _draw_vta_select(self, context):
+    """Expose the existing native WorkSpaceTool in Blender's Select menu."""
+    if getattr(getattr(context, "space_data", None), "view_type", None) not in {
+        'SEQUENCER', 'SEQUENCER_PREVIEW'
+    }:
+        return
     self.layout.separator()
-    self.layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
+    _draw_select_review_keys(self.layout, context)
+
+
+class BLENDCAP_MT_vta_commands(bpy.types.Menu):
+    bl_label = "VTA Commands"
+    bl_idname = "BLENDCAP_MT_vta_commands"
+
+    def draw(self, context):
+        layout = self.layout
+        _draw_select_review_keys(layout, context)
+        if not refresh(context):
+            layout.label(text="VTA review unavailable", icon='INFO')
+            return
+        availability = _action_availability()
+        layout.separator()
+        layout.label(text="Review Keys")
+        _draw_management_actions(layout, actions={
+            "clear-assignment", "clear-review-key", "clear-selected-review-keys",
+            "clear-all-review-keys-on-frame",
+        }, availability=availability)
+        layout.separator()
+        layout.label(text="Character")
+        _draw_management_actions(layout, actions={
+            "rename-character", "delete-character",
+        }, availability=availability)
+        layout.separator()
+        tracking = layout.row()
+        tracking.enabled = availability["update-tracking"]
+        tracking.operator("blendcap.vta_update_tracking", text="Update Tracking")
+
+
+def _draw_vta_header(self, context):
+    """Add one Sequencer-scoped menu beside Blender's native editor menus."""
+    if getattr(getattr(context, "space_data", None), "view_type", None) not in {
+        'SEQUENCER', 'SEQUENCER_PREVIEW'
+    }:
+        return
+    self.layout.separator()
+    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
 
 
 def _draw_vta_context(self, context):
-    """Add relevant actions to Blender's own Sequencer context menu."""
-    if not refresh(context) or _timeline is None:
+    """Add the same submenu to Blender's normal Sequencer context menu."""
+    if getattr(getattr(context, "space_data", None), "view_type", None) not in {
+        'SEQUENCER', 'SEQUENCER_PREVIEW'
+    }:
         return
     self.layout.separator()
-    view_type = getattr(getattr(context, "space_data", None), "view_type", None)
-    tool_id = (BLENDCAP_WST_vta_review_key_select.bl_idname
-               if view_type == 'SEQUENCER'
-               else BLENDCAP_WST_vta_review_key_select_combined.bl_idname)
-    self.layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
-    if not _review_key_selection.keyframe_ids:
-        return
-    self.layout.label(text="Selected VTA Review Keys")
-    _draw_management_actions(self.layout, actions={
-        "clear-assignment", "clear-review-key", "clear-selected-review-keys",
-    })
+    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
 
 
 def _set_menu_hook(menu, callback):
@@ -1089,7 +1131,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
         tracking = layout.row()
-        tracking.enabled = selected_character is not None
+        tracking.enabled = _action_availability()["update-tracking"]
         tracking.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
         assign = row.row(align=True)
         assign.enabled = _selection.can_assign(_view)
@@ -1106,11 +1148,14 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
             "blendcap.vta_review_hard_state", text="No Valid Candidate"
         ).decision_kind = "no-valid-candidate"
         layout.separator()
-        layout.label(text="Sequencer review keys: Select menu / toolbar")
+        layout.label(text="Review keys: VTA Commands / Select / toolbar")
         layout.label(text="Lanes hide over strips; scroll to empty channels")
         layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
         layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
-        _draw_management_actions(layout)
+        _draw_management_actions(layout, actions={
+            "clear-assignment", "clear-review-key", "clear-selected-review-keys",
+            "rename-character", "delete-character",
+        })
         if not _view.characters:
             layout.label(text="No existing Characters in this VTA project.", icon='INFO')
         if _status:
@@ -1128,6 +1173,7 @@ classes = (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
+    BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
 )
 
@@ -1159,11 +1205,13 @@ def register_properties() -> None:
     _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_editor_menus)
     _set_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     _set_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
+    _set_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
 
 
 def unregister_properties() -> None:
     _remove_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
+    _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()
     vta_overlay.unregister()
     _unregister_timeline_tools()
