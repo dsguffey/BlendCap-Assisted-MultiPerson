@@ -13,6 +13,7 @@ from ..blendcap_vta_review import (
     VtaReviewUiError,
     character_name_exists,
     companion_root_for_blend,
+    confirmation_lines,
     map_vse_frame_to_source,
     user_message,
 )
@@ -389,30 +390,89 @@ class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
 class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_assign"
     bl_label = "Assign"
-    bl_description = "Assign the selected durable observation to the selected Character"
+    bl_description = "Assign the selected candidate; confirm if existing assignments must change"
 
     @classmethod
     def poll(cls, context):
         return _view is not None and _selection.can_assign(_view) and _location is not None
 
-    def execute(self, context):
+    def invoke(self, context, _event):
         global _view, _status, _status_is_error
-        if not refresh(context):
+        self._confirmed_request = None
+        if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
-        if _view is None or _location is None or not _selection.can_assign(_view):
-            _status = "Select one unassigned candidate and one available Character."
+        intent = _selection.assignment_intent(_view)
+        if intent is None:
+            _status = "Select a candidate and a different Character to assign."
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        if not intent.requires_confirmation:
+            return self.execute(context)
+        try:
+            request, current_view = _get_backend(context).prepare_reassignment(
+                _location,
+                observation_id=_selection.observation_id,
+                character_id=_selection.character_id,
+            )
+            current_intent = _selection.assignment_intent(current_view)
+            if current_intent is None or not current_intent.requires_confirmation:
+                raise VtaReviewUiError(
+                    "The assignment changed. Refresh and select again."
+                )
+            self._confirmed_request = request
+            self._confirmation_location = _location
+            self._confirmation_lines = confirmation_lines(current_intent)
+            _view = current_view
+            _rebuild_enum_items()
+            _sync_properties(context)
+            return context.window_manager.invoke_props_dialog(
+                self, width=460, confirm_text="Reassign"
+            )
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+    def draw(self, _context):
+        for line in getattr(self, "_confirmation_lines", ()):
+            self.layout.label(text=line)
+
+    def execute(self, context):
+        global _view, _status, _status_is_error
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        intent = None if _view is None else _selection.assignment_intent(_view)
+        if intent is None or _location is None:
+            _status = "Select a candidate and a different Character to assign."
             _status_is_error = True
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         observation_id = _selection.observation_id
         character_id = _selection.character_id
         try:
-            _receipt, refreshed = _get_backend(context).apply(
-                _location,
-                observation_id=observation_id,
-                character_id=character_id,
-            )
+            confirmed_request = getattr(self, "_confirmed_request", None)
+            if confirmed_request is None:
+                if intent.requires_confirmation:
+                    raise VtaReviewUiError("Use Assign in the panel to confirm this reassignment.")
+                _receipt, refreshed = _get_backend(context).apply(
+                    _location,
+                    observation_id=observation_id,
+                    character_id=character_id,
+                )
+            else:
+                if (
+                    _location != getattr(self, "_confirmation_location", None)
+                    or confirmed_request.observation_id != observation_id
+                    or confirmed_request.character_id != character_id
+                ):
+                    raise VtaReviewUiError("The review selection changed during confirmation.")
+                _receipt, refreshed = _get_backend(context).apply_confirmed_reassignment(
+                    _location, confirmed_request
+                )
             _view = refreshed
             _selection.accept_review(refreshed)
             _rebuild_enum_items()
@@ -421,7 +481,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
                 row.display_name for row in refreshed.characters
                 if row.character_id == character_id
             )
-            _status = f"Assigned candidate to {character}."
+            verb = "Reassigned" if confirmed_request is not None else "Assigned"
+            _status = f"{verb} candidate to {character}."
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}

@@ -3,11 +3,20 @@
 from dataclasses import dataclass
 from enum import Enum
 import ast
+import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import blendcap_vta_review as review_ui
+
+try:
+    import bpy  # noqa: F401 - Blender-specific operator tests below
+except ImportError:
+    bpy = None
 
 
 class State(Enum):
@@ -210,10 +219,13 @@ class ReviewPresentationTests(unittest.TestCase):
         )
         self.assertEqual(selection.observation_id, "")
 
-    def test_occupied_candidate_or_character_cannot_apply(self):
+    def test_same_assignment_is_no_op_but_occupied_choices_can_reassign(self):
         view = review_ui.present_review(
             Review(
-                candidates=(Candidate("revision-1", "observation-a", assigned_character_id="character-red"),),
+                candidates=(
+                    Candidate("revision-1", "observation-a", assigned_character_id="character-red"),
+                    Candidate("revision-1", "observation-b"),
+                ),
                 character_assignments=(Assignment("character-red", "observation-a"),),
             )
         )
@@ -223,6 +235,40 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertEqual(selection.observation_id, "observation-a")
         selection.character_id = "character-red"
         self.assertFalse(selection.can_assign(view))
+        selection.character_id = "character-black"
+        self.assertTrue(selection.can_assign(view))
+        self.assertTrue(selection.assignment_intent(view).requires_confirmation)
+        selection.observation_id = "observation-b"
+        selection.character_id = "character-red"
+        self.assertTrue(selection.can_assign(view))
+        self.assertTrue(selection.assignment_intent(view).requires_confirmation)
+
+    def test_confirmation_describes_both_conflicts_without_internal_ids(self):
+        view = review_ui.present_review(
+            Review(
+                candidates=(
+                    Candidate("revision-1", "observation-a", assigned_character_id="character-red"),
+                    Candidate("revision-1", "observation-b", assigned_character_id="character-black"),
+                ),
+                character_assignments=(
+                    Assignment("character-red", "observation-a"),
+                    Assignment("character-black", "observation-b"),
+                ),
+            )
+        )
+        selection = review_ui.SelectionState()
+        self.assertTrue(selection.select_observation(view, "observation-a"))
+        self.assertTrue(selection.select_character(view, "character-black"))
+        intent = selection.assignment_intent(view)
+        self.assertTrue(intent.requires_confirmation)
+        lines = review_ui.confirmation_lines(intent)
+        self.assertIn("Red", " ".join(lines))
+        self.assertIn("Black", " ".join(lines))
+        self.assertIn("Candidate 1", " ".join(lines))
+        self.assertIn("Candidate 2", " ".join(lines))
+        self.assertIn("unassigned", " ".join(lines))
+        self.assertNotIn("observation-a", " ".join(lines))
+        self.assertNotIn("character-black", " ".join(lines))
 
     def test_valid_selection_uses_durable_ids(self):
         view = review_ui.present_review(Review())
@@ -298,6 +344,70 @@ class ReviewPresentationTests(unittest.TestCase):
         })
         self.assertEqual(refreshed.source_frame, 12)
         self.assertEqual(calls.count("load-project"), 2)
+
+    def test_backend_prepares_conflict_without_mutation_then_applies_and_reloads(self):
+        calls = []
+        prepared = type("Request", (), {
+            "observation_id": "observation-a",
+            "character_id": "character-black",
+        })()
+
+        class Project:
+            def to_dict(self):
+                return {
+                    "sources": [{
+                        "source_id": "source-1", "video_sha256": source_hash,
+                        "start_frame": 0, "end_frame": 20,
+                    }],
+                    "active_analysis_revision_by_source": {"source-1": "revision-1"},
+                }
+
+        class Core:
+            @staticmethod
+            def load_project_state(_root):
+                calls.append("load-project")
+                return Project()
+
+            @staticmethod
+            def load_analysis_cache(_root, _revision_id):
+                return object()
+
+            @staticmethod
+            def build_frame_review(_project, _cache, **_values):
+                return Review(
+                    candidates=(Candidate("revision-1", "observation-a", assigned_character_id="character-red"),),
+                    character_assignments=(Assignment("character-red", "observation-a"),),
+                )
+
+            @staticmethod
+            def build_confirmed_reassignment_request(_review, **values):
+                calls.append(("prepare", values))
+                return prepared
+
+            @staticmethod
+            def apply_confirmed_reassignment_and_persist(_root, _cache, request):
+                calls.append(("apply", request))
+                return object()
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.mp4"
+            source.write_bytes(b"video")
+            source_hash = review_ui.sha256_file(source)
+            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            location = review_ui.ReviewLocation(Path(directory) / "scene_vta", source, 12, 13)
+            request, current = backend.prepare_reassignment(
+                location,
+                observation_id="observation-a",
+                character_id="character-black",
+            )
+            self.assertEqual(request, prepared)
+            self.assertEqual(current.candidates[0].assigned_character_name, "Red")
+            self.assertFalse(any(item[0] == "apply" for item in calls if isinstance(item, tuple)))
+            _receipt, refreshed = backend.apply_confirmed_reassignment(location, request)
+
+        self.assertIn(("apply", prepared), calls)
+        self.assertEqual(refreshed.source_frame, 12)
+        self.assertGreaterEqual(calls.count("load-project"), 3)
 
     def test_backend_creates_through_private_persistence_then_reloads(self):
         calls = []
@@ -391,6 +501,166 @@ class ReviewPresentationTests(unittest.TestCase):
         with self.assertRaisesRegex(review_ui.VtaReviewUiError, "Save"):
             review_ui.companion_root_for_blend("")
 
+
+@unittest.skipUnless(bpy is not None, "requires Blender Python")
+class BlenderAssignOperatorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = Path(__file__).resolve().parents[1]
+        package_name = "blendcap_vta_review_operator_test"
+        spec = importlib.util.spec_from_file_location(
+            package_name, root / "__init__.py", submodule_search_locations=[str(root)]
+        )
+        addon = importlib.util.module_from_spec(spec)
+        sys.modules[package_name] = addon
+        spec.loader.exec_module(addon)
+        from blendcap_vta_review_operator_test.blendcap import vta_review_ui
+        cls.panel_ui = vta_review_ui
+
+    def setUp(self):
+        self.selection = review_ui.SelectionState()
+        self.location = review_ui.ReviewLocation(
+            Path("review_vta"), Path("source.mp4"), 12, 13
+        )
+        for name, value in (
+            ("_selection", self.selection),
+            ("_location", self.location),
+            ("_view", None),
+            ("_status", ""),
+            ("_status_is_error", False),
+        ):
+            patcher = mock.patch.object(self.panel_ui, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        for name in ("_rebuild_enum_items", "_sync_properties"):
+            patcher = mock.patch.object(self.panel_ui, name, lambda *_args: None)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(self.panel_ui, "refresh", lambda *_args, **_kwargs: True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.dialogs = []
+        self.context = SimpleNamespace(
+            window_manager=SimpleNamespace(
+                invoke_props_dialog=lambda operator, **options: self.dialogs.append(options) or {'RUNNING_MODAL'}
+            )
+        )
+
+    def _operator(self):
+        panel_ui = self.panel_ui
+
+        class OperatorDouble:
+            def __init__(self):
+                self.messages = []
+
+            def report(self, level, message):
+                self.messages.append((level, message))
+
+            def execute(self, context):
+                return panel_ui.BLENDCAP_OT_vta_review_assign.execute(self, context)
+
+        return OperatorDouble()
+
+    def test_conflict_dialog_cancel_and_confirm_use_one_authoritative_call(self):
+        occupied = review_ui.present_review(
+            Review(
+                candidates=(
+                    Candidate("revision-1", "observation-a", assigned_character_id="character-red"),
+                    Candidate("revision-1", "observation-b", assigned_character_id="character-black"),
+                ),
+                character_assignments=(
+                    Assignment("character-red", "observation-a"),
+                    Assignment("character-black", "observation-b"),
+                ),
+            )
+        )
+        corrected = review_ui.present_review(
+            Review(
+                candidates=(
+                    Candidate("revision-1", "observation-a", assigned_character_id="character-black"),
+                    Candidate("revision-1", "observation-b"),
+                ),
+                character_assignments=(Assignment("character-black", "observation-a"),),
+            )
+        )
+        self.panel_ui._view = occupied
+        self.selection.accept_review(occupied)
+        self.selection.observation_id = "observation-a"
+        self.selection.character_id = "character-black"
+        calls = []
+        request = SimpleNamespace(observation_id="observation-a", character_id="character-black")
+
+        class Backend:
+            def prepare_reassignment(_self, *_args, **_kwargs):
+                calls.append("prepare")
+                return request, occupied
+
+            def apply_confirmed_reassignment(_self, *_args):
+                calls.append("apply")
+                return object(), corrected
+
+            def apply(_self, *_args, **_kwargs):
+                self.fail("conflicting Assign took the immediate path")
+
+        with mock.patch.object(self.panel_ui, "_get_backend", return_value=Backend()):
+            cancelled = self._operator()
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_assign.invoke(cancelled, self.context, None),
+                {'RUNNING_MODAL'},
+            )
+            self.assertEqual(calls, ["prepare"])
+            self.assertEqual(self.dialogs[0]["confirm_text"], "Reassign")
+            self.assertIn("Candidate 2 will become unassigned", " ".join(cancelled._confirmation_lines))
+            # Blender Cancel does not call execute; the prepared request is discarded.
+            confirmed = self._operator()
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_assign.invoke(confirmed, self.context, None),
+                {'RUNNING_MODAL'},
+            )
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_assign.execute(confirmed, self.context),
+                {'FINISHED'},
+            )
+
+        self.assertEqual(calls, ["prepare", "prepare", "apply"])
+        self.assertEqual(self.panel_ui._view, corrected)
+        self.assertFalse(self.selection.can_assign(corrected))
+
+    def test_unoccupied_assign_runs_without_dialog_and_direct_conflict_cannot_bypass_it(self):
+        available = review_ui.present_review(Review())
+        occupied = review_ui.present_review(
+            Review(
+                candidates=(Candidate("revision-1", "observation-a", assigned_character_id="character-red"),),
+                character_assignments=(Assignment("character-red", "observation-a"),),
+            )
+        )
+        self.panel_ui._view = available
+        self.selection.accept_review(available)
+        self.selection.observation_id = "observation-a"
+        self.selection.character_id = "character-black"
+        calls = []
+
+        class Backend:
+            def apply(_self, *_args, **_kwargs):
+                calls.append("ordinary")
+                return object(), available
+
+        with mock.patch.object(self.panel_ui, "_get_backend", return_value=Backend()):
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_assign.invoke(self._operator(), self.context, None),
+                {'FINISHED'},
+            )
+            self.assertEqual(calls, ["ordinary"])
+            self.assertEqual(self.dialogs, [])
+            self.panel_ui._view = occupied
+            self.selection.accept_review(occupied)
+            self.selection.observation_id = "observation-a"
+            self.selection.character_id = "character-black"
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_assign.execute(self._operator(), self.context),
+                {'CANCELLED'},
+            )
+            self.assertEqual(calls, ["ordinary"])
 
 if __name__ == "__main__":
     unittest.main()

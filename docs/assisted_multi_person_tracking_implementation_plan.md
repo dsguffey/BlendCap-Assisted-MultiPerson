@@ -30,6 +30,15 @@ assignment with persistence/reload. New semantic Characters are now created
 explicitly from the review panel through private-core authority and canonical
 project-state persistence. Creation selects the new Character only as
 temporary UI intent; Assign remains the sole candidate-to-Character action.
+Assign now also accepts an explicit correction to an occupied candidate or
+Character. It shows one confirmation describing the affected assignments;
+Cancel leaves canonical state untouched, and Confirm asks private core to
+replace the affected same-frame Identity Keyframes in one atomic project-state
+publication. The public shell reloads the canonical review afterward. An
+unchanged candidate-to-Character selection is a no-op. There is no required
+Unassign-first step. Live visual QA on a disposable fixture confirmed creation,
+conflict cancellation, confirmed reassignment, ordinary assignment, and
+canonical reload without saving the `.blend` file.
 The Preview tool is registered as its own visible toolbar group. Broader VTA UI
 reorganization and Character rename/delete remain deferred.
 

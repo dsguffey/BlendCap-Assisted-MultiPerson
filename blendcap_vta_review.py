@@ -26,6 +26,7 @@ class CandidateRow:
     label: str
     assigned_character_id: str | None
     assigned_character_name: str | None
+    position: int = 0
 
     @property
     def assignable(self) -> bool:
@@ -62,6 +63,48 @@ class ReviewLocation:
     source_path: Path
     source_frame: int
     blender_frame: int
+
+
+@dataclass(frozen=True)
+class AssignmentIntent:
+    """Presentation-only summary of one selected candidate and Character."""
+
+    candidate: CandidateRow
+    character: CharacterRow
+    current_character_name: str | None
+    occupied_candidate: CandidateRow | None
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return self.current_character_name is not None or self.occupied_candidate is not None
+
+
+def confirmation_lines(intent: AssignmentIntent) -> tuple[str, ...]:
+    """Describe only the visible effects of one confirmed correction."""
+    candidate_name = _candidate_display_name(intent.candidate)
+    target_name = intent.character.display_name
+    lines = ["Reassign Character?"]
+    if intent.current_character_name is not None:
+        lines.append(
+            f"{candidate_name} is assigned to {intent.current_character_name}. "
+            f"Change it to {target_name}?"
+        )
+    if intent.occupied_candidate is not None:
+        occupied_name = _candidate_display_name(intent.occupied_candidate)
+        lines.append(
+            f"Move {target_name} from {occupied_name} "
+            f"to {candidate_name}?"
+        )
+        lines.append(f"{occupied_name} will become unassigned.")
+    return tuple(lines)
+
+
+def _candidate_display_name(candidate: CandidateRow) -> str:
+    return (
+        f"Candidate {candidate.position}"
+        if candidate.position > 0
+        else candidate.label.partition(" - ")[0]
+    )
 
 
 STATE_LABELS = {
@@ -146,6 +189,7 @@ def present_review(
         }
         candidates = tuple(
             CandidateRow(
+                position=index,
                 analysis_revision_id=item.analysis_revision_id,
                 observation_id=item.observation_id,
                 box_xyxy=tuple(item.box_xyxy),
@@ -201,7 +245,7 @@ class SelectionState:
         if key != self.review_key:
             self.observation_id = ""
         self.review_key = key
-        valid_characters = {item.character_id for item in view.characters if item.available}
+        valid_characters = {item.character_id for item in view.characters}
         if self.character_id not in valid_characters:
             self.character_id = ""
         # Selection is inspection-only UI state, so assigned candidates remain
@@ -221,22 +265,43 @@ class SelectionState:
         return True
 
     def can_assign(self, view: ReviewView) -> bool:
-        return (
-            view.state == "analyzed-with-candidates"
-            and self.observation_id in {
-                item.observation_id for item in view.candidates if item.assignable
-            }
-            and self.character_id in {
-                item.character_id for item in view.characters if item.available
-            }
+        return self.assignment_intent(view) is not None
+
+    def assignment_intent(self, view: ReviewView) -> AssignmentIntent | None:
+        if view.state != "analyzed-with-candidates":
+            return None
+        candidate = next(
+            (item for item in view.candidates if item.observation_id == self.observation_id),
+            None,
+        )
+        character = next(
+            (item for item in view.characters if item.character_id == self.character_id),
+            None,
+        )
+        if candidate is None or character is None:
+            return None
+        if candidate.assigned_character_id == character.character_id:
+            return None
+        current_character_name = candidate.assigned_character_name
+        if candidate.assigned_character_id is not None and current_character_name is None:
+            current_character_name = next(
+                (item.display_name for item in view.characters
+                 if item.character_id == candidate.assigned_character_id),
+                "another Character",
+            )
+        occupied_candidate = next(
+            (item for item in view.candidates
+             if item.observation_id == character.occupied_observation_id),
+            None,
+        )
+        return AssignmentIntent(
+            candidate, character, current_character_name, occupied_candidate
         )
 
     def select_character(self, view: ReviewView, character_id: str) -> bool:
-        """Select an available Character for intent without touching candidates."""
+        """Select a Character as intent without touching authoritative state."""
         self.accept_review(view)
-        if character_id not in {
-            item.character_id for item in view.characters if item.available
-        }:
+        if character_id not in {item.character_id for item in view.characters}:
             return False
         self.character_id = character_id
         return True
@@ -326,6 +391,51 @@ class PrivateCoreBackend:
                 raise VtaReviewUiError(user_message(exc)) from exc
             raise
         # Canonical reload is mandatory; never infer success by mutating review.
+        return receipt, self.query(location)
+
+    def prepare_reassignment(
+        self,
+        location: ReviewLocation,
+        *,
+        observation_id: str,
+        character_id: str,
+    ) -> tuple[object, ReviewView]:
+        """Capture current private occupancy before the confirmation dialog."""
+        project, cache, revision_id = self._load_context(location)
+        try:
+            review = self._core.build_frame_review(
+                project, cache,
+                analysis_revision_id=revision_id,
+                frame_index=location.source_frame,
+            )
+            request = self._core.build_confirmed_reassignment_request(
+                review,
+                analysis_revision_id=revision_id,
+                observation_id=observation_id,
+                character_id=character_id,
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(user_message(exc)) from exc
+            raise
+        source = getattr(cache, "source", None)
+        require_dimensions = getattr(source, "require_dimensions", None)
+        dimensions = require_dimensions() if callable(require_dimensions) else None
+        return request, present_review(review, dimensions)
+
+    def apply_confirmed_reassignment(
+        self, location: ReviewLocation, request: object
+    ) -> tuple[object, ReviewView]:
+        """Submit the already confirmed snapshot; private core revalidates it."""
+        _project, cache, _revision_id = self._load_context(location)
+        try:
+            receipt = self._core.apply_confirmed_reassignment_and_persist(
+                location.companion_root, cache, request
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(user_message(exc)) from exc
+            raise
         return receipt, self.query(location)
 
     def create_character(
