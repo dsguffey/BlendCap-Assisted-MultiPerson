@@ -38,10 +38,18 @@ class TimelineKey:
 
 
 @dataclass(frozen=True)
+class TimelineDerived:
+    character_id: str
+    source_frame: int
+    state: str
+
+
+@dataclass(frozen=True)
 class TimelineView:
     source_id: str
     characters: tuple[TimelineCharacter, ...]
     keys: tuple[TimelineKey, ...]
+    derived: tuple[TimelineDerived, ...] = ()
 
 
 def present_timeline(private_timeline) -> TimelineView:
@@ -56,7 +64,11 @@ def present_timeline(private_timeline) -> TimelineView:
     )
     if len({item.keyframe_id for item in keys}) != len(keys):
         raise ValueError("timeline has duplicate review-key identities")
-    return TimelineView(private_timeline.source_id, characters, keys)
+    derived = tuple(
+        TimelineDerived(item.character_id, item.frame, item.state.value)
+        for item in getattr(private_timeline, "derived", ())
+    )
+    return TimelineView(private_timeline.source_id, characters, keys, derived)
 
 
 class ReviewKeySelection:

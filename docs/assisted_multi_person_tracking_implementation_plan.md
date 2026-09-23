@@ -317,3 +317,20 @@ its keys, Character-specific review flags, and derived records project-wide.
 All destructive requests capture current canonical state, reject stale input,
 and publish once atomically. Manual GUI visual acceptance remains outstanding;
 background registration and tests establish only runtime behavior.
+
+## Explicit bounded derived tracking (2026-09-23)
+
+The private schema-0.5 core now retains geometry-only `TrackingRevision`
+records with a local `TrackingScope`, analysis-cache SHA-256, policy revision,
+per-frame matched/unresolved state, and matching score/reason. They are not
+Identity Keyframes. The Blender panel's explicit **Update Tracking** command
+uses the selected Character and source frame; it never reruns the detector.
+Nearest hard review keys bound the mutable interval, with a frame-rate-derived
+five-second fallback where a nearby key is absent. Authoritative frames are
+excluded. Visible candidates are followed conservatively by IoU, center
+displacement, and area continuity. Bidirectional disagreement, misses, and
+candidate conflicts stay unresolved. Provider track IDs are not semantic IDs.
+An edited key invalidates only dependent local derived revisions; Character
+rename leaves them intact, and deletion removes them. Current-frame derived
+labels and subdued timeline ticks remain visibly distinct from hard review
+keys. Live visual QA remains a manual acceptance step.

@@ -106,6 +106,17 @@ def _draw() -> None:
             blf.position(0, 6, y - 5, 0); blf.size(0, 12)
             blf.color(0, .9, .9, .93, 1)
             blf.draw(0, name_by_id[char_id][:24])
+        # Secondary low-contrast ticks are derived, never selectable hard keys.
+        for derived in getattr(view, "derived", ()):
+            y = lane_by_id.get(derived.character_id)
+            if y is None:
+                continue
+            x = region.view2d.view_to_region(
+                derived.source_frame + frame_offset, 0, clip=False
+            )[0]
+            if GUTTER_WIDTH + 4 <= x <= region.width - 4:
+                tint = (.42, .67, .74, .48) if derived.state == "visible" else (.5, .5, .56, .35)
+                line(((x, y - 3), (x, y + 3)), tint)
         for key in view.keys:
             y = lane_by_id.get(key.character_id)
             if y is None:

@@ -44,6 +44,8 @@ class CharacterRow:
     display_name: str
     occupied_observation_id: str | None
     decision_state: str | None = None
+    derived_state: str | None = None
+    derived_observation_id: str | None = None
 
     @property
     def available(self) -> bool:
@@ -248,6 +250,10 @@ def present_review(
             item.character_id: item.state.value
             for item in getattr(review, "character_decisions", ())
         }
+        derived_by_character = {
+            item.character_id: item
+            for item in getattr(review, "derived_tracking", ())
+        }
         candidates = tuple(
             CandidateRow(
                 position=index,
@@ -268,6 +274,12 @@ def present_review(
                         display_name=item.display_name,
                         occupied_observation_id=occupied_by_character.get(item.character_id),
                         decision_state=decisions_by_character.get(item.character_id),
+                        derived_state=(derived_by_character[item.character_id].state.value
+                                       if item.character_id in derived_by_character else None),
+                        derived_observation_id=(
+                            derived_by_character[item.character_id].observation_id
+                            if item.character_id in derived_by_character else None
+                        ),
                     )
                     for item in review.characters
                 ),
@@ -443,12 +455,31 @@ class PrivateCoreBackend:
         project, cache, revision_id = self._load_context(location)
         try:
             self._core.validate_analysis_cache_registration(project, cache, revision_id)
-            private = self._core.build_review_timeline(project, cache.source.source_id)
+            private = self._core.build_review_timeline(
+                project, cache.source.source_id, cache=cache
+            )
             return present_timeline(private)
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):
                 raise VtaReviewUiError(str(exc)) from exc
             raise
+
+    def update_tracking(self, location: ReviewLocation, character_id: str):
+        """Explicit cache-only local recomputation; never creates review keys."""
+        project, cache, revision_id = self._load_context(location)
+        if character_id not in {item.character_id for item in project.characters}:
+            raise VtaReviewUiError("Select an existing Character before Update Tracking.")
+        try:
+            self._core.validate_analysis_cache_registration(project, cache, revision_id)
+            result = self._core.update_tracking_and_persist(
+                location.companion_root, character_id,
+                cache.source.source_id, location.source_frame,
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+        return result, self.query(location), self.query_timeline(location)
 
     def prepare_management(self, location: ReviewLocation, action: str, **kwargs):
         project, cache, revision_id = self._load_context(location)

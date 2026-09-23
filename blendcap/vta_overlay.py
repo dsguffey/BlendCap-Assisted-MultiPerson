@@ -27,10 +27,17 @@ def build_overlay_candidates(view, selected_observation_id: str) -> tuple[Overla
     """Project only immutable review rows; order is never an identity key."""
     if view is None or view.state != "analyzed-with-candidates":
         return ()
+    derived = {
+        row.derived_observation_id: row.display_name
+        for row in view.characters
+        if row.derived_state == "visible" and row.derived_observation_id is not None
+    }
     return tuple(
         OverlayCandidate(
             row.observation_id,
-            row.label + (f" — {row.assigned_character_name}" if row.assigned_character_name else ""),
+            row.label + (f" — {row.assigned_character_name}" if row.assigned_character_name
+                         else f" — Derived: {derived[row.observation_id]}"
+                         if row.observation_id in derived else ""),
             row.box_xyxy,
             row.assigned_character_name,
             row.observation_id == selected_observation_id,

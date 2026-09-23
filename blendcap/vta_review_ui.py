@@ -937,6 +937,36 @@ def _draw_vta_menu(self, _context):
     self.layout.menu(BLENDCAP_MT_vta_review.bl_idname)
 
 
+class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
+    """Explicitly derive continuity from cached candidates within local hard keys."""
+
+    bl_idname = "blendcap.vta_update_tracking"
+    bl_label = "Update Tracking"
+    bl_description = "Recompute non-authoritative tracking near this frame from existing analysis"
+
+    def execute(self, context):
+        global _status, _status_is_error
+        try:
+            location = _location_from_context(context)
+            if not _selection.character_id:
+                raise VtaReviewUiError("Select a Character before Update Tracking.")
+            result, _review, _timeline_result = _get_backend(context).update_tracking(
+                location, _selection.character_id
+            )
+            refresh(context, force=True)
+            _status = (f"Tracking updated: {result.matched} matched, "
+                       f"{result.unresolved} unresolved; bounded by "
+                       f"{result.scope.left_boundary.frame}–{result.scope.right_boundary.frame}.")
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_label = "VTA Current Frame Review"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
@@ -983,6 +1013,14 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                 label = (f"Assigned to Candidate {assigned.position}" if assigned
                          else "Candidate Assignment (stored evidence)")
                 layout.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
+            elif selected_character.derived_state == 'visible':
+                derived = next((candidate for candidate in _view.candidates
+                                if candidate.observation_id == selected_character.derived_observation_id), None)
+                label = (f"Derived: Candidate {derived.position}" if derived
+                         else "Derived: candidate outside current view")
+                layout.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
+            elif selected_character.derived_state == 'unresolved':
+                layout.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
             else:
                 layout.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
         create_row = layout.row(align=True)
@@ -996,6 +1034,9 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         )
         row = layout.row(align=True)
         row.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
+        tracking = layout.row()
+        tracking.enabled = selected_character is not None
+        tracking.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
         assign = row.row(align=True)
         assign.enabled = _selection.can_assign(_view)
         assign.operator("blendcap.vta_review_assign", text="Assign", icon='CHECKMARK')
@@ -1030,6 +1071,7 @@ classes = (
     BLENDCAP_OT_vta_review_hard_state,
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
+    BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_review,
     VIEW3D_PT_blendcap_vta_review,
 )
