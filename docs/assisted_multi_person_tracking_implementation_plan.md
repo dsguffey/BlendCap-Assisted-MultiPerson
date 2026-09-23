@@ -295,3 +295,25 @@ The milestone is complete when a user can:
 
 No completion criterion permits automatic appearance promotion or automatic
 reacquisition.
+
+## Current Blender review auditability milestone (2026-09-23)
+
+The private schema-0.5 core projects authoritative Identity Keyframes into a
+read-only review timeline. All Characters are alphabetized, including empty
+rows; keys retain durable IDs, source frames, decision types, and optional
+candidate observation IDs. Derived tracking is not drawn as a review key.
+The public shell draws VTA-owned lanes and a narrow label gutter in the
+Sequencer WINDOW region. Horizontal coordinates use Blender's View2D; native
+strips, channels, and the playhead are never identity authority.
+
+The explicit Select VTA Review Key tool supports click navigation and Ctrl-click
+multi-selection by keyframe ID. Box selection and default shortcuts are deferred.
+The panel, Sequencer VTA Review menu, and right-click submenu use the same
+management operator. Clear Assignment removes only a candidate-bearing key;
+Clear Review Key, Clear Selected Review Keys, and Clear All Review Keys on Frame
+remove user decisions and leave No Decision, never a synthetic key. Rename
+preserves stable Character ID and evidence. Confirmed Delete Character removes
+its keys, Character-specific review flags, and derived records project-wide.
+All destructive requests capture current canonical state, reject stale input,
+and publish once atomically. Manual GUI visual acceptance remains outstanding;
+background registration and tests establish only runtime behavior.

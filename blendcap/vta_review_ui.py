@@ -20,7 +20,8 @@ from ..blendcap_vta_review import (
     user_message,
 )
 from ..blendcap_vta_runtime import discover_vta_core
-from . import vta_overlay
+from ..blendcap_vta_timeline import ReviewKeySelection, key_at
+from . import vta_overlay, vta_timeline_overlay
 from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end, addon_prefs
 
 
@@ -33,6 +34,9 @@ _backend = None
 _backend_location = None
 _backend_root = None
 _project_signature = None
+_timeline = None
+_timeline_identity = None
+_review_key_selection = ReviewKeySelection()
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
@@ -141,6 +145,16 @@ def overlay_state():
     return _view, _selection.observation_id
 
 
+def timeline_state():
+    offset = 0 if _location is None else _location.blender_frame - _location.source_frame
+    scroll = 0
+    try:
+        scroll = int(bpy.context.window_manager.blendcap_vta_lane_scroll)
+    except (AttributeError, RuntimeError):
+        pass
+    return _timeline, _review_key_selection.keyframe_ids, offset, scroll
+
+
 def ensure_vta_preview_context(context, owning_scene) -> int:
     """Bind existing VSE Preview areas to the owning scene's workspace slot."""
     workspace = getattr(context, "workspace", None)
@@ -183,6 +197,7 @@ def _rebuild_enum_items() -> None:
 
 def refresh(context, *, force: bool = False) -> bool:
     global _view, _location, _project_signature, _status, _status_is_error
+    global _timeline, _timeline_identity
     try:
         backend = _get_backend(context, force=force)
         location = _location_from_context(context)
@@ -199,6 +214,11 @@ def refresh(context, *, force: bool = False) -> bool:
             or _location.source_frame != location.source_frame
             or _project_signature != project_signature
         )
+        timeline_identity = (location.companion_root, location.source_path, project_signature)
+        if force or timeline_identity != _timeline_identity or _timeline is None:
+            _timeline = backend.query_timeline(location)
+            _timeline_identity = timeline_identity
+            _review_key_selection.reconcile(_timeline)
         if force or key_changed or _view is None:
             _view = backend.query(location)
             _location = location
@@ -217,6 +237,9 @@ def refresh(context, *, force: bool = False) -> bool:
         _view = None
         _location = None
         _project_signature = None
+        _timeline = None
+        _timeline_identity = None
+        _review_key_selection.clear()
         _selection.review_key = None
         _selection.observation_id = ""
         _rebuild_enum_items()
@@ -653,6 +676,267 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+def select_review_key_at(context, point, *, extend: bool = False) -> bool:
+    """Select one projected user key and navigate via its durable identity."""
+    if _timeline is None or _location is None:
+        return False
+    region = getattr(context, "region", None)
+    if region is None:
+        return False
+    key_id = vta_timeline_overlay.hit_key(
+        _timeline, region.view2d, region.height, point,
+        _location.blender_frame - _location.source_frame,
+        int(context.window_manager.blendcap_vta_lane_scroll),
+    )
+    if key_id is None or not _review_key_selection.click(_timeline, key_id, extend=extend):
+        return False
+    key = key_at(_timeline, key_id)
+    if key is None:
+        return False
+    _selection.character_id = key.character_id
+    scene = _owning_vse_scene(context, _location)
+    target_frame = key.source_frame + _location.blender_frame - _location.source_frame
+    scene.frame_set(target_frame)
+    active_scene = getattr(context, "scene", None)
+    if active_scene is not None and active_scene is not scene:
+        active_scene.frame_set(target_frame)
+    refresh(context, force=True)
+    _sync_properties(context)
+    return True
+
+
+class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
+    bl_idname = "blendcap.vta_review_key_select"
+    bl_label = "Select VTA Review Key"
+    bl_description = "Inspect one authoritative VTA key and jump to its frame"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return _timeline is not None and vta_timeline_overlay.is_timeline_region(
+            getattr(context, "area", None), getattr(context, "region", None),
+            getattr(context, "space_data", None),
+        )
+
+    def invoke(self, context, event):
+        return {'FINISHED'} if select_review_key_at(
+            context, (event.mouse_region_x, event.mouse_region_y), extend=bool(event.ctrl)
+        ) else {'PASS_THROUGH'}
+
+
+class BLENDCAP_WST_vta_review_key_select(bpy.types.WorkSpaceTool):
+    bl_space_type = 'SEQUENCE_EDITOR'
+    bl_context_mode = 'SEQUENCER'
+    bl_idname = "blendcap.vta_review_key_select"
+    bl_label = "Select VTA Review Key"
+    bl_description = "Click VTA review keys; Ctrl-click to extend selection"
+    bl_icon = "ops.generic.select"
+    bl_widget = None
+    bl_keymap = (
+        (BLENDCAP_OT_vta_review_key_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+        (BLENDCAP_OT_vta_review_key_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True}, None),
+    )
+
+
+class BLENDCAP_WST_vta_review_key_select_combined(BLENDCAP_WST_vta_review_key_select):
+    bl_context_mode = 'SEQUENCER_PREVIEW'
+    bl_idname = "blendcap.vta_review_key_select_combined"
+
+
+_registered_timeline_tools = []
+
+
+def _register_timeline_tools():
+    if _registered_timeline_tools:
+        return
+    try:
+        for tool in (BLENDCAP_WST_vta_review_key_select,
+                     BLENDCAP_WST_vta_review_key_select_combined):
+            bpy.utils.register_tool(tool, after={"builtin.select_box"}, separator=True)
+            _registered_timeline_tools.append(tool)
+    except Exception:
+        _unregister_timeline_tools()
+        raise
+
+
+def _unregister_timeline_tools():
+    for tool in reversed(_registered_timeline_tools):
+        try:
+            bpy.utils.unregister_tool(tool)
+        except (RuntimeError, ValueError):
+            pass
+    _registered_timeline_tools.clear()
+
+
+_MANAGEMENT_ACTIONS = (
+    ("clear-assignment", "Clear Assignment", "Remove this Character's current candidate assignment"),
+    ("clear-review-key", "Clear Review Key", "Remove one selected authoritative review key"),
+    ("clear-selected-review-keys", "Clear Selected Review Keys", "Remove selected VTA keys across frames"),
+    ("clear-all-review-keys-on-frame", "Clear All Review Keys on Frame", "Remove all VTA keys on this frame"),
+    ("rename-character", "Rename Character", "Change display name, keeping the stable Character ID"),
+    ("delete-character", "Delete Character", "Remove the Character and all associated project data"),
+)
+
+
+class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
+    bl_idname = "blendcap.vta_review_manage"
+    bl_label = "Manage VTA Review"
+    bl_description = "Change authoritative VTA review keys or a Character"
+
+    action: bpy.props.EnumProperty(name="Action", items=_MANAGEMENT_ACTIONS)
+    new_name: bpy.props.StringProperty(name="Character Name")
+
+    @classmethod
+    def poll(cls, _context):
+        return _view is not None and _location is not None
+
+    def _arguments(self):
+        if self.action == "clear-assignment":
+            return dict(character_id=_selection.character_id,
+                        source_id=_view.source_id, frame=_view.source_frame)
+        if self.action == "clear-review-key":
+            ids = _review_key_selection.keyframe_ids
+            if len(ids) != 1:
+                raise VtaReviewUiError("Select exactly one VTA review key to clear.")
+            return dict(keyframe_ids=ids)
+        if self.action == "clear-selected-review-keys":
+            return dict(keyframe_ids=_review_key_selection.keyframe_ids)
+        if self.action == "clear-all-review-keys-on-frame":
+            return dict(source_id=_view.source_id, frame=_view.source_frame)
+        if self.action == "rename-character":
+            return dict(character_id=_selection.character_id, display_name=self.new_name)
+        return dict(character_id=_selection.character_id)
+
+    def invoke(self, context, _event):
+        global _status, _status_is_error
+        self._pending_request = None
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        try:
+            if self.action == "rename-character":
+                row = next((item for item in _view.characters
+                            if item.character_id == _selection.character_id), None)
+                if row is None:
+                    raise VtaReviewUiError("Select a Character to rename.")
+                self.new_name = row.display_name
+            request = _get_backend(context).prepare_management(
+                _location, self.action, **self._arguments(),
+            )
+            self._pending_request = request
+            self._pending_location = _location
+            character = next((item for item in _view.characters
+                              if item.character_id == _selection.character_id), None)
+            self._pending_character_name = None if character is None else character.display_name
+            assigned = next((item for item in _view.candidates
+                             if character is not None
+                             and item.observation_id == character.occupied_observation_id), None)
+            self._pending_assignment_label = None if assigned is None else f"Candidate {assigned.position}"
+            return context.window_manager.invoke_props_dialog(
+                self, width=480,
+                confirm_text="Rename" if self.action == "rename-character" else "Confirm Removal",
+            )
+        except Exception as exc:
+            _status = user_message(exc); _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+    def draw(self, _context):
+        if self.action == "rename-character":
+            self.layout.prop(self, "new_name")
+        elif self.action == "delete-character":
+            name = getattr(self, "_pending_character_name", "this Character")
+            self.layout.label(text=f"Delete {name} and ALL associated project information?")
+            self.layout.label(text="This includes every review key and derived Character data.")
+        elif self.action == "clear-assignment":
+            name = getattr(self, "_pending_character_name", "selected Character")
+            candidate = getattr(self, "_pending_assignment_label", "candidate")
+            self.layout.label(text=f"Remove {name}'s assignment to {candidate} on this frame?")
+        else:
+            request = getattr(self, "_pending_request", None)
+            count = 0 if request is None else request.affected_count
+            self.layout.label(text=f"Remove {count} authoritative VTA review key(s)?")
+            self.layout.label(text="The result is No Decision; Characters remain.")
+
+    def execute(self, context):
+        global _status, _status_is_error
+        request = getattr(self, "_pending_request", None)
+        if request is None or getattr(self, "_pending_location", None) is None:
+            self.report({'ERROR'}, "Use the confirmation dialog for review management.")
+            return {'CANCELLED'}
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        try:
+            if self.action == "rename-character":
+                updated = _get_backend(context).prepare_management(
+                    self._pending_location, self.action,
+                    character_id=request.character_id, display_name=self.new_name,
+                )
+                if updated.project_sha256 != request.project_sha256:
+                    raise VtaReviewUiError("Project changed while the rename dialog was open.")
+                request = updated
+            if _location != self._pending_location:
+                raise VtaReviewUiError("The VTA review location changed during confirmation.")
+            if self.action in {"clear-assignment", "rename-character", "delete-character"}:
+                if _selection.character_id != request.character_id:
+                    raise VtaReviewUiError("The selected Character changed during confirmation.")
+            if self.action in {"clear-review-key", "clear-selected-review-keys"}:
+                if _review_key_selection.keyframe_ids != request.keyframe_ids:
+                    raise VtaReviewUiError("The selected review keys changed during confirmation.")
+            _get_backend(context).apply_management(
+                self._pending_location, request, confirmed=True,
+            )
+            refresh(context, force=True)
+            _status = f"VTA review action completed: {self.action}."
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status = user_message(exc); _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
+def _draw_management_actions(layout):
+    layout.operator_context = 'INVOKE_DEFAULT'
+    for action, label, _description in _MANAGEMENT_ACTIONS:
+        if action == "clear-assignment":
+            row = next((item for item in _view.characters
+                        if item.character_id == _selection.character_id), None) if _view else None
+            if row is None or not row.occupied_observation_id:
+                continue
+        elif action in {"rename-character", "delete-character"}:
+            if not _selection.character_id:
+                continue
+        elif action in {"clear-review-key", "clear-selected-review-keys"}:
+            if not _review_key_selection.keyframe_ids:
+                continue
+            if action == "clear-review-key" and len(_review_key_selection.keyframe_ids) != 1:
+                continue
+        elif action == "clear-all-review-keys-on-frame":
+            if _view is None or _timeline is None or not any(
+                key.source_frame == _view.source_frame for key in _timeline.keys
+            ):
+                continue
+        layout.operator("blendcap.vta_review_manage", text=label).action = action
+
+
+class BLENDCAP_MT_vta_review(bpy.types.Menu):
+    bl_label = "VTA Review"
+    bl_idname = "BLENDCAP_MT_vta_review"
+
+    def draw(self, context):
+        refresh(context)
+        _draw_management_actions(self.layout)
+
+
+def _draw_vta_menu(self, _context):
+    self.layout.menu(BLENDCAP_MT_vta_review.bl_idname)
+
+
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_label = "VTA Current Frame Review"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
@@ -692,11 +976,15 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         if selected_character is not None:
             state = selected_character.decision_state
             if state in HARD_STATE_LABELS:
-                layout.label(text=f"Current decision: {HARD_STATE_LABELS[state]}", icon='INFO')
+                layout.label(text=f"{selected_character.display_name} — {HARD_STATE_LABELS[state]}", icon='INFO')
             elif state in ('visible', 'partially-visible'):
-                layout.label(text="Current decision: Candidate assigned", icon='INFO')
+                assigned = next((candidate for candidate in _view.candidates
+                                 if candidate.observation_id == selected_character.occupied_observation_id), None)
+                label = (f"Assigned to Candidate {assigned.position}" if assigned
+                         else "Candidate Assignment (stored evidence)")
+                layout.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
             else:
-                layout.label(text="Current decision: Not reviewed", icon='INFO')
+                layout.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
         create_row = layout.row(align=True)
         create_row.prop(
             context.window_manager,
@@ -722,6 +1010,12 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         no_valid.operator(
             "blendcap.vta_review_hard_state", text="No Valid Candidate"
         ).decision_kind = "no-valid-candidate"
+        layout.separator()
+        layout.label(text="Sequencer VTA Review Lanes")
+        layout.prop(context.window_manager, "blendcap_vta_lane_scroll", text="First Lane")
+        layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
+        layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
+        _draw_management_actions(layout)
         if not _view.characters:
             layout.label(text="No existing Characters in this VTA project.", icon='INFO')
         if _status:
@@ -730,10 +1024,13 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
 
 classes = (
     BLENDCAP_OT_vta_candidate_select,
+    BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     BLENDCAP_OT_vta_review_hard_state,
     BLENDCAP_OT_vta_review_create_character,
+    BLENDCAP_OT_vta_review_manage,
+    BLENDCAP_MT_vta_review,
     VIEW3D_PT_blendcap_vta_review,
 )
 
@@ -757,14 +1054,27 @@ def register_properties() -> None:
         description="Display name for a new semantic Character",
         default="",
     )
+    bpy.types.WindowManager.blendcap_vta_lane_scroll = bpy.props.IntProperty(
+        name="First Lane", min=0, default=0,
+        description="Scroll VTA-owned Character review lanes without changing VSE channels",
+    )
     _register_preview_tools()
+    _register_timeline_tools()
     vta_overlay.register(overlay_state)
+    vta_timeline_overlay.register(timeline_state)
+    bpy.types.SEQUENCER_MT_context_menu.append(_draw_vta_menu)
+    bpy.types.SEQUENCER_MT_editor_menus.append(_draw_vta_menu)
 
 
 def unregister_properties() -> None:
+    bpy.types.SEQUENCER_MT_editor_menus.remove(_draw_vta_menu)
+    bpy.types.SEQUENCER_MT_context_menu.remove(_draw_vta_menu)
+    vta_timeline_overlay.unregister()
     vta_overlay.unregister()
+    _unregister_timeline_tools()
     _unregister_preview_tools()
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character
     del bpy.types.WindowManager.blendcap_vta_new_character_name
+    del bpy.types.WindowManager.blendcap_vta_lane_scroll

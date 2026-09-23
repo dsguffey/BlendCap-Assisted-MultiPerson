@@ -13,6 +13,11 @@ import importlib
 from pathlib import Path
 from typing import Callable
 
+if __package__:
+    from .blendcap_vta_timeline import present_timeline
+else:  # standalone Blender-independent unit tests
+    from blendcap_vta_timeline import present_timeline
+
 
 class VtaReviewUiError(RuntimeError):
     """The visible review slice cannot safely resolve or apply its context."""
@@ -141,6 +146,8 @@ def confirmation_lines(intent: AssignmentIntent) -> tuple[str, ...]:
             f"Replace {target_name}'s {HARD_STATE_LABELS[intent.current_decision_state]} "
             f"decision with {candidate_name}?"
         )
+    elif intent.current_decision_state in ("visible", "partially-visible"):
+        lines.append(f"Replace {target_name}'s existing candidate assignment with {candidate_name}?")
     return tuple(lines)
 
 
@@ -232,6 +239,11 @@ def present_review(
             item.character_id: item.observation_id
             for item in review.character_assignments
         }
+        occupied_by_character.update({
+            item.character_id: item.observation_id
+            for item in getattr(review, "character_decisions", ())
+            if item.observation_id is not None
+        })
         decisions_by_character = {
             item.character_id: item.state.value
             for item in getattr(review, "character_decisions", ())
@@ -346,7 +358,11 @@ class SelectionState:
         )
         return AssignmentIntent(
             candidate, character, current_character_name, occupied_candidate,
-            character.decision_state if character.decision_state in HARD_STATE_LABELS else None,
+            character.decision_state
+            if character.decision_state in HARD_STATE_LABELS
+            or (character.decision_state in ("visible", "partially-visible")
+                and occupied_candidate is None)
+            else None,
         )
 
     def hard_state_intent(self, view: ReviewView, state: str) -> HardStateIntent | None:
@@ -421,6 +437,40 @@ class PrivateCoreBackend:
         require_dimensions = getattr(source, "require_dimensions", None)
         dimensions = require_dimensions() if callable(require_dimensions) else None
         return present_review(review, dimensions)
+
+    def query_timeline(self, location: ReviewLocation):
+        """Read all authoritative keys once per project change, never per draw."""
+        project, cache, revision_id = self._load_context(location)
+        try:
+            self._core.validate_analysis_cache_registration(project, cache, revision_id)
+            private = self._core.build_review_timeline(project, cache.source.source_id)
+            return present_timeline(private)
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+
+    def prepare_management(self, location: ReviewLocation, action: str, **kwargs):
+        project, cache, revision_id = self._load_context(location)
+        try:
+            self._core.validate_analysis_cache_registration(project, cache, revision_id)
+            return self._core.build_review_management_request(project, action, **kwargs)
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+
+    def apply_management(self, location: ReviewLocation, request, *, confirmed: bool):
+        self._load_context(location)
+        try:
+            receipt = self._core.apply_review_management_and_persist(
+                location.companion_root, request, confirmed=confirmed,
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+        return receipt, self.query(location), self.query_timeline(location)
 
     def apply(
         self,
