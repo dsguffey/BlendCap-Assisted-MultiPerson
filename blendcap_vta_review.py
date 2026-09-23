@@ -38,10 +38,11 @@ class CharacterRow:
     character_id: str
     display_name: str
     occupied_observation_id: str | None
+    decision_state: str | None = None
 
     @property
     def available(self) -> bool:
-        return self.occupied_observation_id is None
+        return self.occupied_observation_id is None and self.decision_state is None
 
 
 @dataclass(frozen=True)
@@ -73,10 +74,49 @@ class AssignmentIntent:
     character: CharacterRow
     current_character_name: str | None
     occupied_candidate: CandidateRow | None
+    current_decision_state: str | None = None
 
     @property
     def requires_confirmation(self) -> bool:
-        return self.current_character_name is not None or self.occupied_candidate is not None
+        return (
+            self.current_character_name is not None
+            or self.occupied_candidate is not None
+            or self.current_decision_state is not None
+        )
+
+
+HARD_STATE_LABELS = {
+    "occluded": "Occluded",
+    "no-valid-candidate": "No Valid Candidate",
+    "not-visible": "Not Visible",
+}
+
+
+@dataclass(frozen=True)
+class HardStateIntent:
+    character: CharacterRow
+    state: str
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return (
+            self.character.decision_state is not None
+            or self.character.occupied_observation_id is not None
+        )
+
+
+def hard_state_confirmation_lines(intent: HardStateIntent) -> tuple[str, ...]:
+    old = intent.character.decision_state
+    prior = (
+        "candidate assignment"
+        if old in ("visible", "partially-visible") or intent.character.occupied_observation_id
+        else HARD_STATE_LABELS.get(old, old)
+    )
+    return (
+        "Replace authoritative review decision?",
+        f"{intent.character.display_name}: {prior} will become {HARD_STATE_LABELS[intent.state]}.",
+        "The previous decision will no longer be authoritative on this frame.",
+    )
 
 
 def confirmation_lines(intent: AssignmentIntent) -> tuple[str, ...]:
@@ -96,6 +136,11 @@ def confirmation_lines(intent: AssignmentIntent) -> tuple[str, ...]:
             f"to {candidate_name}?"
         )
         lines.append(f"{occupied_name} will become unassigned.")
+    if intent.current_decision_state in HARD_STATE_LABELS:
+        lines.append(
+            f"Replace {target_name}'s {HARD_STATE_LABELS[intent.current_decision_state]} "
+            f"decision with {candidate_name}?"
+        )
     return tuple(lines)
 
 
@@ -187,6 +232,10 @@ def present_review(
             item.character_id: item.observation_id
             for item in review.character_assignments
         }
+        decisions_by_character = {
+            item.character_id: item.state.value
+            for item in getattr(review, "character_decisions", ())
+        }
         candidates = tuple(
             CandidateRow(
                 position=index,
@@ -206,6 +255,7 @@ def present_review(
                         character_id=item.character_id,
                         display_name=item.display_name,
                         occupied_observation_id=occupied_by_character.get(item.character_id),
+                        decision_state=decisions_by_character.get(item.character_id),
                     )
                     for item in review.characters
                 ),
@@ -295,8 +345,20 @@ class SelectionState:
             None,
         )
         return AssignmentIntent(
-            candidate, character, current_character_name, occupied_candidate
+            candidate, character, current_character_name, occupied_candidate,
+            character.decision_state if character.decision_state in HARD_STATE_LABELS else None,
         )
+
+    def hard_state_intent(self, view: ReviewView, state: str) -> HardStateIntent | None:
+        if state not in HARD_STATE_LABELS:
+            return None
+        character = next(
+            (item for item in view.characters if item.character_id == self.character_id),
+            None,
+        )
+        if character is None or character.decision_state == state:
+            return None
+        return HardStateIntent(character, state)
 
     def select_character(self, view: ReviewView, character_id: str) -> bool:
         """Select a Character as intent without touching authoritative state."""
@@ -431,6 +493,45 @@ class PrivateCoreBackend:
         try:
             receipt = self._core.apply_confirmed_reassignment_and_persist(
                 location.companion_root, cache, request
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(user_message(exc)) from exc
+            raise
+        return receipt, self.query(location)
+
+    def prepare_hard_state(
+        self, location: ReviewLocation, *, character_id: str, state: str
+    ) -> tuple[object, ReviewView]:
+        """Capture the current authoritative per-Character frame decision."""
+        project, cache, revision_id = self._load_context(location)
+        try:
+            review = self._core.build_frame_review(
+                project, cache,
+                analysis_revision_id=revision_id,
+                frame_index=location.source_frame,
+            )
+            request = self._core.build_hard_frame_decision_request(
+                review, analysis_revision_id=revision_id,
+                character_id=character_id, state=state,
+            )
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core"):
+                raise VtaReviewUiError(user_message(exc)) from exc
+            raise
+        source = getattr(cache, "source", None)
+        require_dimensions = getattr(source, "require_dimensions", None)
+        dimensions = require_dimensions() if callable(require_dimensions) else None
+        return request, present_review(review, dimensions)
+
+    def apply_hard_state(
+        self, location: ReviewLocation, request: object, *, confirmed: bool
+    ) -> tuple[object, ReviewView]:
+        """Persist via private authority, then reload the canonical review."""
+        _project, cache, _revision_id = self._load_context(location)
+        try:
+            receipt = self._core.apply_hard_frame_decision_and_persist(
+                location.companion_root, cache, request, confirmed=confirmed
             )
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):

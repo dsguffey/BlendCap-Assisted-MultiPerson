@@ -11,9 +11,11 @@ from ..blendcap_vta_review import (
     ReviewLocation,
     SelectionState,
     VtaReviewUiError,
+    HARD_STATE_LABELS,
     character_name_exists,
     companion_root_for_blend,
     confirmation_lines,
+    hard_state_confirmation_lines,
     map_vse_frame_to_source,
     user_message,
 )
@@ -168,7 +170,11 @@ def _rebuild_enum_items() -> None:
     _character_enum_items.extend(
         (
             row.character_id,
-            row.display_name + (" (occupied)" if not row.available else ""),
+            row.display_name + (
+                f" ({HARD_STATE_LABELS[row.decision_state]})"
+                if row.decision_state in HARD_STATE_LABELS
+                else " (occupied)" if not row.available else ""
+            ),
             row.character_id,
         )
         for row in _view.characters
@@ -493,6 +499,115 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
+    bl_idname = "blendcap.vta_review_hard_state"
+    bl_label = "Mark Review State"
+    bl_description = "Persist an explicit per-Character decision without assigning a candidate"
+
+    decision_kind: bpy.props.EnumProperty(
+        name="Decision",
+        items=(
+            ('occluded', "Occluded", "Present but not independently observable"),
+            ('no-valid-candidate', "No Valid Candidate", "No trustworthy detector box"),
+            ('not-visible', "Not Visible", "Character is not visible on this frame"),
+        ),
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            _view is not None
+            and _location is not None
+            and _selection.character_id in {item.character_id for item in _view.characters}
+        )
+
+    def invoke(self, context, _event):
+        global _view, _status, _status_is_error
+        self._confirmed_request = None
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        intent = _selection.hard_state_intent(_view, self.decision_kind)
+        if intent is None:
+            self.report({'INFO'}, "This Character already has that decision or is unavailable.")
+            return {'CANCELLED'}
+        try:
+            request, current_view = _get_backend(context).prepare_hard_state(
+                _location, character_id=_selection.character_id,
+                state=self.decision_kind,
+            )
+            current_intent = _selection.hard_state_intent(current_view, self.decision_kind)
+            if (
+                current_intent is None
+                or current_intent.requires_confirmation != request.requires_confirmation
+            ):
+                raise VtaReviewUiError("The review decision changed. Refresh and select again.")
+            _view = current_view
+            _rebuild_enum_items()
+            _sync_properties(context)
+            if not request.requires_confirmation:
+                return self.execute(context)
+            self._confirmed_request = request
+            self._confirmation_location = _location
+            self._confirmation_lines = hard_state_confirmation_lines(current_intent)
+            return context.window_manager.invoke_props_dialog(
+                self, width=460, confirm_text="Replace Decision"
+            )
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+    def draw(self, _context):
+        for line in getattr(self, "_confirmation_lines", ()):
+            self.layout.label(text=line)
+
+    def execute(self, context):
+        global _view, _status, _status_is_error
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+        intent = _selection.hard_state_intent(_view, self.decision_kind)
+        if intent is None or _location is None:
+            self.report({'INFO'}, "This Character already has that decision or is unavailable.")
+            return {'CANCELLED'}
+        try:
+            request = getattr(self, "_confirmed_request", None)
+            if request is None:
+                request, _current_view = _get_backend(context).prepare_hard_state(
+                    _location, character_id=_selection.character_id,
+                    state=self.decision_kind,
+                )
+                if request.requires_confirmation:
+                    raise VtaReviewUiError("Use the review button to confirm replacing existing truth.")
+                confirmed = False
+            else:
+                if (
+                    _location != getattr(self, "_confirmation_location", None)
+                    or request.character_id != _selection.character_id
+                    or request.state.value != self.decision_kind
+                ):
+                    raise VtaReviewUiError("The review selection changed during confirmation.")
+                confirmed = True
+            _receipt, refreshed = _get_backend(context).apply_hard_state(
+                _location, request, confirmed=confirmed
+            )
+            _view = refreshed
+            _selection.accept_review(refreshed)
+            _rebuild_enum_items()
+            _sync_properties(context)
+            _status = f"Recorded {HARD_STATE_LABELS[self.decision_kind]} for the selected Character."
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
 class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_create_character"
     bl_label = "Create Character"
@@ -570,6 +685,18 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                 )
         layout.prop(context.window_manager, "blendcap_vta_candidate", text="Candidate")
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
+        selected_character = next(
+            (item for item in _view.characters if item.character_id == _selection.character_id),
+            None,
+        )
+        if selected_character is not None:
+            state = selected_character.decision_state
+            if state in HARD_STATE_LABELS:
+                layout.label(text=f"Current decision: {HARD_STATE_LABELS[state]}", icon='INFO')
+            elif state in ('visible', 'partially-visible'):
+                layout.label(text="Current decision: Candidate assigned", icon='INFO')
+            else:
+                layout.label(text="Current decision: Not reviewed", icon='INFO')
         create_row = layout.row(align=True)
         create_row.prop(
             context.window_manager,
@@ -584,6 +711,17 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         assign = row.row(align=True)
         assign.enabled = _selection.can_assign(_view)
         assign.operator("blendcap.vta_review_assign", text="Assign", icon='CHECKMARK')
+        layout.label(text="Mark selected Character on this frame:")
+        hard_row = layout.row(align=True)
+        for kind, label in (("occluded", "Occluded"), ("not-visible", "Not Visible")):
+            choice = hard_row.row(align=True)
+            choice.enabled = _selection.hard_state_intent(_view, kind) is not None
+            choice.operator("blendcap.vta_review_hard_state", text=label).decision_kind = kind
+        no_valid = layout.row(align=True)
+        no_valid.enabled = _selection.hard_state_intent(_view, "no-valid-candidate") is not None
+        no_valid.operator(
+            "blendcap.vta_review_hard_state", text="No Valid Candidate"
+        ).decision_kind = "no-valid-candidate"
         if not _view.characters:
             layout.label(text="No existing Characters in this VTA project.", icon='INFO')
         if _status:
@@ -594,6 +732,7 @@ classes = (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
+    BLENDCAP_OT_vta_review_hard_state,
     BLENDCAP_OT_vta_review_create_character,
     VIEW3D_PT_blendcap_vta_review,
 )

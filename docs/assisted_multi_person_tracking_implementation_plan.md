@@ -39,6 +39,16 @@ unchanged candidate-to-Character selection is a no-op. There is no required
 Unassign-first step. Live visual QA on a disposable fixture confirmed creation,
 conflict cancellation, confirmed reassignment, ordinary assignment, and
 canonical reload without saving the `.blend` file.
+The current-frame panel now also offers explicit Occluded, No Valid Candidate,
+and Not Visible decisions for a selected Character, including frames without
+usable detections. Private schema-0.5 Identity Keyframes store these as user
+authority with no CandidateEvidence; absence of a keyframe still means no
+authoritative review decision. Replacing any prior user decision requires a
+confirmation, while an untouched Character can be marked directly. Later
+explicit Assign creates a durable candidate-bearing reacquisition keyframe.
+These hard decisions and anchors bound future tracking through the existing
+tracking-scope contract; no automatic reacquisition was added. Live GUI QA of
+the new controls remains a manual user check.
 The Preview tool is registered as its own visible toolbar group. Broader VTA UI
 reorganization and Character rename/delete remain deferred.
 

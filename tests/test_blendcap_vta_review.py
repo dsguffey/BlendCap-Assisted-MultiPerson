@@ -47,6 +47,14 @@ class Assignment:
 
 
 @dataclass(frozen=True)
+class Decision:
+    character_id: str
+    keyframe_id: str
+    state: object
+    observation_id: str | None = None
+
+
+@dataclass(frozen=True)
 class Review:
     analysis_revision_id: str = "revision-1"
     source_id: str = "source-1"
@@ -61,9 +69,51 @@ class Review:
         Character("character-black", "Black"),
     )
     character_assignments: tuple = ()
+    character_decisions: tuple = ()
 
 
 class ReviewPresentationTests(unittest.TestCase):
+    def test_hard_state_projection_is_distinct_from_unreviewed_and_candidate_occupancy(self):
+        occluded = Review(
+            character_decisions=(Decision("character-red", "hard-1", SimpleNamespace(value="occluded")),),
+        )
+        view = review_ui.present_review(occluded)
+        red = next(item for item in view.characters if item.character_id == "character-red")
+        black = next(item for item in view.characters if item.character_id == "character-black")
+        self.assertEqual(red.decision_state, "occluded")
+        self.assertIsNone(red.occupied_observation_id)
+        self.assertIsNone(black.decision_state)
+        self.assertTrue(all(item.assigned_character_id is None for item in view.candidates))
+        selection = review_ui.SelectionState()
+        self.assertTrue(selection.select_character(view, "character-red"))
+        self.assertIsNone(selection.hard_state_intent(view, "occluded"))
+        intent = selection.hard_state_intent(view, "not-visible")
+        self.assertTrue(intent.requires_confirmation)
+        self.assertIn("Occluded", " ".join(review_ui.hard_state_confirmation_lines(intent)))
+
+    def test_reacquisition_from_hard_state_requires_confirmed_assign(self):
+        view = review_ui.present_review(Review(
+            character_decisions=(Decision("character-red", "hard-1", SimpleNamespace(value="no-valid-candidate")),),
+        ))
+        selection = review_ui.SelectionState()
+        self.assertTrue(selection.select_character(view, "character-red"))
+        self.assertTrue(selection.select_observation(view, "observation-a"))
+        intent = selection.assignment_intent(view)
+        self.assertTrue(intent.requires_confirmation)
+        self.assertIn("No Valid Candidate", " ".join(review_ui.confirmation_lines(intent)))
+
+    def test_hard_state_operator_is_drawn_and_registered(self):
+        root = Path(__file__).resolve().parents[1]
+        ui = ast.parse((root / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8"))
+        registration = ast.parse((root / "blendcap" / "registration.py").read_text(encoding="utf-8"))
+        panel = next(item for item in ui.body if isinstance(item, ast.ClassDef) and item.name == "VIEW3D_PT_blendcap_vta_review")
+        draw = next(item for item in panel.body if isinstance(item, ast.FunctionDef) and item.name == "draw")
+        calls = [item for item in ast.walk(draw) if isinstance(item, ast.Call) and isinstance(item.func, ast.Attribute) and item.func.attr == "operator"]
+        self.assertIn("blendcap.vta_review_hard_state", [item.args[0].value for item in calls if item.args and isinstance(item.args[0], ast.Constant)])
+        imports = [item for item in registration.body if isinstance(item, ast.ImportFrom) and item.module == "vta_review_ui"]
+        self.assertIn("BLENDCAP_OT_vta_review_hard_state", {alias.name for item in imports for alias in item.names})
+        self.assertIn("BLENDCAP_OT_vta_review_hard_state", {item.id for item in ast.walk(registration) if isinstance(item, ast.Name)})
+
     def test_new_character_selection_does_not_select_or_assign_candidate(self):
         view = review_ui.present_review(Review(characters=(Character("new-id", "Wrestler A"),)))
         selection = review_ui.SelectionState()
@@ -560,6 +610,107 @@ class BlenderAssignOperatorTests(unittest.TestCase):
                 return panel_ui.BLENDCAP_OT_vta_review_assign.execute(self, context)
 
         return OperatorDouble()
+
+    def _hard_operator(self, kind="occluded"):
+        panel_ui = self.panel_ui
+
+        class OperatorDouble:
+            decision_kind = kind
+
+            def __init__(self):
+                self.messages = []
+
+            def report(self, level, message):
+                self.messages.append((level, message))
+
+            def execute(self, context):
+                return panel_ui.BLENDCAP_OT_vta_review_hard_state.execute(self, context)
+
+        return OperatorDouble()
+
+    def test_hard_state_conflict_cancel_confirm_and_direct_bypass(self):
+        occupied = review_ui.present_review(Review(
+            candidates=(Candidate("revision-1", "observation-a", assigned_character_id="character-red"),),
+            character_assignments=(Assignment("character-red", "observation-a"),),
+            character_decisions=(Decision("character-red", "old-key", SimpleNamespace(value="visible"), "observation-a"),),
+        ))
+        changed = review_ui.present_review(Review(
+            character_decisions=(Decision("character-red", "hard-key", SimpleNamespace(value="occluded")),),
+        ))
+        self.panel_ui._view = occupied
+        self.selection.accept_review(occupied)
+        self.selection.character_id = "character-red"
+        calls = []
+        request = SimpleNamespace(
+            character_id="character-red", state=SimpleNamespace(value="occluded"),
+            requires_confirmation=True,
+        )
+
+        class Backend:
+            def prepare_hard_state(_self, *_args, **_kwargs):
+                calls.append("prepare")
+                return request, occupied
+
+            def apply_hard_state(_self, *_args, **kwargs):
+                calls.append(("apply", kwargs["confirmed"]))
+                return object(), changed
+
+        with mock.patch.object(self.panel_ui, "_get_backend", return_value=Backend()):
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_hard_state.execute(self._hard_operator(), self.context),
+                {'CANCELLED'},
+            )
+            self.assertEqual(calls, ["prepare"])
+            cancelled = self._hard_operator()
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_hard_state.invoke(cancelled, self.context, None),
+                {'RUNNING_MODAL'},
+            )
+            self.assertEqual(self.dialogs[-1]["confirm_text"], "Replace Decision")
+            self.assertEqual(calls, ["prepare", "prepare"])
+            # Blender Cancel never calls execute: no authoritative apply occurs.
+            confirmed = self._hard_operator()
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_hard_state.invoke(confirmed, self.context, None),
+                {'RUNNING_MODAL'},
+            )
+            self.assertEqual(
+                self.panel_ui.BLENDCAP_OT_vta_review_hard_state.execute(confirmed, self.context),
+                {'FINISHED'},
+            )
+        self.assertEqual(calls, ["prepare", "prepare", "prepare", ("apply", True)])
+        self.assertEqual(self.panel_ui._view, changed)
+
+    def test_vacant_hard_state_applies_without_dialog(self):
+        available = review_ui.present_review(Review())
+        changed = review_ui.present_review(Review(
+            character_decisions=(Decision("character-red", "hard-key", SimpleNamespace(value="no-valid-candidate")),),
+        ))
+        self.panel_ui._view = available
+        self.selection.accept_review(available)
+        self.selection.character_id = "character-red"
+        calls = []
+        request = SimpleNamespace(
+            character_id="character-red", state=SimpleNamespace(value="no-valid-candidate"),
+            requires_confirmation=False,
+        )
+
+        class Backend:
+            def prepare_hard_state(_self, *_args, **_kwargs):
+                calls.append("prepare")
+                return request, available
+
+            def apply_hard_state(_self, *_args, **kwargs):
+                calls.append(("apply", kwargs["confirmed"]))
+                return object(), changed
+
+        with mock.patch.object(self.panel_ui, "_get_backend", return_value=Backend()):
+            result = self.panel_ui.BLENDCAP_OT_vta_review_hard_state.invoke(
+                self._hard_operator("no-valid-candidate"), self.context, None
+            )
+        self.assertEqual(result, {'FINISHED'})
+        self.assertEqual(calls, ["prepare", "prepare", ("apply", False)])
+        self.assertEqual(self.dialogs, [])
 
     def test_conflict_dialog_cancel_and_confirm_use_one_authoritative_call(self):
         occupied = review_ui.present_review(
