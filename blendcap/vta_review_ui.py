@@ -27,10 +27,15 @@ from ..blendcap_vta_review import (
     user_message,
 )
 from ..blendcap_vta_runtime import discover_vta_core
+from ..blendcap_vta_analysis_runtime import (
+    AnalysisRuntimeUnavailable, resolve_analysis_runtime,
+)
 from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, key_at
 from . import vta_overlay, vta_timeline_overlay
-from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end, addon_prefs
+from .helpers import (
+    _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
+)
 
 
 _selection = SelectionState()
@@ -208,22 +213,20 @@ def _analysis_timer():
 
 def _configured_analysis_paths(context):
     prefs = addon_prefs(context)
-    if prefs is None:
-        raise VtaReviewUiError("BlendCap preferences are unavailable.")
-    values = (
-        ("analysis Python", getattr(prefs, "vta_analysis_python", ""), True),
-        ("SAM3 source", getattr(prefs, "vta_kinesia_root", ""), False),
-        ("SAM3 checkpoint", getattr(prefs, "vta_sam3_checkpoint", ""), True),
-    )
-    paths = []
-    for label, raw, is_file in values:
-        path = Path(bpy.path.abspath(raw)).resolve() if raw else None
-        if path is None or not (path.is_file() if is_file else path.is_dir()):
-            raise VtaReviewUiError(f"Configure an existing {label} in BlendCap preferences.")
-        paths.append(path)
-    if not (paths[1] / "src" / "sam_3d_pose_estimation" / "stream_detector.py").is_file():
-        raise VtaReviewUiError("SAM3 source is not the evaluated Kinesia checkout.")
-    return paths
+    def preference_path(name):
+        value = getattr(prefs, name, "") if prefs is not None else ""
+        return bpy.path.abspath(value) if value else ""
+
+    try:
+        runtime = resolve_analysis_runtime(
+            _backend_root, Path(_python_exe()),
+            configured_python=preference_path("vta_analysis_python"),
+            configured_source=preference_path("vta_kinesia_root"),
+            configured_checkpoint=preference_path("vta_sam3_checkpoint"),
+        )
+    except AnalysisRuntimeUnavailable as exc:
+        raise VtaReviewUiError(str(exc)) from exc
+    return runtime.python, runtime.source, runtime.checkpoint
 
 
 class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
@@ -1316,9 +1319,12 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
         layout.prop(wm, "blendcap_vta_analyze_scope", text="Coverage")
         if wm.blendcap_vta_analyze_scope == 'RANGE':
             row = layout.row(align=True)
-            row.prop(wm, "blendcap_vta_analyze_start", text="From")
-            row.prop(wm, "blendcap_vta_analyze_end", text="To")
+            row.prop(wm, "blendcap_vta_analyze_start", text="Start Frame")
+            row.prop(wm, "blendcap_vta_analyze_end", text="End Frame")
         layout.operator("blendcap.vta_analyze", text="Analyze Candidates", icon='VIEWZOOM')
+        if _status_is_error and "Analysis environment unavailable" in _status:
+            layout.label(text="CUDA SAM3 runtime unavailable", icon='ERROR')
+            layout.operator("screen.userpref_show", text="Open BlendCap Preferences")
         root = _location.companion_root if _location is not None else None
         status = _analysis_status_for(
             root, _view.source_id if _view else None
@@ -1502,7 +1508,7 @@ def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_analyze_scope = bpy.props.EnumProperty(
         name="Analyze Coverage", items=(
             ('WHOLE', "Whole Source", "Analyze all missing source frames"),
-            ('RANGE', "Source Frame Range", "Analyze missing frames in an inclusive range"),
+            ('RANGE', "Frame Range", "Analyze missing frames in an inclusive source-frame range"),
         ), default='WHOLE',
     )
     bpy.types.WindowManager.blendcap_vta_analyze_start = bpy.props.IntProperty(

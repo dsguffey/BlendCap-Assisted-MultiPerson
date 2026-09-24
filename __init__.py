@@ -222,7 +222,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         description="Folder containing the separately installed Video to Animation Core")
     vta_analysis_python: bpy.props.StringProperty(  # type: ignore
         name="VTA Analysis Python", subtype='FILE_PATH', default="",
-        description="Python executable in the existing CUDA SAM3 environment")
+        description="Fallback Python executable when the evaluated CUDA SAM3 environment is not discoverable")
     vta_kinesia_root: bpy.props.StringProperty(  # type: ignore
         name="VTA SAM3 Source", subtype='DIR_PATH', default="",
         description="Existing evaluated Kinesia source checkout; no files are installed")
@@ -480,7 +480,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         box.prop(self, "vta_core_location")
         box.label(text="Leave blank to use an installed default when available.")
         box.separator()
-        box.label(text="Optional SAM3 Analyze runtime (existing files only):")
+        box.label(text="SAM3 Analyze fallback (auto-detected when available):")
         box.prop(self, "vta_analysis_python")
         box.prop(self, "vta_kinesia_root")
         box.prop(self, "vta_sam3_checkpoint")

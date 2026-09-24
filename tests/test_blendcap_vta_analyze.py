@@ -175,7 +175,17 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         addon = importlib.util.module_from_spec(spec)
         sys.modules[package] = addon
         spec.loader.exec_module(addon)
+        cls.addon = addon
         cls.ui = sys.modules[package + ".blendcap.vta_review_ui"]
+
+    def test_range_enum_exposes_frame_units(self):
+        self.addon.register()
+        try:
+            property_rna = bpy.types.WindowManager.bl_rna.properties[
+                "blendcap_vta_analyze_scope"]
+            self.assertEqual(property_rna.enum_items['RANGE'].name, "Frame Range")
+        finally:
+            self.addon.unregister()
 
     def test_analysis_timer_redraws_progress_and_completion(self):
         ui = self.ui
@@ -190,6 +200,76 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
             self.assertIsNone(ui._analysis_timer())
             self.assertIsNone(ui._analysis_process)
         self.assertEqual(area.tag_redraw.call_count, 2)
+
+    def test_ui_uses_resolved_runtime_and_reports_missing_environment(self):
+        ui = self.ui
+        root = Path("C:/private-core")
+        runtime = SimpleNamespace(python=Path("C:/cuda/python.exe"),
+                                  source=Path("C:/sam3/source"),
+                                  checkpoint=Path("C:/sam3/sam3.pt"))
+        prefs = SimpleNamespace(vta_analysis_python="", vta_kinesia_root="",
+                                vta_sam3_checkpoint="")
+        with mock.patch.object(ui, "addon_prefs", return_value=prefs), \
+             mock.patch.object(ui, "_backend_root", root), \
+             mock.patch.object(ui, "_python_exe", return_value="C:/blendcap/python.exe"), \
+             mock.patch.object(ui, "resolve_analysis_runtime", return_value=runtime) as resolve:
+            self.assertEqual(ui._configured_analysis_paths(None),
+                             (runtime.python, runtime.source, runtime.checkpoint))
+            self.assertEqual(resolve.call_args.args,
+                             (root, Path("C:/blendcap/python.exe")))
+            self.assertEqual(resolve.call_args.kwargs["configured_python"], "")
+        with mock.patch.object(ui, "addon_prefs", return_value=None), \
+             mock.patch.object(ui, "_backend_root", root), \
+             mock.patch.object(ui, "resolve_analysis_runtime", return_value=runtime):
+            self.assertEqual(ui._configured_analysis_paths(None)[0], runtime.python)
+        with mock.patch.object(ui, "addon_prefs", return_value=prefs), \
+             mock.patch.object(ui, "_backend_root", root), \
+             mock.patch.object(ui, "resolve_analysis_runtime", side_effect=
+                               ui.AnalysisRuntimeUnavailable("Analysis environment unavailable. "
+                                   "Open BlendCap Preferences → Video to Animation.")):
+            with self.assertRaisesRegex(ui.VtaReviewUiError,
+                                        "Analysis environment unavailable.*BlendCap Preferences"):
+                ui._configured_analysis_paths(None)
+
+    def test_analyze_panel_uses_frame_units_and_offers_configuration_on_failure(self):
+        ui = self.ui
+        layout = mock.Mock()
+        wm = SimpleNamespace(blendcap_vta_analyze_scope='RANGE')
+        context = SimpleNamespace(window_manager=wm)
+        panel = SimpleNamespace(layout=layout)
+        with mock.patch.object(ui, "_location", None), \
+             mock.patch.object(ui, "_view", None), \
+             mock.patch.object(ui, "_status_is_error", True), \
+             mock.patch.object(ui, "_status", "Analysis environment unavailable"):
+            ui.VIEW3D_PT_blendcap_vta_analyze.draw(panel, context)
+        self.assertEqual(layout.row.return_value.prop.call_args_list, [
+            mock.call(wm, "blendcap_vta_analyze_start", text="Start Frame"),
+            mock.call(wm, "blendcap_vta_analyze_end", text="End Frame"),
+        ])
+        layout.operator.assert_any_call("screen.userpref_show",
+                                        text="Open BlendCap Preferences")
+
+    def test_missing_runtime_cancels_without_launch_or_tracking(self):
+        ui = self.ui
+        root = Path("C:/project")
+        context = SimpleNamespace(window_manager=SimpleNamespace(
+            blendcap_vta_analyze_scope='WHOLE'))
+        operator = SimpleNamespace(report=mock.Mock())
+        backend = SimpleNamespace(update_tracking=mock.Mock())
+        with mock.patch.object(ui, "_analysis_process", None), \
+             mock.patch.object(ui, "_location_from_context", return_value=
+                               SimpleNamespace(companion_root=root)), \
+             mock.patch.object(ui, "_get_backend", return_value=backend), \
+             mock.patch.object(ui, "_backend_root", root), \
+             mock.patch.object(ui, "_configured_analysis_paths", side_effect=
+                               ui.VtaReviewUiError("Analysis environment unavailable. "
+                                   "Open BlendCap Preferences → Video to Animation.")), \
+             mock.patch.object(ui.subprocess, "Popen") as popen:
+            self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
+                             {'CANCELLED'})
+        popen.assert_not_called()
+        backend.update_tracking.assert_not_called()
+        self.assertIn("Analysis environment unavailable", operator.report.call_args.args[1])
 
     def test_whole_and_range_operator_commands_are_external_and_statusful(self):
         ui = self.ui

@@ -301,8 +301,11 @@ reacquisition.
 The public add-on offers **Analyze Candidates** in a native collapsible Analyze
 subpanel and the Sequencer's existing VTA Commands menu. The default covers
 the complete project SourceReference; an inclusive source-frame range is also
-available. The worker runs in an explicitly configured, existing CUDA Python
-environment, using the private core's SAM3 provider, source preflight,
+available. The resolver first reads the existing evaluated-installation
+manifests beside the private core, verifies the recorded CUDA Python with an
+offline SAM3 import probe, and launches that environment automatically. A
+verified BlendCap venv or explicit preferences remain fallbacks; no arbitrary
+system Python is selected. The worker uses the private core's SAM3 provider, source preflight,
 checkpoint/resume, and range/whole-source executors. It fills only missing
 frames in the active analysis revision and refuses an incompatible provider;
 new projects without an active revision get one new, explicit cache revision.
