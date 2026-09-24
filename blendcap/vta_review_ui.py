@@ -22,9 +22,11 @@ from ..blendcap_vta_review import (
     confirmation_lines,
     hard_state_confirmation_lines,
     map_vse_frame_to_source,
+    map_visible_analysis_range,
     tracking_update_error,
     tracking_update_success,
     user_message,
+    visible_frame,
 )
 from ..blendcap_vta_runtime import discover_vta_core
 from ..blendcap_vta_analysis_runtime import (
@@ -52,6 +54,11 @@ _timeline = None
 _timeline_identity = None
 _review_key_selection = ReviewKeySelection()
 _analysis_process = None
+_analysis_progress_started = False
+_analysis_root = None
+_analysis_total = 0
+_analysis_start = None
+_analysis_end = None
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
@@ -85,7 +92,9 @@ def _get_backend(context, *, force: bool = False):
 
 
 def _location_from_context(context) -> ReviewLocation:
-    scene = context.scene
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        raise VtaReviewUiError("Open a Blender scene with a selected movie strip.")
     props = scene.blendcap_props
     if props.video_source != 'VSE':
         raise VtaReviewUiError(
@@ -189,25 +198,64 @@ def _analysis_status_for(root: Path, source_id: str | None = None) -> dict | Non
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict) or value.get("version") != 1:
             return None
-        if source_id is not None and value.get("source_id") != source_id:
+        if source_id is not None and value.get("source_id") not in (None, source_id):
             return None
         return value
     except (OSError, ValueError):
         return None
 
 
+def _analysis_locked(root: Path | None = None) -> bool:
+    """One conservative VTA mutation lock, including an external worker."""
+    if _analysis_process is not None and _analysis_process.poll() is None:
+        return True
+    active_root = root or getattr(_location, "companion_root", None)
+    return bool(active_root is not None and
+                (active_root / "analysis" / "vta-analysis.lock").exists())
+
+
+def _require_analysis_idle() -> None:
+    if _analysis_locked():
+        raise VtaReviewUiError("Unavailable while candidate analysis is running.")
+
+
+def _edit_available(operator) -> bool:
+    try:
+        _require_analysis_idle()
+        return True
+    except VtaReviewUiError as exc:
+        operator.report({'ERROR'}, str(exc))
+        return False
+
+
 def _analysis_timer():
     """Redraw persistent progress while the worker owns durable checkpoints."""
-    global _analysis_process
+    global _analysis_process, _analysis_progress_started, _cache_signature
     process = _analysis_process
     if process is None:
         return None
+    manager = bpy.context.window_manager
+    status = _analysis_status_for(_analysis_root) if _analysis_root is not None else None
+    if _analysis_progress_started and status is not None:
+        count = status.get("completed_in_requested_range")
+        if isinstance(count, int):
+            try:
+                manager.progress_update(max(0, min(count, _analysis_total)))
+            except RuntimeError:
+                pass
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
     if process.poll() is None:
         return 0.5
     _analysis_process = None
+    _cache_signature = None  # force a fresh candidate projection after final checkpoint
+    if _analysis_progress_started:
+        try:
+            manager.progress_end()
+        except RuntimeError:
+            pass
+        _analysis_progress_started = False
     return None
 
 
@@ -232,26 +280,32 @@ def _configured_analysis_paths(context):
 class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
     bl_idname = "blendcap.vta_analyze"
     bl_label = "Analyze Candidates"
-    bl_description = "Analyze missing source frames with the existing offline SAM3 provider"
+    bl_description = "Analyze missing video frames with the existing offline SAM3 provider"
 
     def execute(self, context):
-        global _analysis_process, _status, _status_is_error
+        global _analysis_process, _analysis_progress_started, _analysis_root, _analysis_total
+        global _analysis_start, _analysis_end
+        global _status, _status_is_error
         try:
-            if _analysis_process is not None and _analysis_process.poll() is None:
-                raise VtaReviewUiError("Candidate analysis is already running.")
             location = _location_from_context(context)
-            _get_backend(context)
+            if _analysis_locked(location.companion_root):
+                raise VtaReviewUiError("Unavailable while candidate analysis is running.")
+            backend = _get_backend(context)
             source_root = _backend_root
             if source_root is None:
                 raise VtaReviewUiError("Configure the private VTA core location.")
+            first_source, last_source = backend.source_coverage(location)
+            scope = context.window_manager.blendcap_vta_analyze_scope
+            if scope == 'RANGE':
+                start, end = map_visible_analysis_range(
+                    location, first_source, last_source,
+                    context.window_manager.blendcap_vta_analyze_start,
+                    context.window_manager.blendcap_vta_analyze_end,
+                )
+            else:
+                start, end = first_source, last_source
             python, kinesia, checkpoint = _configured_analysis_paths(context)
             root = location.companion_root
-            status = _analysis_status_for(root, _view.source_id if _view else None)
-            if status and status.get("state") in {"analyzing", "starting", "running"}:
-                lock = root / "analysis" / "vta-analysis.lock"
-                if lock.exists():
-                    raise VtaReviewUiError("Analysis may already be running; inspect its status.")
-            scope = context.window_manager.blendcap_vta_analyze_scope
             command = [
                 str(python), str(Path(__file__).resolve().parents[1] /
                                  "blendcap_vta_analyze_worker.py"),
@@ -260,11 +314,6 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
                 "--video", str(location.source_path),
             ]
             if scope == 'RANGE':
-                start = context.window_manager.blendcap_vta_analyze_start
-                end = context.window_manager.blendcap_vta_analyze_end
-                # The worker validates both endpoints against SourceReference.
-                if end < start:
-                    raise VtaReviewUiError("The analysis range ends before it starts.")
                 command += ["--start", str(start), "--end", str(end)]
             log_path = root / "analysis" / "vta-analysis.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -276,9 +325,20 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
                     cwd=str(Path(__file__).resolve().parents[1]), env=env,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
+            _analysis_root = root
+            _analysis_total = end - start + 1
+            _analysis_start, _analysis_end = start, end
+            manager = context.window_manager
+            if hasattr(manager, "progress_begin"):
+                try:
+                    manager.progress_begin(0, _analysis_total)
+                    _analysis_progress_started = True
+                except RuntimeError:
+                    _analysis_progress_started = False
             if not bpy.app.timers.is_registered(_analysis_timer):
                 bpy.app.timers.register(_analysis_timer, first_interval=0.5)
-            _status = "Candidate analysis started; checkpoints and status update per frame."
+            _status = (f"Analyzing Blender frames {visible_frame(location, start)}–"
+                       f"{visible_frame(location, end)} (inclusive).")
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -291,17 +351,17 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
 
 class BLENDCAP_OT_vta_analyze_stop(bpy.types.Operator):
     bl_idname = "blendcap.vta_analyze_stop"
-    bl_label = "Stop After Current Frame"
-    bl_description = "Request a safe stop before the next missing frame; checkpoints remain"
+    bl_label = "Cancel Analysis"
+    bl_description = "Cancel between frames; completed candidate checkpoints remain valid"
 
     def execute(self, context):
         try:
             root = _location_from_context(context).companion_root
             status = _analysis_status_for(root, _view.source_id if _view else None)
-            if status is None or status.get("state") not in {"analyzing", "starting", "running"}:
+            if status is None or status.get("state") not in {"analyzing", "running"}:
                 raise VtaReviewUiError("No candidate analysis is running for this source.")
             (root / "analysis" / STOP_NAME).write_text("stop\n", encoding="utf-8")
-            self.report({'INFO'}, "Stop requested after the current frame checkpoint.")
+            self.report({'INFO'}, "Cancel requested; completed frame checkpoints will remain.")
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'}, user_message(exc))
@@ -587,10 +647,13 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return _view is not None and _selection.can_assign(_view) and _location is not None
+        return (not _analysis_locked() and _view is not None
+                and _selection.can_assign(_view) and _location is not None)
 
     def invoke(self, context, _event):
         global _view, _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         self._confirmed_request = None
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
@@ -635,6 +698,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
 
     def execute(self, context):
         global _view, _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
@@ -703,13 +768,16 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (
-            _view is not None
+            not _analysis_locked()
+            and _view is not None
             and _location is not None
             and _selection.character_id in {item.character_id for item in _view.characters}
         )
 
     def invoke(self, context, _event):
         global _view, _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         self._confirmed_request = None
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
@@ -752,6 +820,8 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
 
     def execute(self, context):
         global _view, _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
@@ -800,8 +870,14 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
     bl_label = "Create Character"
     bl_description = "Create and persist a semantic Character in the VTA project"
 
+    @classmethod
+    def poll(cls, _context):
+        return not _analysis_locked()
+
     def execute(self, context):
         global _view, _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
@@ -1015,7 +1091,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
 
     @classmethod
     def poll(cls, _context):
-        return _view is not None and _location is not None
+        return not _analysis_locked() and _view is not None and _location is not None
 
     def _arguments(self):
         if self.action == "clear-assignment":
@@ -1036,6 +1112,8 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
 
     def invoke(self, context, _event):
         global _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         self._pending_request = None
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
@@ -1087,6 +1165,8 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
 
     def execute(self, context):
         global _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         request = getattr(self, "_pending_request", None)
         if request is None or getattr(self, "_pending_location", None) is None:
             self.report({'ERROR'}, "Use the confirmation dialog for review management.")
@@ -1133,6 +1213,10 @@ def _action_availability():
     frame_has_key = bool(_view and _timeline and any(
         key.source_frame == _view.source_frame for key in _timeline.keys
     ))
+    if _analysis_locked():
+        return {action: False for action, _label, _description in _MANAGEMENT_ACTIONS} | {
+            "update-tracking": False,
+        }
     return {
         "clear-assignment": bool(character and character.occupied_observation_id),
         "clear-review-key": len(selected_keys) == 1,
@@ -1182,7 +1266,9 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         _draw_select_review_keys(layout, context)
-        layout.operator("blendcap.vta_analyze", text="Analyze Candidates")
+        analyze = layout.row()
+        analyze.enabled = not _analysis_locked()
+        analyze.operator("blendcap.vta_analyze", text="Analyze Candidates")
         if not refresh(context):
             layout.label(text="VTA review unavailable", icon='INFO')
             return
@@ -1256,6 +1342,8 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
     def execute(self, context):
         global _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
         try:
             location = _location_from_context(context)
             if not _selection.character_id:
@@ -1268,7 +1356,9 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
                 _status_is_error = True
                 self.report({'WARNING'}, _status)
                 return {'FINISHED'}
-            _status = tracking_update_success(result)
+            _status = tracking_update_success(
+                result, frame_offset=location.blender_frame - location.source_frame,
+            )
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -1294,12 +1384,17 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         refresh(context)
         layout = self.layout
         if _location is not None:
-            layout.label(text=f"Source frame {_location.source_frame}")
+            layout.label(text=f"Blender frame {_location.blender_frame}")
         if _view is None:
             layout.label(text=_status or "Review unavailable", icon='ERROR')
             layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
         else:
-            layout.label(text=f"Current frame: {_view.state_label}")
+            if _view.state == 'analyzed-empty':
+                layout.label(text="Current frame: Analyzed, 0 candidates")
+            elif _view.state == 'analyzed-with-candidates':
+                layout.label(text=f"Current frame: Analyzed, {len(_view.candidates)} candidates")
+            else:
+                layout.label(text="Current frame: Not Analyzed")
 
 
 class _VtaReviewSubpanel:
@@ -1316,36 +1411,77 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         wm = context.window_manager
+        location = _location
+        if location is None:
+            try:
+                location = _location_from_context(context)
+            except VtaReviewUiError:
+                pass
         layout.prop(wm, "blendcap_vta_analyze_scope", text="Coverage")
         if wm.blendcap_vta_analyze_scope == 'RANGE':
             row = layout.row(align=True)
             row.prop(wm, "blendcap_vta_analyze_start", text="Start Frame")
             row.prop(wm, "blendcap_vta_analyze_end", text="End Frame")
-        layout.operator("blendcap.vta_analyze", text="Analyze Candidates", icon='VIEWZOOM')
+        expected = None
+        if location is not None and _backend is not None:
+            try:
+                first, last = _backend.source_coverage(location)
+                if wm.blendcap_vta_analyze_scope == 'RANGE':
+                    start, end = map_visible_analysis_range(
+                        location, first, last,
+                        wm.blendcap_vta_analyze_start, wm.blendcap_vta_analyze_end,
+                    )
+                else:
+                    start, end = first, last
+                expected = end - start + 1
+            except VtaReviewUiError as exc:
+                layout.label(text=str(exc), icon='ERROR')
+        if expected is not None:
+            layout.label(text=f"Inclusive range: {expected} frames")
+        active = _analysis_locked(location.companion_root if location else None)
+        launch = layout.row()
+        launch.enabled = not active and expected is not None
+        launch.operator("blendcap.vta_analyze", text="Analyze Candidates", icon='VIEWZOOM')
+        if active:
+            layout.label(text="Unavailable while candidate analysis is running.", icon='INFO')
         if _status_is_error and "Analysis environment unavailable" in _status:
             layout.label(text="CUDA SAM3 runtime unavailable", icon='ERROR')
             layout.operator("screen.userpref_show", text="Open BlendCap Preferences")
-        root = _location.companion_root if _location is not None else None
+        root = location.companion_root if location is not None else None
         status = _analysis_status_for(
             root, _view.source_id if _view else None
         ) if root is not None else None
-        if status is None:
-            layout.label(text="Status: idle")
+        if (active and root == _analysis_root and _analysis_process is not None
+                and (status is None or status.get("pid") != _analysis_process.pid)):
+            status = {"state": "starting", "start_frame": _analysis_start,
+                      "end_frame": _analysis_end, "completed_in_requested_range": 0}
+        box = layout.box()
+        state = "idle" if status is None else str(status.get("state", "unknown"))
+        if state in {"analyzing", "starting", "running"}:
+            box.label(text="Analyzing…", icon='TIME')
         else:
-            state = str(status.get("state", "unknown"))
-            layout.label(text=f"Status: {state}")
-            if isinstance(status.get("start_frame"), int) and isinstance(status.get("end_frame"), int):
-                layout.label(text=f"Source frames {status['start_frame']}–{status['end_frame']}")
-            if isinstance(status.get("completed_in_requested_range"), int):
-                layout.label(text=f"Completed: {status['completed_in_requested_range']} frames")
+            box.label(text=f"Analysis: {state.title()}",
+                      icon='ERROR' if state == 'failed' else 'INFO')
+        if status is not None:
+            start, end = status.get("start_frame"), status.get("end_frame")
+            if location is not None and isinstance(start, int) and isinstance(end, int):
+                box.label(text=f"Blender frames {visible_frame(location, start)}–"
+                               f"{visible_frame(location, end)} (inclusive)")
+                total = end - start + 1
+                completed = status.get("completed_in_requested_range")
+                if isinstance(completed, int) and total > 0:
+                    box.label(text=f"Progress: {completed} / {total} frames")
+            current = status.get("current_frame")
+            if location is not None and isinstance(current, int):
+                box.label(text=f"Most recent Blender frame: {visible_frame(location, current)}")
             if isinstance(status.get("total_analyzed_frames"), int):
-                layout.label(text=f"Total analyzed: {status['total_analyzed_frames']} frames")
-            if state in {"analyzing", "starting", "running"}:
-                layout.operator("blendcap.vta_analyze_stop", text="Stop After Current Frame")
+                box.label(text=f"Total cached: {status['total_analyzed_frames']} frames")
+            if state in {"analyzing", "running"}:
+                box.operator("blendcap.vta_analyze_stop", text="Cancel Analysis")
             if state == "failed":
-                layout.label(text=str(status.get("error", "See analysis log")), icon='ERROR')
+                box.label(text=str(status.get("error", "See analysis log")), icon='ERROR')
         if _view is not None:
-            layout.label(text=f"Current frame: {_view.state_label}")
+            box.label(text=f"Current frame: {_view.state_label}")
         layout.label(text="Provider: offline SAM3 (CUDA)")
 
 
@@ -1361,6 +1497,7 @@ class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
         layout.label(text=f"{len(_view.characters)} Characters")
         create_row = layout.row(align=True)
+        create_row.enabled = not _analysis_locked()
         create_row.prop(context.window_manager, "blendcap_vta_new_character_name", text="New")
         create_row.operator("blendcap.vta_review_create_character", text="Create", icon='ADD')
         layout.label(text=f"Blank name creates {next_generic_character_name(_view)}")
@@ -1376,53 +1513,63 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         if _view is None:
             layout.label(text="Current review unavailable.")
             return
-        for candidate in _view.candidates:
-            if candidate.assigned_character_name:
-                layout.label(
-                    text=f"Candidate {candidate.position}: {candidate.assigned_character_name}",
-                    icon='CHECKMARK',
-                )
-        layout.prop(context.window_manager, "blendcap_vta_candidate", text="Candidate")
         selected_character = next(
             (item for item in _view.characters if item.character_id == _selection.character_id),
             None,
         )
+        layout.label(text=(f"Active Character: {selected_character.display_name}"
+                           if selected_character else "Select a Character above"), icon='USER')
+        assignment_box = layout.box()
+        assignment_box.label(text="Candidate Assignment")
+        for candidate in _view.candidates:
+            if candidate.assigned_character_name:
+                assignment_box.label(
+                    text=f"Candidate {candidate.position}: {candidate.assigned_character_name}",
+                    icon='CHECKMARK',
+                )
+        assignment_box.prop(context.window_manager, "blendcap_vta_candidate", text="Selected Candidate")
         if selected_character is not None:
             state = selected_character.decision_state
             if state in HARD_STATE_LABELS:
-                layout.label(text=f"{selected_character.display_name} — {HARD_STATE_LABELS[state]}", icon='INFO')
+                assignment_box.label(text=f"{selected_character.display_name} — {HARD_STATE_LABELS[state]}", icon='INFO')
             elif state in ('visible', 'partially-visible'):
                 assigned = next((candidate for candidate in _view.candidates
                                  if candidate.observation_id == selected_character.occupied_observation_id), None)
                 label = (f"Assigned to Candidate {assigned.position}" if assigned
                          else "Candidate Assignment (stored evidence)")
-                layout.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
+                assignment_box.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
             elif selected_character.derived_state == 'visible':
                 derived = next((candidate for candidate in _view.candidates
                                 if candidate.observation_id == selected_character.derived_observation_id), None)
                 label = (f"Derived: Candidate {derived.position}" if derived
                          else "Derived: candidate outside current view")
-                layout.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
+                assignment_box.label(text=f"{selected_character.display_name} — {label}", icon='INFO')
             elif selected_character.derived_state == 'unresolved':
-                layout.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
+                assignment_box.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
             else:
-                layout.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
-        assign = layout.row(align=True)
-        assign.enabled = _selection.can_assign(_view)
+                assignment_box.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
+        assign = assignment_box.row(align=True)
+        assign.enabled = not _analysis_locked() and _selection.can_assign(_view)
         assign.operator("blendcap.vta_review_assign", text="Assign", icon='CHECKMARK')
-        layout.label(text="Mark selected Character on this frame:")
-        hard_row = layout.row(align=True)
+        _draw_management_actions(assignment_box, actions={"clear-assignment"})
+        decision_box = layout.box()
+        decision_box.label(text="Mark Active Character")
+        hard_row = decision_box.row(align=True)
         for kind, label in (("occluded", "Occluded"), ("not-visible", "Not Visible")):
             choice = hard_row.row(align=True)
-            choice.enabled = _selection.hard_state_intent(_view, kind) is not None
+            choice.enabled = (not _analysis_locked()
+                              and _selection.hard_state_intent(_view, kind) is not None)
             choice.operator("blendcap.vta_review_hard_state", text=label).decision_kind = kind
-        no_valid = layout.row(align=True)
-        no_valid.enabled = _selection.hard_state_intent(_view, "no-valid-candidate") is not None
+        no_valid = decision_box.row(align=True)
+        no_valid.enabled = (not _analysis_locked() and
+                            _selection.hard_state_intent(_view, "no-valid-candidate") is not None)
         no_valid.operator(
             "blendcap.vta_review_hard_state", text="No Valid Candidate"
         ).decision_kind = "no-valid-candidate"
-        _draw_management_actions(layout, actions={
-            "clear-assignment", "clear-review-key", "clear-selected-review-keys",
+        keys_box = layout.box()
+        keys_box.label(text="Review Keys")
+        _draw_management_actions(keys_box, actions={
+            "clear-review-key", "clear-selected-review-keys",
         })
 
 
@@ -1466,10 +1613,12 @@ class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
         layout = self.layout
         prefs = addon_prefs(context)
         if prefs is not None:
-            layout.prop(prefs, "vta_core_location", text="Private Core")
-            layout.prop(prefs, "vta_analysis_python", text="Analysis Python")
-            layout.prop(prefs, "vta_kinesia_root", text="SAM3 Source")
-            layout.prop(prefs, "vta_sam3_checkpoint", text="SAM3 Weights")
+            settings = layout.column()
+            settings.enabled = not _analysis_locked()
+            settings.prop(prefs, "vta_core_location", text="Private Core")
+            settings.prop(prefs, "vta_analysis_python", text="Analysis Python")
+            settings.prop(prefs, "vta_kinesia_root", text="SAM3 Source")
+            settings.prop(prefs, "vta_sam3_checkpoint", text="SAM3 Weights")
         if _view is not None:
             selected = next((item for item in _view.candidates
                              if item.observation_id == _selection.observation_id), None)
@@ -1508,13 +1657,13 @@ def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_analyze_scope = bpy.props.EnumProperty(
         name="Analyze Coverage", items=(
             ('WHOLE', "Whole Source", "Analyze all missing source frames"),
-            ('RANGE', "Frame Range", "Analyze missing frames in an inclusive source-frame range"),
+            ('RANGE', "Frame Range", "Analyze missing frames in an inclusive Blender frame range"),
         ), default='WHOLE',
     )
     bpy.types.WindowManager.blendcap_vta_analyze_start = bpy.props.IntProperty(
-        name="First Source Frame", default=0, min=0)
+        name="Start Blender Frame", default=0, min=0)
     bpy.types.WindowManager.blendcap_vta_analyze_end = bpy.props.IntProperty(
-        name="Last Source Frame", default=0, min=0)
+        name="End Blender Frame", default=0, min=0)
     bpy.types.WindowManager.blendcap_vta_candidate = bpy.props.EnumProperty(
         name="Candidate",
         items=candidate_items,
@@ -1543,6 +1692,7 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    global _analysis_progress_started
     _remove_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
@@ -1550,6 +1700,12 @@ def unregister_properties() -> None:
     vta_overlay.unregister()
     if bpy.app.timers.is_registered(_analysis_timer):
         bpy.app.timers.unregister(_analysis_timer)
+    if _analysis_progress_started:
+        try:
+            bpy.context.window_manager.progress_end()
+        except RuntimeError:
+            pass
+        _analysis_progress_started = False
     _unregister_review_context_keymap()
     _unregister_timeline_tools()
     _unregister_preview_tools()

@@ -543,6 +543,36 @@ class ReviewPresentationTests(unittest.TestCase):
                 source_offset=5,
             )
 
+    def test_visible_analysis_range_is_inclusive_and_uses_blender_frames(self):
+        location = review_ui.ReviewLocation(Path('C:/project'), Path('C:/video.mp4'), 0, 1)
+        self.assertEqual(review_ui.map_visible_analysis_range(
+            location, 0, 162, 4, 10), (3, 9))
+        self.assertEqual(review_ui.visible_frame(location, 3), 4)
+        self.assertEqual(review_ui.map_visible_analysis_range(
+            location, 0, 162, 1, 163), (0, 162))
+        for start, end, message in ((0, 10, "within"), (4, 164, "within"),
+                                    (10, 4, "End Frame"), (True, 10, "whole")):
+            with self.subTest(start=start, end=end), self.assertRaisesRegex(
+                review_ui.VtaReviewUiError, message):
+                review_ui.map_visible_analysis_range(location, 0, 162, start, end)
+        shifted = review_ui.ReviewLocation(Path('C:/project'), Path('C:/video.mp4'), 5, 105)
+        self.assertEqual(review_ui.map_visible_analysis_range(
+            shifted, 0, 162, 104, 110), (4, 10))
+
+    def test_source_coverage_does_not_require_an_existing_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source.mp4'
+            source.write_bytes(b'video')
+            digest = review_ui.sha256_file(source)
+            project = SimpleNamespace(to_dict=lambda: {'sources': [{
+                'source_id': 'source', 'video_sha256': digest,
+                'start_frame': 0, 'end_frame': 162,
+            }]})
+            core = SimpleNamespace(load_project_state=lambda _root: project)
+            backend = review_ui.PrivateCoreBackend(core=core)
+            location = review_ui.ReviewLocation(Path(directory), source, 0, 1)
+            self.assertEqual(backend.source_coverage(location), (0, 162))
+
     def test_companion_root_is_exactly_beside_saved_blend(self):
         self.assertEqual(
             review_ui.companion_root_for_blend(Path("C:/work/scene.blend")),

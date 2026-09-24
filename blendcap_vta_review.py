@@ -222,6 +222,30 @@ def map_vse_frame_to_source(
     return source_offset + blender_frame - visible_start
 
 
+def map_visible_analysis_range(
+    location: ReviewLocation, first_source: int, last_source: int,
+    start_visible: int, end_visible: int,
+) -> tuple[int, int]:
+    """Validate inclusive Blender-visible controls and return cache indices."""
+    values = (first_source, last_source, start_visible, end_visible)
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+        raise VtaReviewUiError("Analyze frame range must use whole Blender frame numbers.")
+    offset = location.blender_frame - location.source_frame
+    first_visible, last_visible = first_source + offset, last_source + offset
+    if end_visible < start_visible:
+        raise VtaReviewUiError("End Frame must be at or after Start Frame.")
+    if not first_visible <= start_visible <= end_visible <= last_visible:
+        raise VtaReviewUiError(
+            f"Frame Range must be within Blender frames {first_visible}–{last_visible}."
+        )
+    return start_visible - offset, end_visible - offset
+
+
+def visible_frame(location: ReviewLocation, source_frame: int) -> int:
+    """Present one stored source/cache index on the current VSE timeline."""
+    return source_frame + location.blender_frame - location.source_frame
+
+
 def present_review(
     review: object,
     source_dimensions: tuple[int, int] | None = None,
@@ -406,11 +430,11 @@ def user_message(error: BaseException) -> str:
     return f"VTA review failed: {error}"
 
 
-def tracking_update_success(result: object) -> str:
+def tracking_update_success(result: object, *, frame_offset: int = 0) -> str:
     return (f"Tracking updated: {result.matched + result.unresolved} analyzed frames, "
             f"{result.matched} matched, {result.unresolved} unresolved. "
-            f"Bounds: {result.scope.left_boundary.frame}–"
-            f"{result.scope.right_boundary.frame}.")
+            f"Blender frame bounds: {result.scope.left_boundary.frame + frame_offset}–"
+            f"{result.scope.right_boundary.frame + frame_offset}.")
 
 
 def tracking_update_error(error: BaseException) -> str:
@@ -465,6 +489,11 @@ class PrivateCoreBackend:
         require_dimensions = getattr(source, "require_dimensions", None)
         dimensions = require_dimensions() if callable(require_dimensions) else None
         return present_review(review, dimensions)
+
+    def source_coverage(self, location: ReviewLocation) -> tuple[int, int]:
+        """Read authoritative project coverage without requiring an analysis cache."""
+        _project, source = self._load_project_source(location)
+        return source["start_frame"], source["end_frame"]
 
     def query_timeline(self, location: ReviewLocation):
         """Read all authoritative keys once per project change, never per draw."""
@@ -657,6 +686,20 @@ class PrivateCoreBackend:
         return character, self.query(location)
 
     def _load_context(self, location: ReviewLocation) -> tuple[object, object, str]:
+        project, source = self._load_project_source(location)
+        active = project.to_dict().get("active_analysis_revision_by_source", {})
+        revision_id = active.get(source["source_id"])
+        if not isinstance(revision_id, str) or not revision_id:
+            raise VtaReviewUiError("The active source has no active analysis revision.")
+        try:
+            cache = self._core.load_analysis_cache(location.companion_root, revision_id)
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):
+                raise VtaReviewUiError("The active analysis cache is missing or unavailable.") from exc
+            raise
+        return project, cache, revision_id
+
+    def _load_project_source(self, location: ReviewLocation) -> tuple[object, dict]:
         try:
             project = self._core.load_project_state(location.companion_root)
         except Exception as exc:
@@ -676,17 +719,7 @@ class PrivateCoreBackend:
         source = sources[0]
         if not source["start_frame"] <= location.source_frame <= source["end_frame"]:
             raise VtaReviewUiError("The mapped source frame is outside VTA source coverage.")
-        active = raw.get("active_analysis_revision_by_source", {})
-        revision_id = active.get(source["source_id"])
-        if not isinstance(revision_id, str) or not revision_id:
-            raise VtaReviewUiError("The active source has no active analysis revision.")
-        try:
-            cache = self._core.load_analysis_cache(location.companion_root, revision_id)
-        except Exception as exc:
-            if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):
-                raise VtaReviewUiError("The active analysis cache is missing or unavailable.") from exc
-            raise
-        return project, cache, revision_id
+        return project, source
 
     def _source_hash(self, path: Path) -> str:
         try:

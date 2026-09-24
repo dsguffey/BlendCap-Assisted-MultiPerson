@@ -201,6 +201,65 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
             self.assertIsNone(ui._analysis_process)
         self.assertEqual(area.tag_redraw.call_count, 2)
 
+    def test_analysis_timer_updates_native_progress_and_invalidates_cache(self):
+        ui = self.ui
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            area = SimpleNamespace(tag_redraw=mock.Mock())
+            manager = SimpleNamespace(
+                windows=[SimpleNamespace(screen=SimpleNamespace(areas=[area]))],
+                progress_update=mock.Mock(), progress_end=mock.Mock(),
+            )
+            fake_bpy = SimpleNamespace(context=SimpleNamespace(window_manager=manager))
+            process = SimpleNamespace(poll=mock.Mock(side_effect=[None, 0]))
+            with mock.patch.object(ui, "bpy", fake_bpy), \
+                 mock.patch.object(ui, "_analysis_process", process), \
+                 mock.patch.object(ui, "_analysis_root", root), \
+                 mock.patch.object(ui, "_analysis_progress_started", True), \
+                 mock.patch.object(ui, "_analysis_total", 7), \
+                 mock.patch.object(ui, "_cache_signature", (1, 2)), \
+                 mock.patch.object(ui, "_analysis_status_for", return_value={
+                     "completed_in_requested_range": 4,
+                 }):
+                self.assertEqual(ui._analysis_timer(), 0.5)
+                self.assertIsNone(ui._analysis_timer())
+                self.assertIsNone(ui._cache_signature)
+                self.assertFalse(ui._analysis_progress_started)
+            self.assertEqual(manager.progress_update.call_args_list,
+                             [mock.call(4), mock.call(4)])
+            manager.progress_end.assert_called_once()
+
+    def test_analysis_lock_blocks_mutations_but_not_read_only_selection(self):
+        ui = self.ui
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "analysis").mkdir()
+            (root / "analysis" / "vta-analysis.lock").write_text("worker")
+            character = SimpleNamespace(character_id="character", occupied_observation_id="candidate")
+            view = SimpleNamespace(characters=(character,), source_frame=4,
+                                   source_id="source", candidates=())
+            selection = SimpleNamespace(character_id="character", can_assign=lambda _view: True)
+            operator = SimpleNamespace(report=mock.Mock())
+            with mock.patch.object(ui, "_location", SimpleNamespace(companion_root=root)), \
+                 mock.patch.object(ui, "_analysis_process", None), \
+                 mock.patch.object(ui, "_view", view), \
+                 mock.patch.object(ui, "_selection", selection), \
+                 mock.patch.object(ui, "_timeline", SimpleNamespace(keys=())):
+                self.assertTrue(ui._analysis_locked())
+                self.assertFalse(any(ui._action_availability().values()))
+                self.assertEqual(ui.BLENDCAP_OT_vta_review_assign.execute(operator, None),
+                                 {'CANCELLED'})
+                self.assertEqual(ui.BLENDCAP_OT_vta_review_create_character.execute(operator, None),
+                                 {'CANCELLED'})
+                self.assertEqual(ui.BLENDCAP_OT_vta_update_tracking.execute(operator, None),
+                                 {'CANCELLED'})
+                self.assertIn("Unavailable while candidate analysis is running",
+                              operator.report.call_args.args[1])
+                with mock.patch.object(ui, "select_overlay_candidate_at", return_value=True):
+                    event = SimpleNamespace(mouse_region_x=1, mouse_region_y=2)
+                    self.assertEqual(ui.BLENDCAP_OT_vta_candidate_select.invoke(
+                        None, None, event), {'FINISHED'})
+
     def test_ui_uses_resolved_runtime_and_reports_missing_environment(self):
         ui = self.ui
         root = Path("C:/private-core")
@@ -249,13 +308,41 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         layout.operator.assert_any_call("screen.userpref_show",
                                         text="Open BlendCap Preferences")
 
+    def test_analyze_panel_presents_visible_progress_and_inclusive_count(self):
+        ui = self.ui
+        layout = mock.Mock()
+        root = Path('C:/fixture')
+        location = SimpleNamespace(companion_root=root, source_frame=0, blender_frame=1)
+        wm = SimpleNamespace(blendcap_vta_analyze_scope='RANGE',
+                             blendcap_vta_analyze_start=4,
+                             blendcap_vta_analyze_end=10)
+        context = SimpleNamespace(window_manager=wm)
+        status = dict(state='running', start_frame=3, end_frame=9,
+                      current_frame=6, completed_in_requested_range=4)
+        with mock.patch.object(ui, '_location', location), \
+             mock.patch.object(ui, '_view', None), \
+             mock.patch.object(ui, '_backend', SimpleNamespace(
+                 source_coverage=lambda _location: (0, 162))), \
+             mock.patch.object(ui, '_analysis_locked', return_value=False), \
+             mock.patch.object(ui, '_analysis_status_for', return_value=status):
+            ui.VIEW3D_PT_blendcap_vta_analyze.draw(
+                SimpleNamespace(layout=layout), context)
+        texts = [call.kwargs['text'] for call in layout.box.return_value.label.call_args_list]
+        self.assertIn('Analyzing…', texts)
+        self.assertIn('Blender frames 4–10 (inclusive)', texts)
+        self.assertIn('Progress: 4 / 7 frames', texts)
+        self.assertIn('Most recent Blender frame: 7', texts)
+        layout.box.return_value.operator.assert_any_call(
+            'blendcap.vta_analyze_stop', text='Cancel Analysis')
+
     def test_missing_runtime_cancels_without_launch_or_tracking(self):
         ui = self.ui
         root = Path("C:/project")
         context = SimpleNamespace(window_manager=SimpleNamespace(
             blendcap_vta_analyze_scope='WHOLE'))
         operator = SimpleNamespace(report=mock.Mock())
-        backend = SimpleNamespace(update_tracking=mock.Mock())
+        backend = SimpleNamespace(update_tracking=mock.Mock(),
+                                  source_coverage=lambda _location: (0, 162))
         with mock.patch.object(ui, "_analysis_process", None), \
              mock.patch.object(ui, "_location_from_context", return_value=
                                SimpleNamespace(companion_root=root)), \
@@ -271,6 +358,21 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         backend.update_tracking.assert_not_called()
         self.assertIn("Analysis environment unavailable", operator.report.call_args.args[1])
 
+    def test_cancel_requests_between_frame_stop_without_killing_worker(self):
+        ui = self.ui
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'analysis').mkdir()
+            operator = SimpleNamespace(report=mock.Mock())
+            with mock.patch.object(ui, '_location_from_context', return_value=
+                                   SimpleNamespace(companion_root=root)), \
+                 mock.patch.object(ui, '_analysis_status_for', return_value={
+                     'state': 'running',
+                 }):
+                self.assertEqual(ui.BLENDCAP_OT_vta_analyze_stop.execute(operator, None),
+                                 {'FINISHED'})
+            self.assertEqual((root / 'analysis' / ui.STOP_NAME).read_text(), 'stop\n')
+
     def test_whole_and_range_operator_commands_are_external_and_statusful(self):
         ui = self.ui
         with tempfile.TemporaryDirectory() as directory:
@@ -278,10 +380,11 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
             python = root / "python.exe"
             kinesia = root / "source"
             checkpoint = root / "sam3.pt"
-            location = SimpleNamespace(companion_root=root, source_path=root / "video.mp4")
+            location = SimpleNamespace(companion_root=root, source_path=root / "video.mp4",
+                                       source_frame=0, blender_frame=1)
             wm = SimpleNamespace(blendcap_vta_analyze_scope='WHOLE',
-                                 blendcap_vta_analyze_start=3,
-                                 blendcap_vta_analyze_end=8)
+                                 blendcap_vta_analyze_start=4,
+                                 blendcap_vta_analyze_end=10)
             context = SimpleNamespace(window_manager=wm)
             operator = SimpleNamespace(report=mock.Mock())
             process = SimpleNamespace(poll=lambda: None)
@@ -291,7 +394,8 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
             with mock.patch.object(ui, "bpy", fake_bpy), \
                  mock.patch.object(ui, "_analysis_process", None), \
                  mock.patch.object(ui, "_location_from_context", return_value=location), \
-                 mock.patch.object(ui, "_get_backend"), \
+                 mock.patch.object(ui, "_get_backend", return_value=
+                                   SimpleNamespace(source_coverage=lambda _location: (0, 162))), \
                  mock.patch.object(ui, "_backend_root", root), \
                  mock.patch.object(ui, "_configured_analysis_paths",
                                    return_value=(python, kinesia, checkpoint)), \
@@ -312,8 +416,8 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                                  {'FINISHED'})
                 command = popen.call_args.args[0]
                 self.assertEqual(command[command.index('--start') + 1], '3')
-                self.assertEqual(command[command.index('--end') + 1], '8')
-                wm.blendcap_vta_analyze_start = 9
+                self.assertEqual(command[command.index('--end') + 1], '9')
+                wm.blendcap_vta_analyze_start = 11
                 ui._analysis_process = None
                 popen.reset_mock()
                 self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
