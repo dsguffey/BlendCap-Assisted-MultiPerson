@@ -56,6 +56,13 @@ def hit_key(view, view2d, region_height, point, frame_offset, scroll=0,
     )
 
 
+def selection_outline_style(key_id, selected_ids, active_id):
+    """Non-color hierarchy: active key has a corner mark; group peers do not."""
+    if key_id == active_id:
+        return "active"
+    return "selected" if key_id in selected_ids else None
+
+
 def occupied_strip_channels(context):
     scene = getattr(context, "sequencer_scene", None) or getattr(context, "scene", None)
     editor = getattr(scene, "sequence_editor", None)
@@ -90,7 +97,7 @@ def _draw() -> None:
         area, region, space = context.area, context.region, context.space_data
         if not is_timeline_region(area, region, space) or _state_provider is None:
             return
-        view, selected_ids, frame_offset, scroll = _state_provider()
+        view, selected_ids, active_id, frame_offset, scroll = _state_provider()
         if view is None:
             return
         lanes = visible_lanes(view, region.height, scroll, view2d=region.view2d,
@@ -141,9 +148,16 @@ def _draw() -> None:
                 "no-valid-candidate": (.25, .8, 1, 1),
                 "not-visible": (1, .45, .45, 1),
             }[key.state]
-            if key.keyframe_id in selected_ids:
+            outline = selection_outline_style(key.keyframe_id, selected_ids, active_id)
+            if outline is not None:
                 line(((x - 10, y - 10), (x + 10, y - 10), (x + 10, y + 10),
-                      (x - 10, y + 10), (x - 10, y - 10)), (1, 1, 1, 1))
+                      (x - 10, y + 10), (x - 10, y - 10)),
+                     (1, 1, 1, 1) if outline == "active" else (.65, .7, .76, .8))
+                if outline == "active":
+                    # Small upper-right corner notch distinguishes focus even
+                    # in monochrome screenshots without overpowering the key.
+                    line(((x + 4, y + 10), (x + 10, y + 10), (x + 10, y + 4)),
+                         (1, 1, 1, 1))
             if key.is_assignment:  # filled diamond
                 fill(((x, y + 7), (x + 7, y), (x, y - 7),
                       (x, y + 7), (x, y - 7), (x - 7, y)), color)

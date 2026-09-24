@@ -296,6 +296,39 @@ The milestone is complete when a user can:
 No completion criterion permits automatic appearance promotion or automatic
 reacquisition.
 
+## Blender Analyze and review-workflow expansion (2026-09-24)
+
+The public add-on offers **Analyze Candidates** in a native collapsible Analyze
+subpanel and the Sequencer's existing VTA Commands menu. The default covers
+the complete project SourceReference; an inclusive source-frame range is also
+available. The worker runs in an explicitly configured, existing CUDA Python
+environment, using the private core's SAM3 provider, source preflight,
+checkpoint/resume, and range/whole-source executors. It fills only missing
+frames in the active analysis revision and refuses an incompatible provider;
+new projects without an active revision get one new, explicit cache revision.
+No Character, identity key, or derived tracking revision is created by Analyze.
+Analysis status is observational and persists next to the cache, including
+running/completed/failed/cancelled state and requested coverage. Stop requests
+take effect only between frame checkpoints.
+
+The sidebar is grouped into native Analyze, Characters, Current Frame Review,
+Update Tracking, Display, and Advanced subpanels. Direct left-click and
+Ctrl-click use the same Sequencer WINDOW hit-test/pass-through operator as the
+already-validated right-click path; the dedicated selection tool remains for
+manual QA. Box selection and a VTA Delete shortcut remain deferred. The
+active review key now has a small non-color corner mark distinct from other
+multi-selected keys; authoritative symbols remain stronger than derived ticks.
+
+The copied `VTA_Tracking_Wrestling_0_162` fixture was analyzed across all 163
+frames (24 FPS), leaving the original three-frame fixture and project state
+unchanged. An initial read-only baseline from its existing frame-0 hard keys
+uses untouched `bounded-geometry-v1`: A matched 17 of 121 scoped frames; B
+matched 16; all other scoped frames were unresolved. Both reruns were
+byte-identical. The early directional stops and lack of later hard anchors
+mean this is a coverage/abstention baseline, not a whole-clip semantic identity
+accuracy claim. Additional human-verified SAM3 anchors/labels are required
+before scoring swaps or testing any tuning; no thresholds were changed.
+
 ## Current Blender review auditability milestone (2026-09-23)
 
 The private schema-0.5 core projects authoritative Identity Keyframes into a

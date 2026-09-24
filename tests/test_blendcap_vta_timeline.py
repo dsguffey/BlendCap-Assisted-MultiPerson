@@ -188,12 +188,14 @@ class BlenderTimelineTests(unittest.TestCase):
             keyconfig.keymaps.new.assert_called_once_with(
                 name='Sequencer', space_type='SEQUENCE_EDITOR', region_type='WINDOW'
             )
-            items.new.assert_called_once_with(
-                'blendcap.vta_review_key_select', 'RIGHTMOUSE', 'PRESS'
-            )
+            self.assertEqual(items.new.call_args_list, [
+                mock.call('blendcap.vta_review_key_select', 'LEFTMOUSE', 'PRESS'),
+                mock.call('blendcap.vta_review_key_select', 'LEFTMOUSE', 'PRESS', ctrl=True),
+                mock.call('blendcap.vta_review_key_select', 'RIGHTMOUSE', 'PRESS'),
+            ])
             ui._unregister_review_context_keymap()
             self.assertIsNone(ui._review_context_keymap)
-            items.remove.assert_called_once()
+            self.assertEqual(items.remove.call_count, 3)
 
     def test_generic_character_names_skip_existing_and_keep_custom_names(self):
         ui = self.ui
@@ -296,6 +298,12 @@ class BlenderTimelineTests(unittest.TestCase):
         filtered = overlay.visible_lanes(view(), 180, view2d=View2D(),
                                          occupied_channels=(round(lanes[0][1] / 24),))
         self.assertNotIn(lanes[0], filtered)
+
+    def test_active_key_is_distinct_from_multiselected_and_unselected(self):
+        style = self.overlay.selection_outline_style
+        self.assertEqual(style("a", ("a", "b"), "a"), "active")
+        self.assertEqual(style("b", ("a", "b"), "a"), "selected")
+        self.assertIsNone(style("c", ("a", "b"), "a"))
 
     def test_right_click_key_uses_native_context_menu_and_empty_passes_through(self):
         ui = self.ui

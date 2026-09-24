@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
+import subprocess
 import textwrap
 import traceback
 
@@ -24,6 +27,7 @@ from ..blendcap_vta_review import (
     user_message,
 )
 from ..blendcap_vta_runtime import discover_vta_core
+from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, key_at
 from . import vta_overlay, vta_timeline_overlay
 from .helpers import _active_video_strip, _resolve_video_path, _strip_visible_end, addon_prefs
@@ -38,9 +42,11 @@ _backend = None
 _backend_location = None
 _backend_root = None
 _project_signature = None
+_cache_signature = None
 _timeline = None
 _timeline_identity = None
 _review_key_selection = ReviewKeySelection()
+_analysis_process = None
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
@@ -151,7 +157,8 @@ def overlay_state():
 
 def timeline_state():
     offset = 0 if _location is None else _location.blender_frame - _location.source_frame
-    return _timeline, _review_key_selection.keyframe_ids, offset, _lane_scroll()
+    return (_timeline, _review_key_selection.keyframe_ids,
+            _review_key_selection.active_keyframe_id, offset, _lane_scroll())
 
 
 def _lane_scroll() -> int:
@@ -169,6 +176,133 @@ def next_generic_character_name(view) -> str:
     while f"character {number}" in names:
         number += 1
     return f"Character {number}"
+
+
+def _analysis_status_for(root: Path, source_id: str | None = None) -> dict | None:
+    path = root / "analysis" / STATUS_NAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or value.get("version") != 1:
+            return None
+        if source_id is not None and value.get("source_id") != source_id:
+            return None
+        return value
+    except (OSError, ValueError):
+        return None
+
+
+def _analysis_timer():
+    """Redraw persistent progress while the worker owns durable checkpoints."""
+    global _analysis_process
+    process = _analysis_process
+    if process is None:
+        return None
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+    if process.poll() is None:
+        return 0.5
+    _analysis_process = None
+    return None
+
+
+def _configured_analysis_paths(context):
+    prefs = addon_prefs(context)
+    if prefs is None:
+        raise VtaReviewUiError("BlendCap preferences are unavailable.")
+    values = (
+        ("analysis Python", getattr(prefs, "vta_analysis_python", ""), True),
+        ("SAM3 source", getattr(prefs, "vta_kinesia_root", ""), False),
+        ("SAM3 checkpoint", getattr(prefs, "vta_sam3_checkpoint", ""), True),
+    )
+    paths = []
+    for label, raw, is_file in values:
+        path = Path(bpy.path.abspath(raw)).resolve() if raw else None
+        if path is None or not (path.is_file() if is_file else path.is_dir()):
+            raise VtaReviewUiError(f"Configure an existing {label} in BlendCap preferences.")
+        paths.append(path)
+    if not (paths[1] / "src" / "sam_3d_pose_estimation" / "stream_detector.py").is_file():
+        raise VtaReviewUiError("SAM3 source is not the evaluated Kinesia checkout.")
+    return paths
+
+
+class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
+    bl_idname = "blendcap.vta_analyze"
+    bl_label = "Analyze Candidates"
+    bl_description = "Analyze missing source frames with the existing offline SAM3 provider"
+
+    def execute(self, context):
+        global _analysis_process, _status, _status_is_error
+        try:
+            if _analysis_process is not None and _analysis_process.poll() is None:
+                raise VtaReviewUiError("Candidate analysis is already running.")
+            location = _location_from_context(context)
+            _get_backend(context)
+            source_root = _backend_root
+            if source_root is None:
+                raise VtaReviewUiError("Configure the private VTA core location.")
+            python, kinesia, checkpoint = _configured_analysis_paths(context)
+            root = location.companion_root
+            status = _analysis_status_for(root, _view.source_id if _view else None)
+            if status and status.get("state") in {"analyzing", "starting", "running"}:
+                lock = root / "analysis" / "vta-analysis.lock"
+                if lock.exists():
+                    raise VtaReviewUiError("Analysis may already be running; inspect its status.")
+            scope = context.window_manager.blendcap_vta_analyze_scope
+            command = [
+                str(python), str(Path(__file__).resolve().parents[1] /
+                                 "blendcap_vta_analyze_worker.py"),
+                "--core-root", str(source_root), "--kinesia-root", str(kinesia),
+                "--checkpoint", str(checkpoint), "--companion-root", str(root),
+                "--video", str(location.source_path),
+            ]
+            if scope == 'RANGE':
+                start = context.window_manager.blendcap_vta_analyze_start
+                end = context.window_manager.blendcap_vta_analyze_end
+                # The worker validates both endpoints against SourceReference.
+                if end < start:
+                    raise VtaReviewUiError("The analysis range ends before it starts.")
+                command += ["--start", str(start), "--end", str(end)]
+            log_path = root / "analysis" / "vta-analysis.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            env = os.environ.copy()
+            env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", PYTHONNOUSERSITE="1")
+            with log_path.open("a", encoding="utf-8") as log:
+                _analysis_process = subprocess.Popen(
+                    command, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                    cwd=str(Path(__file__).resolve().parents[1]), env=env,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            if not bpy.app.timers.is_registered(_analysis_timer):
+                bpy.app.timers.register(_analysis_timer, first_interval=0.5)
+            _status = "Candidate analysis started; checkpoints and status update per frame."
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status = user_message(exc)
+            _status_is_error = True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_analyze_stop(bpy.types.Operator):
+    bl_idname = "blendcap.vta_analyze_stop"
+    bl_label = "Stop After Current Frame"
+    bl_description = "Request a safe stop before the next missing frame; checkpoints remain"
+
+    def execute(self, context):
+        try:
+            root = _location_from_context(context).companion_root
+            status = _analysis_status_for(root, _view.source_id if _view else None)
+            if status is None or status.get("state") not in {"analyzing", "starting", "running"}:
+                raise VtaReviewUiError("No candidate analysis is running for this source.")
+            (root / "analysis" / STOP_NAME).write_text("stop\n", encoding="utf-8")
+            self.report({'INFO'}, "Stop requested after the current frame checkpoint.")
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'}, user_message(exc))
+            return {'CANCELLED'}
 
 
 def ensure_vta_preview_context(context, owning_scene) -> int:
@@ -213,7 +347,7 @@ def _rebuild_enum_items() -> None:
 
 def refresh(context, *, force: bool = False) -> bool:
     global _view, _location, _project_signature, _status, _status_is_error
-    global _timeline, _timeline_identity
+    global _timeline, _timeline_identity, _cache_signature
     try:
         backend = _get_backend(context, force=force)
         location = _location_from_context(context)
@@ -223,12 +357,21 @@ def refresh(context, *, force: bool = False) -> bool:
             project_signature = (project_stat.st_size, project_stat.st_mtime_ns)
         except OSError:
             project_signature = None
+        cache_path = (location.companion_root / "analysis" /
+                      f"{_view.analysis_revision_id}.json") if _view is not None else None
+        try:
+            cache_stat = cache_path.stat() if cache_path is not None else None
+            cache_signature = ((cache_stat.st_size, cache_stat.st_mtime_ns)
+                               if cache_stat is not None else None)
+        except OSError:
+            cache_signature = None
         key_changed = (
             _location is None
             or _location.companion_root != location.companion_root
             or _location.source_path != location.source_path
             or _location.source_frame != location.source_frame
             or _project_signature != project_signature
+            or _cache_signature != cache_signature
         )
         timeline_identity = (location.companion_root, location.source_path, project_signature)
         if force or timeline_identity != _timeline_identity or _timeline is None:
@@ -239,6 +382,7 @@ def refresh(context, *, force: bool = False) -> bool:
             _view = backend.query(location)
             _location = location
             _project_signature = project_signature
+            _cache_signature = cache_signature
             _selection.accept_review(_view)
             _rebuild_enum_items()
             _sync_properties(context)
@@ -253,6 +397,7 @@ def refresh(context, *, force: bool = False) -> bool:
         _view = None
         _location = None
         _project_signature = None
+        _cache_signature = None
         _timeline = None
         _timeline_identity = None
         _review_key_selection.clear()
@@ -794,10 +939,10 @@ _review_context_keymap = None
 
 
 def _register_review_context_keymap():
-    """Intercept RMB only in Sequencer WINDOW; misses pass to Blender unchanged.
+    """Hit-test VTA keys in Sequencer WINDOW; misses pass to Blender unchanged.
 
-    This is independent of the active WorkSpaceTool, unlike its LMB bindings.
-    The operator hit-tests before opening Blender's existing context menu.
+    This is independent of the active WorkSpaceTool. Native strip selection and
+    empty-space behavior remain available via the operator's PASS_THROUGH path.
     """
     global _review_context_keymap
     keyconfig = getattr(bpy.context.window_manager.keyconfigs, "addon", None)
@@ -806,17 +951,22 @@ def _register_review_context_keymap():
     keymap = keyconfig.keymaps.new(
         name='Sequencer', space_type='SEQUENCE_EDITOR', region_type='WINDOW'
     )
-    item = keymap.keymap_items.new(
-        BLENDCAP_OT_vta_review_key_select.bl_idname, 'RIGHTMOUSE', 'PRESS'
+    items = tuple(
+        keymap.keymap_items.new(
+            BLENDCAP_OT_vta_review_key_select.bl_idname, button, 'PRESS', **modifiers
+        ) for button, modifiers in (
+            ('LEFTMOUSE', {}), ('LEFTMOUSE', {'ctrl': True}), ('RIGHTMOUSE', {}),
+        )
     )
-    _review_context_keymap = (keymap, item)
+    _review_context_keymap = (keymap, items)
 
 
 def _unregister_review_context_keymap():
     global _review_context_keymap
     if _review_context_keymap is not None:
-        keymap, item = _review_context_keymap
-        keymap.keymap_items.remove(item)
+        keymap, items = _review_context_keymap
+        for item in items:
+            keymap.keymap_items.remove(item)
         _review_context_keymap = None
 
 
@@ -1029,6 +1179,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         _draw_select_review_keys(layout, context)
+        layout.operator("blendcap.vta_analyze", text="Analyze Candidates")
         if not refresh(context):
             layout.label(text="VTA review unavailable", icon='INFO')
             return
@@ -1128,7 +1279,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
 
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
-    bl_label = "VTA Current Frame Review"
+    bl_label = "VTA Review"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -1140,31 +1291,92 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         refresh(context)
         layout = self.layout
         if _location is not None:
-            layout.label(text=f"Blender Frame: {_location.blender_frame}")
-            layout.label(text=f"Source Frame: {_location.source_frame}")
+            layout.label(text=f"Source frame {_location.source_frame}")
         if _view is None:
             layout.label(text=_status or "Review unavailable", icon='ERROR')
-            prefs = addon_prefs(context)
-            if prefs is not None:
-                layout.prop(prefs, "vta_core_location", text="Video to Animation Core")
             layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
+        else:
+            layout.label(text=f"Current frame: {_view.state_label}")
+
+
+class _VtaReviewSubpanel:
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'BlendCap'
+    bl_parent_id = "VIEW3D_PT_blendcap_vta_review"
+
+
+class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Analyze"
+    bl_idname = "VIEW3D_PT_blendcap_vta_analyze"
+
+    def draw(self, context):
+        layout = self.layout
+        wm = context.window_manager
+        layout.prop(wm, "blendcap_vta_analyze_scope", text="Coverage")
+        if wm.blendcap_vta_analyze_scope == 'RANGE':
+            row = layout.row(align=True)
+            row.prop(wm, "blendcap_vta_analyze_start", text="From")
+            row.prop(wm, "blendcap_vta_analyze_end", text="To")
+        layout.operator("blendcap.vta_analyze", text="Analyze Candidates", icon='VIEWZOOM')
+        root = _location.companion_root if _location is not None else None
+        status = _analysis_status_for(
+            root, _view.source_id if _view else None
+        ) if root is not None else None
+        if status is None:
+            layout.label(text="Status: idle")
+        else:
+            state = str(status.get("state", "unknown"))
+            layout.label(text=f"Status: {state}")
+            if isinstance(status.get("start_frame"), int) and isinstance(status.get("end_frame"), int):
+                layout.label(text=f"Source frames {status['start_frame']}–{status['end_frame']}")
+            if isinstance(status.get("completed_in_requested_range"), int):
+                layout.label(text=f"Completed: {status['completed_in_requested_range']} frames")
+            if isinstance(status.get("total_analyzed_frames"), int):
+                layout.label(text=f"Total analyzed: {status['total_analyzed_frames']} frames")
+            if state in {"analyzing", "starting", "running"}:
+                layout.operator("blendcap.vta_analyze_stop", text="Stop After Current Frame")
+            if state == "failed":
+                layout.label(text=str(status.get("error", "See analysis log")), icon='ERROR')
+        if _view is not None:
+            layout.label(text=f"Current frame: {_view.state_label}")
+        layout.label(text="Provider: offline SAM3 (CUDA)")
+
+
+class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Characters"
+    bl_idname = "VIEW3D_PT_blendcap_vta_characters"
+
+    def draw(self, context):
+        layout = self.layout
+        if _view is None:
+            layout.label(text="Load a VTA project to manage Characters.")
             return
-        layout.label(text=f"Review: {_view.state_label}")
-        layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Show VTA Candidate Overlay")
+        layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
+        layout.label(text=f"{len(_view.characters)} Characters")
+        create_row = layout.row(align=True)
+        create_row.prop(context.window_manager, "blendcap_vta_new_character_name", text="New")
+        create_row.operator("blendcap.vta_review_create_character", text="Create", icon='ADD')
+        layout.label(text=f"Blank name creates {next_generic_character_name(_view)}")
+        _draw_management_actions(layout, actions={"rename-character", "delete-character"})
+
+
+class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Current Frame Review"
+    bl_idname = "VIEW3D_PT_blendcap_vta_current_frame"
+
+    def draw(self, context):
+        layout = self.layout
+        if _view is None:
+            layout.label(text="Current review unavailable.")
+            return
         for candidate in _view.candidates:
             if candidate.assigned_character_name:
                 layout.label(
-                    text=f"{candidate.label} - Assigned: {candidate.assigned_character_name}",
+                    text=f"Candidate {candidate.position}: {candidate.assigned_character_name}",
                     icon='CHECKMARK',
                 )
         layout.prop(context.window_manager, "blendcap_vta_candidate", text="Candidate")
-        selected_candidate = next(
-            (item for item in _view.candidates
-             if item.observation_id == _selection.observation_id), None
-        )
-        if selected_candidate is not None:
-            layout.label(text=f"Selected observation ID: {selected_candidate.observation_id}")
-        layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
         selected_character = next(
             (item for item in _view.characters if item.character_id == _selection.character_id),
             None,
@@ -1189,22 +1401,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                 layout.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
             else:
                 layout.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
-        create_row = layout.row(align=True)
-        create_row.prop(
-            context.window_manager,
-            "blendcap_vta_new_character_name",
-            text="New Character",
-        )
-        create_row.operator(
-            "blendcap.vta_review_create_character", text="Create", icon='ADD'
-        )
-        layout.label(text=f"Blank name creates {next_generic_character_name(_view)}")
-        row = layout.row(align=True)
-        row.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
-        tracking = layout.row()
-        tracking.enabled = _action_availability()["update-tracking"]
-        tracking.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
-        assign = row.row(align=True)
+        assign = layout.row(align=True)
         assign.enabled = _selection.can_assign(_view)
         assign.operator("blendcap.vta_review_assign", text="Assign", icon='CHECKMARK')
         layout.label(text="Mark selected Character on this frame:")
@@ -1218,26 +1415,69 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         no_valid.operator(
             "blendcap.vta_review_hard_state", text="No Valid Candidate"
         ).decision_kind = "no-valid-candidate"
-        layout.separator()
-        layout.label(text="Review keys: VTA Commands / Select / toolbar")
-        layout.label(text="Lanes hide over strips; scroll to empty channels")
-        layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
-        layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
         _draw_management_actions(layout, actions={
             "clear-assignment", "clear-review-key", "clear-selected-review-keys",
-            "rename-character", "delete-character",
         })
-        if not _view.characters:
-            layout.label(text="No existing Characters in this VTA project.", icon='INFO')
+
+
+class VIEW3D_PT_blendcap_vta_tracking(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Update Tracking"
+    bl_idname = "VIEW3D_PT_blendcap_vta_tracking"
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.enabled = _action_availability()["update-tracking"]
+        row.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
+        layout.label(text="Nearest hard keys bound the interval")
+        layout.label(text="Otherwise: about 5 seconds each way")
         if _status:
             for index, line in enumerate(textwrap.wrap(_status, width=54)):
                 layout.label(text=line, icon=('ERROR' if _status_is_error else 'INFO')
                              if index == 0 else 'NONE')
 
 
+class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Display"
+    bl_idname = "VIEW3D_PT_blendcap_vta_display"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Candidate Boxes")
+        layout.label(text="Review keys: VTA Commands / Select / toolbar")
+        layout.label(text="Lanes hide over occupied strips")
+        layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
+        layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
+
+
+class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = "Advanced"
+    bl_idname = "VIEW3D_PT_blendcap_vta_advanced"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        prefs = addon_prefs(context)
+        if prefs is not None:
+            layout.prop(prefs, "vta_core_location", text="Private Core")
+            layout.prop(prefs, "vta_analysis_python", text="Analysis Python")
+            layout.prop(prefs, "vta_kinesia_root", text="SAM3 Source")
+            layout.prop(prefs, "vta_sam3_checkpoint", text="SAM3 Weights")
+        if _view is not None:
+            selected = next((item for item in _view.candidates
+                             if item.observation_id == _selection.observation_id), None)
+            if selected is not None:
+                layout.label(text=f"Observation ID: {selected.observation_id}")
+            layout.label(text=f"Analysis revision: {_view.analysis_revision_id}")
+        layout.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
+
+
 classes = (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
+    BLENDCAP_OT_vta_analyze,
+    BLENDCAP_OT_vta_analyze_stop,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     BLENDCAP_OT_vta_review_hard_state,
@@ -1246,6 +1486,12 @@ classes = (
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
+    VIEW3D_PT_blendcap_vta_analyze,
+    VIEW3D_PT_blendcap_vta_characters,
+    VIEW3D_PT_blendcap_vta_current_frame,
+    VIEW3D_PT_blendcap_vta_tracking,
+    VIEW3D_PT_blendcap_vta_display,
+    VIEW3D_PT_blendcap_vta_advanced,
 )
 
 
@@ -1253,6 +1499,16 @@ def register_properties() -> None:
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
         name="Show VTA Candidate Overlay", default=True,
         description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
+    bpy.types.WindowManager.blendcap_vta_analyze_scope = bpy.props.EnumProperty(
+        name="Analyze Coverage", items=(
+            ('WHOLE', "Whole Source", "Analyze all missing source frames"),
+            ('RANGE', "Source Frame Range", "Analyze missing frames in an inclusive range"),
+        ), default='WHOLE',
+    )
+    bpy.types.WindowManager.blendcap_vta_analyze_start = bpy.props.IntProperty(
+        name="First Source Frame", default=0, min=0)
+    bpy.types.WindowManager.blendcap_vta_analyze_end = bpy.props.IntProperty(
+        name="Last Source Frame", default=0, min=0)
     bpy.types.WindowManager.blendcap_vta_candidate = bpy.props.EnumProperty(
         name="Candidate",
         items=candidate_items,
@@ -1286,10 +1542,15 @@ def unregister_properties() -> None:
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()
     vta_overlay.unregister()
+    if bpy.app.timers.is_registered(_analysis_timer):
+        bpy.app.timers.unregister(_analysis_timer)
     _unregister_review_context_keymap()
     _unregister_timeline_tools()
     _unregister_preview_tools()
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay
+    del bpy.types.WindowManager.blendcap_vta_analyze_scope
+    del bpy.types.WindowManager.blendcap_vta_analyze_start
+    del bpy.types.WindowManager.blendcap_vta_analyze_end
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character
     del bpy.types.WindowManager.blendcap_vta_new_character_name

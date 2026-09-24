@@ -220,6 +220,15 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         name="Video to Animation Core Location",
         subtype='DIR_PATH', default="",
         description="Folder containing the separately installed Video to Animation Core")
+    vta_analysis_python: bpy.props.StringProperty(  # type: ignore
+        name="VTA Analysis Python", subtype='FILE_PATH', default="",
+        description="Python executable in the existing CUDA SAM3 environment")
+    vta_kinesia_root: bpy.props.StringProperty(  # type: ignore
+        name="VTA SAM3 Source", subtype='DIR_PATH', default="",
+        description="Existing evaluated Kinesia source checkout; no files are installed")
+    vta_sam3_checkpoint: bpy.props.StringProperty(  # type: ignore
+        name="VTA SAM3 Checkpoint", subtype='FILE_PATH', default="",
+        description="Existing offline SAM3 checkpoint for candidate analysis")
 
     # --- Capture & tracking ---
     capture_backend: bpy.props.EnumProperty(  # type: ignore
@@ -470,6 +479,11 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         box.label(text="Optional separate review component", icon='INFO')
         box.prop(self, "vta_core_location")
         box.label(text="Leave blank to use an installed default when available.")
+        box.separator()
+        box.label(text="Optional SAM3 Analyze runtime (existing files only):")
+        box.prop(self, "vta_analysis_python")
+        box.prop(self, "vta_kinesia_root")
+        box.prop(self, "vta_sam3_checkpoint")
 
     def _draw_capture(self, context, layout):
         box = layout.box()

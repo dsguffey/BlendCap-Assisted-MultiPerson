@@ -128,7 +128,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
             self.assertIn(("wm.tool_set_by_id", "Select VTA Review Keys", True), menu.calls)
             self.assertEqual({call[0] for call in menu.calls}, {
-                "blendcap.vta_review_manage", "blendcap.vta_update_tracking", "wm.tool_set_by_id"
+            "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
+            "blendcap.vta_analyze", "wm.tool_set_by_id"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()
@@ -189,6 +190,23 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                     for item in ui._review_context_keymap[0].keymap_items
                 ), 1)
                 self.assertIsNotNone(ui.vta_timeline_overlay._handler)
+                panels = (
+                    ui.VIEW3D_PT_blendcap_vta_review,
+                    ui.VIEW3D_PT_blendcap_vta_analyze,
+                    ui.VIEW3D_PT_blendcap_vta_characters,
+                    ui.VIEW3D_PT_blendcap_vta_current_frame,
+                    ui.VIEW3D_PT_blendcap_vta_tracking,
+                    ui.VIEW3D_PT_blendcap_vta_display,
+                    ui.VIEW3D_PT_blendcap_vta_advanced,
+                )
+                with mock.patch.object(ui, "_view", None), \
+                     mock.patch.object(ui, "_location", None), \
+                     mock.patch.object(ui, "refresh", return_value=False), \
+                     mock.patch.object(ui, "addon_prefs", return_value=None):
+                    for panel in panels:
+                        self.assertIsNotNone(bpy.types.Panel.bl_rna_get_subclass_py(
+                            panel.bl_idname))
+                        panel.draw(SimpleNamespace(layout=mock.Mock()), bpy.context)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select"))

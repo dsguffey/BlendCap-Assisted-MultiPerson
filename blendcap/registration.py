@@ -80,6 +80,8 @@ from .panels import (
 from .vta_review_ui import (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
+    BLENDCAP_OT_vta_analyze,
+    BLENDCAP_OT_vta_analyze_stop,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     BLENDCAP_OT_vta_review_hard_state,
@@ -88,6 +90,12 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
+    VIEW3D_PT_blendcap_vta_analyze,
+    VIEW3D_PT_blendcap_vta_characters,
+    VIEW3D_PT_blendcap_vta_current_frame,
+    VIEW3D_PT_blendcap_vta_tracking,
+    VIEW3D_PT_blendcap_vta_display,
+    VIEW3D_PT_blendcap_vta_advanced,
     register_properties as register_vta_review_properties,
     unregister_properties as unregister_vta_review_properties,
 )
@@ -233,6 +241,8 @@ classes = (
     OUTPUT_PT_blendcap_ui,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
+    BLENDCAP_OT_vta_analyze,
+    BLENDCAP_OT_vta_analyze_stop,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     BLENDCAP_OT_vta_review_hard_state,
@@ -241,6 +251,12 @@ classes = (
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
+    VIEW3D_PT_blendcap_vta_analyze,
+    VIEW3D_PT_blendcap_vta_characters,
+    VIEW3D_PT_blendcap_vta_current_frame,
+    VIEW3D_PT_blendcap_vta_tracking,
+    VIEW3D_PT_blendcap_vta_display,
+    VIEW3D_PT_blendcap_vta_advanced,
 )
 
 @bpy.app.handlers.persistent

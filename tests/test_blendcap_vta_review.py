@@ -106,7 +106,7 @@ class ReviewPresentationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         ui = ast.parse((root / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8"))
         registration = ast.parse((root / "blendcap" / "registration.py").read_text(encoding="utf-8"))
-        panel = next(item for item in ui.body if isinstance(item, ast.ClassDef) and item.name == "VIEW3D_PT_blendcap_vta_review")
+        panel = next(item for item in ui.body if isinstance(item, ast.ClassDef) and item.name == "VIEW3D_PT_blendcap_vta_current_frame")
         draw = next(item for item in panel.body if isinstance(item, ast.FunctionDef) and item.name == "draw")
         calls = [item for item in ast.walk(draw) if isinstance(item, ast.Call) and isinstance(item.func, ast.Attribute) and item.func.attr == "operator"]
         self.assertIn("blendcap.vta_review_hard_state", [item.args[0].value for item in calls if item.args and isinstance(item.args[0], ast.Constant)])
@@ -152,7 +152,7 @@ class ReviewPresentationTests(unittest.TestCase):
 
         panel = next(
             node for node in ui_tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "VIEW3D_PT_blendcap_vta_review"
+            if isinstance(node, ast.ClassDef) and node.name == "VIEW3D_PT_blendcap_vta_characters"
         )
         draw = next(node for node in panel.body if isinstance(node, ast.FunctionDef) and node.name == "draw")
         drawn_operator_ids = {
