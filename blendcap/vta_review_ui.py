@@ -162,6 +162,15 @@ def _lane_scroll() -> int:
                  if item.character_id == _selection.character_id), 0)
 
 
+def next_generic_character_name(view) -> str:
+    """Choose an unused, domain-neutral name without renaming existing data."""
+    names = {item.display_name.casefold() for item in view.characters}
+    number = 1
+    while f"character {number}" in names:
+        number += 1
+    return f"Character {number}"
+
+
 def ensure_vta_preview_context(context, owning_scene) -> int:
     """Bind existing VSE Preview areas to the owning scene's workspace slot."""
     workspace = getattr(context, "workspace", None)
@@ -648,12 +657,8 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
-        name = (context.window_manager.blendcap_vta_new_character_name or "").strip()
-        if not name:
-            _status = "Enter a non-blank Character name."
-            _status_is_error = True
-            self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+        name = ((context.window_manager.blendcap_vta_new_character_name or "").strip()
+                or next_generic_character_name(_view))
         if character_name_exists(_view, name):
             _status = (
                 f"Character {name!r} already exists. Select it from the Character dropdown "
@@ -785,6 +790,34 @@ class BLENDCAP_WST_vta_review_key_select_combined(BLENDCAP_WST_vta_review_key_se
 
 
 _registered_timeline_tools = []
+_review_context_keymap = None
+
+
+def _register_review_context_keymap():
+    """Intercept RMB only in Sequencer WINDOW; misses pass to Blender unchanged.
+
+    This is independent of the active WorkSpaceTool, unlike its LMB bindings.
+    The operator hit-tests before opening Blender's existing context menu.
+    """
+    global _review_context_keymap
+    keyconfig = getattr(bpy.context.window_manager.keyconfigs, "addon", None)
+    if keyconfig is None or _review_context_keymap is not None:
+        return
+    keymap = keyconfig.keymaps.new(
+        name='Sequencer', space_type='SEQUENCE_EDITOR', region_type='WINDOW'
+    )
+    item = keymap.keymap_items.new(
+        BLENDCAP_OT_vta_review_key_select.bl_idname, 'RIGHTMOUSE', 'PRESS'
+    )
+    _review_context_keymap = (keymap, item)
+
+
+def _unregister_review_context_keymap():
+    global _review_context_keymap
+    if _review_context_keymap is not None:
+        keymap, item = _review_context_keymap
+        keymap.keymap_items.remove(item)
+        _review_context_keymap = None
 
 
 def _register_timeline_tools():
@@ -1125,6 +1158,12 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                     icon='CHECKMARK',
                 )
         layout.prop(context.window_manager, "blendcap_vta_candidate", text="Candidate")
+        selected_candidate = next(
+            (item for item in _view.candidates
+             if item.observation_id == _selection.observation_id), None
+        )
+        if selected_candidate is not None:
+            layout.label(text=f"Selected observation ID: {selected_candidate.observation_id}")
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
         selected_character = next(
             (item for item in _view.characters if item.character_id == _selection.character_id),
@@ -1159,6 +1198,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         create_row.operator(
             "blendcap.vta_review_create_character", text="Create", icon='ADD'
         )
+        layout.label(text=f"Blank name creates {next_generic_character_name(_view)}")
         row = layout.row(align=True)
         row.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
         tracking = layout.row()
@@ -1225,11 +1265,12 @@ def register_properties() -> None:
     )
     bpy.types.WindowManager.blendcap_vta_new_character_name = bpy.props.StringProperty(
         name="New Character",
-        description="Display name for a new semantic Character",
+        description="Optional display name; blank creates the next numbered Character",
         default="",
     )
     _register_preview_tools()
     _register_timeline_tools()
+    _register_review_context_keymap()
     vta_overlay.register(overlay_state)
     vta_timeline_overlay.register(timeline_state)
     _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_context_menu)
@@ -1245,6 +1286,7 @@ def unregister_properties() -> None:
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()
     vta_overlay.unregister()
+    _unregister_review_context_keymap()
     _unregister_timeline_tools()
     _unregister_preview_tools()
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay

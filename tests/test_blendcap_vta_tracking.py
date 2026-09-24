@@ -29,7 +29,7 @@ class TrackingPresentationTests(unittest.TestCase):
         self.assertIsNone(view.candidates[0].assigned_character_id)
         self.assertEqual(view.characters[0].derived_observation_id, "obs")
         overlay = vta_overlay.build_overlay_candidates(view, "")
-        self.assertIn("Derived: Red", overlay[0].label)
+        self.assertEqual(overlay[0].label, "Candidate 1")
         self.assertFalse(review.SelectionState().can_assign(view))
         base["character_decisions"] = (SimpleNamespace(
             character_id="red", state=SimpleNamespace(value="visible"),

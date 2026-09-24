@@ -11,7 +11,9 @@ from ..blendcap_vta_timeline import hit_test_keys
 
 GUTTER_WIDTH = 152
 ROW_HEIGHT = 24.0
-TOP_PADDING = 25.0
+# Reserve a full lane of headroom for the native playhead/frame labels above
+# our first lane. The WINDOW height already excludes Blender's other regions.
+TOP_PADDING = ROW_HEIGHT + 16.0
 BOTTOM_PADDING = 14.0
 
 _handler = None

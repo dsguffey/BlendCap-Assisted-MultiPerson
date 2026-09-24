@@ -182,6 +182,12 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header")), 1)
                 self.assertEqual(len(ui._registered_timeline_tools), 2)
+                self.assertIsNotNone(ui._review_context_keymap)
+                self.assertEqual(sum(
+                    item.idname == "blendcap.vta_review_key_select"
+                    and item.type == 'RIGHTMOUSE'
+                    for item in ui._review_context_keymap[0].keymap_items
+                ), 1)
                 self.assertIsNotNone(ui.vta_timeline_overlay._handler)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
@@ -189,6 +195,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header"))
                 self.assertFalse(ui._registered_timeline_tools)
+                self.assertIsNone(ui._review_context_keymap)
                 self.assertIsNone(ui.vta_timeline_overlay._handler)
         finally:
             if getattr(ui.vta_timeline_overlay, "_handler", None) is not None:

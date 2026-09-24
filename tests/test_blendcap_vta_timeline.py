@@ -175,6 +175,37 @@ class BlenderTimelineTests(unittest.TestCase):
         self.assertTrue(callable(ui._draw_vta_select))
         self.assertTrue(callable(ui._draw_vta_context))
 
+    def test_context_keymap_is_tool_independent_and_removed(self):
+        ui = self.ui
+        items = SimpleNamespace(new=mock.Mock(return_value=object()), remove=mock.Mock())
+        keymap = SimpleNamespace(keymap_items=items)
+        keyconfig = SimpleNamespace(keymaps=SimpleNamespace(new=mock.Mock(return_value=keymap)))
+        wm = SimpleNamespace(keyconfigs=SimpleNamespace(addon=keyconfig))
+        with mock.patch.object(ui, "bpy", SimpleNamespace(context=SimpleNamespace(window_manager=wm))), \
+             mock.patch.object(ui, "_review_context_keymap", None):
+            ui._register_review_context_keymap()
+            ui._register_review_context_keymap()
+            keyconfig.keymaps.new.assert_called_once_with(
+                name='Sequencer', space_type='SEQUENCE_EDITOR', region_type='WINDOW'
+            )
+            items.new.assert_called_once_with(
+                'blendcap.vta_review_key_select', 'RIGHTMOUSE', 'PRESS'
+            )
+            ui._unregister_review_context_keymap()
+            self.assertIsNone(ui._review_context_keymap)
+            items.remove.assert_called_once()
+
+    def test_generic_character_names_skip_existing_and_keep_custom_names(self):
+        ui = self.ui
+        rows = SimpleNamespace(characters=(
+            SimpleNamespace(display_name="Character 1"),
+            SimpleNamespace(display_name="Ada"),
+            SimpleNamespace(display_name="character 3"),
+        ))
+        self.assertEqual(ui.next_generic_character_name(rows), "Character 2")
+        self.assertEqual([item.display_name for item in rows.characters],
+                         ["Character 1", "Ada", "character 3"])
+
     def test_click_selection_navigates_by_key_id(self):
         ui = self.ui
         selection = ReviewKeySelection()
@@ -226,6 +257,45 @@ class BlenderTimelineTests(unittest.TestCase):
             self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
                              {"character_id": "amy"})
         scene.frame_set.assert_called_once_with(105)
+
+    def test_right_click_from_blank_selection_activates_key_before_native_menu(self):
+        ui = self.ui
+        selection = ReviewKeySelection()
+        scene = SimpleNamespace(frame_set=mock.Mock())
+        context = SimpleNamespace(region=SimpleNamespace(view2d=object(), height=300),
+                                  area=SimpleNamespace(tag_redraw=mock.Mock()))
+        event = SimpleNamespace(type='RIGHTMOUSE', mouse_region_x=50,
+                                mouse_region_y=250, ctrl=False)
+        chosen = SimpleNamespace(character_id="zed")
+        observed = []
+        with mock.patch.object(ui, "_timeline", view()), \
+             mock.patch.object(ui, "_location", SimpleNamespace(source_frame=5, blender_frame=105)), \
+             mock.patch.object(ui, "_review_key_selection", selection), \
+             mock.patch.object(ui, "_selection", chosen), \
+             mock.patch.object(ui.vta_timeline_overlay, "hit_key", return_value="key-a"), \
+             mock.patch.object(ui, "_owning_vse_scene", return_value=scene), \
+             mock.patch.object(ui, "refresh", return_value=True), \
+             mock.patch.object(ui, "_sync_properties"), \
+             mock.patch.object(ui, "_open_native_sequencer_context_menu",
+                               side_effect=lambda: observed.append(
+                                   (selection.active_keyframe_id, chosen.character_id,
+                                    scene.frame_set.call_args.args[0]))):
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(
+                None, context, event), {'FINISHED'})
+        self.assertEqual(observed, [("key-a", "amy", 105)])
+
+    def test_lane_headroom_preserves_glyph_bounds_and_strip_filter(self):
+        overlay = self.overlay
+        self.assertGreaterEqual(overlay.TOP_PADDING, overlay.ROW_HEIGHT + 12)
+        lanes = overlay.visible_lanes(view(), 180)
+        self.assertLessEqual(lanes[0][1] + 11, 180 - overlay.ROW_HEIGHT)
+        class View2D:
+            @staticmethod
+            def region_to_view(_x, y):
+                return 0, y / 24
+        filtered = overlay.visible_lanes(view(), 180, view2d=View2D(),
+                                         occupied_channels=(round(lanes[0][1] / 24),))
+        self.assertNotIn(lanes[0], filtered)
 
     def test_right_click_key_uses_native_context_menu_and_empty_passes_through(self):
         ui = self.ui

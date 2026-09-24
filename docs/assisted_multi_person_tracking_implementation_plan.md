@@ -308,6 +308,19 @@ strips, channels, and the playhead are never identity authority.
 
 The explicit Select VTA Review Key tool supports click navigation and Ctrl-click
 multi-selection by keyframe ID. Box selection and default shortcuts are deferred.
+Sequencer-scoped right-click hit-testing also activates a visible key without
+requiring the selection tool or a prior left-click, then opens Blender's normal
+context menu. A miss passes through to ordinary Sequencer behavior. Direct
+left-click and box selection remain deferred: the drawn lanes are not native
+selectable Sequencer elements, and a whole-region mouse interceptor would risk
+strip interactions. Ctrl-click remains the bounded multi-select path.
+The first lane reserves one row of headroom below frame/playhead chrome and
+still hides over occupied strip channels. Preview boxes show only `Candidate N`
+when unassigned or the Character display name when assigned; the selected
+observation ID remains in panel details. Blank Character creation chooses the
+next available generic `Character N` without renaming existing Characters.
+Each Character still has one authoritative review key per frame; no sublanes
+are introduced.
 The panel and native Sequencer context menu use the same management operator.
 Clear Assignment removes only a candidate-bearing key;
 Clear Review Key, Clear Selected Review Keys, and Clear All Review Keys on Frame

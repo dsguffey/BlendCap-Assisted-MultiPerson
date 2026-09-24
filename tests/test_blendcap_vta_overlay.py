@@ -41,7 +41,9 @@ class OverlayTests(unittest.TestCase):
 
     def test_rows_preserve_durable_selection_and_authoritative_label(self):
         rows = build_overlay_candidates(view(), "a")
-        self.assertEqual(rows[1].label, "Candidate 2 — Ada")
+        self.assertEqual(rows[0].label, "Candidate 1")
+        self.assertEqual(rows[1].label, "Ada")
+        self.assertEqual(rows[1].observation_id, "a")
         self.assertTrue(rows[1].selected)
         self.assertFalse(rows[0].selected)
 
