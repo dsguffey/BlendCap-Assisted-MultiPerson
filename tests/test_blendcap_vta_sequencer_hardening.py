@@ -181,11 +181,15 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header")), 1)
+                self.assertEqual(len(ui._registered_timeline_tools), 2)
+                self.assertIsNotNone(ui.vta_timeline_overlay._handler)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header"))
+                self.assertFalse(ui._registered_timeline_tools)
+                self.assertIsNone(ui.vta_timeline_overlay._handler)
         finally:
             if getattr(ui.vta_timeline_overlay, "_handler", None) is not None:
                 addon.unregister()

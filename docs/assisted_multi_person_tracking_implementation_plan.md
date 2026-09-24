@@ -359,3 +359,19 @@ The private Update Tracking command now emits records only on analyzed cache
 frames. Missing source frames remain a direction-chain stop, not a bridge; the
 three-frame smoke fixture creates no derived records beyond analyzed frames.
 Expected no-cache/no-anchor outcomes have persistent, concise panel messages.
+
+## Native review-key interaction boundary (2026-09-23)
+
+The Sequencer review-key WorkSpaceTool now treats a key under its right-click
+as the active transient context, synchronizing its Character and source frame
+before opening Blender's existing context menu. Left-click selection and
+Ctrl-click durable-ID multi-selection remain tool-scoped. Empty plain clicks
+clear transient key selection and pass through to Blender. Selected keys keep
+a non-color outline; deleting keys reconciles that selection. One Character
+has at most one authoritative decision per frame. One lane per Character is
+retained without foreclosing future expandable sublanes.
+
+No global mouse interception or VTA Delete shortcut is installed: Blender's
+Sequencer already binds Delete to retiming-key and strip deletion. Review-key
+clearing and confirmed Character deletion remain distinct operators. A live
+Blender interaction check is still required before claiming visual acceptance.

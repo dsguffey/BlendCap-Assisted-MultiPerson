@@ -683,7 +683,8 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def select_review_key_at(context, point, *, extend: bool = False) -> bool:
+def select_review_key_at(context, point, *, extend: bool = False,
+                         activate: bool = False) -> bool:
     """Select one projected user key and navigate via its durable identity."""
     if _timeline is None or _location is None:
         return False
@@ -696,11 +697,16 @@ def select_review_key_at(context, point, *, extend: bool = False) -> bool:
         _lane_scroll(),
         vta_timeline_overlay.occupied_strip_channels(context),
     )
-    if key_id is None or not _review_key_selection.click(_timeline, key_id, extend=extend):
+    if key_id is None:
         return False
-    key = key_at(_timeline, key_id)
+    selected = (_review_key_selection.activate(_timeline, key_id) if activate
+                else _review_key_selection.click(_timeline, key_id, extend=extend))
+    if not selected:
+        return False
+    key = key_at(_timeline, _review_key_selection.active_keyframe_id)
     if key is None:
-        return False
+        _sync_properties(context)
+        return True
     _selection.character_id = key.character_id
     scene = _owning_vse_scene(context, _location)
     target_frame = key.source_frame + _location.blender_frame - _location.source_frame
@@ -711,6 +717,10 @@ def select_review_key_at(context, point, *, extend: bool = False) -> bool:
     refresh(context, force=True)
     _sync_properties(context)
     return True
+
+
+def _open_native_sequencer_context_menu():
+    bpy.ops.wm.call_menu('INVOKE_DEFAULT', name="SEQUENCER_MT_context_menu")
 
 
 class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
@@ -727,9 +737,28 @@ class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
         )
 
     def invoke(self, context, event):
-        return {'FINISHED'} if select_review_key_at(
+        if event.type == 'RIGHTMOUSE':
+            if not select_review_key_at(
+                context, (event.mouse_region_x, event.mouse_region_y), activate=True
+            ):
+                return {'PASS_THROUGH'}
+            # Open Blender's existing context menu; never replace strip-context
+            # behavior on empty space or outside the active review-key tool.
+            try:
+                _open_native_sequencer_context_menu()
+            except RuntimeError:
+                # If Blender cannot open its menu here, let its ordinary
+                # right-click binding handle the same event.
+                return {'PASS_THROUGH'}
+            return {'FINISHED'}
+        if select_review_key_at(
             context, (event.mouse_region_x, event.mouse_region_y), extend=bool(event.ctrl)
-        ) else {'PASS_THROUGH'}
+        ):
+            return {'FINISHED'}
+        if not event.ctrl:
+            _review_key_selection.clear()
+            context.area.tag_redraw()
+        return {'PASS_THROUGH'}
 
 
 class BLENDCAP_WST_vta_review_key_select(bpy.types.WorkSpaceTool):
@@ -745,6 +774,8 @@ class BLENDCAP_WST_vta_review_key_select(bpy.types.WorkSpaceTool):
          {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
         (BLENDCAP_OT_vta_review_key_select.bl_idname,
          {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True}, None),
+        (BLENDCAP_OT_vta_review_key_select.bl_idname,
+         {"type": 'RIGHTMOUSE', "value": 'PRESS'}, None),
     )
 
 

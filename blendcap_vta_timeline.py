@@ -76,14 +76,21 @@ class ReviewKeySelection:
 
     def __init__(self):
         self._ids: set[str] = set()
+        self._active_id: str | None = None
 
     @property
     def keyframe_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._ids))
 
+    @property
+    def active_keyframe_id(self) -> str | None:
+        return self._active_id
+
     def reconcile(self, view: TimelineView | None) -> None:
         valid = {item.keyframe_id for item in view.keys} if view else set()
         self._ids.intersection_update(valid)
+        if self._active_id not in self._ids:
+            self._active_id = min(self._ids) if self._ids else None
 
     def click(self, view: TimelineView, keyframe_id: str, *, extend: bool = False) -> bool:
         if keyframe_id not in {item.keyframe_id for item in view.keys}:
@@ -91,14 +98,28 @@ class ReviewKeySelection:
         if extend:
             if keyframe_id in self._ids:
                 self._ids.remove(keyframe_id)
+                if self._active_id == keyframe_id:
+                    self._active_id = min(self._ids) if self._ids else None
             else:
                 self._ids.add(keyframe_id)
+                self._active_id = keyframe_id
         else:
             self._ids = {keyframe_id}
+            self._active_id = keyframe_id
+        return True
+
+    def activate(self, view: TimelineView, keyframe_id: str) -> bool:
+        """Right-click activates a durable key, retaining an existing group."""
+        if keyframe_id not in {item.keyframe_id for item in view.keys}:
+            return False
+        if keyframe_id not in self._ids:
+            self._ids = {keyframe_id}
+        self._active_id = keyframe_id
         return True
 
     def clear(self) -> None:
         self._ids.clear()
+        self._active_id = None
 
 
 def key_at(view: TimelineView, keyframe_id: str) -> TimelineKey | None:

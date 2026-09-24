@@ -107,6 +107,30 @@ class TimelineProofTests(unittest.TestCase):
         selection.reconcile(TimelineView("source", view().characters, view().keys[:1]))
         self.assertEqual(selection.keyframe_ids, ())
 
+    def test_right_click_active_key_preserves_selected_group_by_durable_id(self):
+        selection = ReviewKeySelection()
+        selection.click(view(), "key-a")
+        selection.click(view(), "key-b", extend=True)
+        self.assertTrue(selection.activate(view(), "key-a"))
+        self.assertEqual(selection.keyframe_ids, ("key-a", "key-b"))
+        self.assertEqual(selection.active_keyframe_id, "key-a")
+        self.assertTrue(selection.activate(view(), "key-c"))
+        self.assertEqual(selection.keyframe_ids, ("key-c",))
+        self.assertFalse(selection.activate(view(), "missing"))
+        selection.reconcile(TimelineView("source", view().characters, ()))
+        self.assertIsNone(selection.active_keyframe_id)
+
+    def test_ctrl_toggle_retargets_active_key_without_index_identity(self):
+        selection = ReviewKeySelection()
+        selection.click(view(), "key-a")
+        selection.click(view(), "key-b", extend=True)
+        self.assertEqual(selection.active_keyframe_id, "key-b")
+        selection.click(view(), "key-b", extend=True)
+        self.assertEqual(selection.active_keyframe_id, "key-a")
+        selection.click(view(), "key-a", extend=True)
+        self.assertEqual(selection.keyframe_ids, ())
+        self.assertIsNone(selection.active_keyframe_id)
+
     def test_lane_layout_keeps_empty_row_and_hit_test_uses_frame_transform(self):
         rows = lane_layout(view(), top=100, row_height=24)
         self.assertEqual([name for name, _y in rows], ["amy", "empty", "zed"])
@@ -141,9 +165,11 @@ class BlenderTimelineTests(unittest.TestCase):
         self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select.bl_context_mode, 'SEQUENCER')
         self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select_combined.bl_context_mode,
                          'SEQUENCER_PREVIEW')
-        self.assertEqual(len(ui.BLENDCAP_WST_vta_review_key_select.bl_keymap), 2)
+        self.assertEqual(len(ui.BLENDCAP_WST_vta_review_key_select.bl_keymap), 3)
         self.assertEqual({item[0] for item in ui.BLENDCAP_WST_vta_review_key_select.bl_keymap},
                          {"blendcap.vta_review_key_select"})
+        self.assertEqual({item[1]["type"] for item in ui.BLENDCAP_WST_vta_review_key_select.bl_keymap},
+                         {'LEFTMOUSE', 'RIGHTMOUSE'})
         self.assertIn(ui.BLENDCAP_OT_vta_review_manage, ui.classes)
         self.assertNotIn("BLENDCAP_MT_vta_review", vars(ui))
         self.assertTrue(callable(ui._draw_vta_select))
@@ -168,6 +194,74 @@ class BlenderTimelineTests(unittest.TestCase):
             self.assertEqual(ui._selection.character_id, "amy")
             self.assertEqual(selection.keyframe_ids, ("key-a",))
         scene.frame_set.assert_called_once_with(105)
+
+    def test_right_click_key_overrides_stale_character_for_management(self):
+        ui = self.ui
+        selection = ReviewKeySelection()
+        scene = SimpleNamespace(frame_set=mock.Mock())
+        context = SimpleNamespace(region=SimpleNamespace(view2d=object(), height=300))
+        location = SimpleNamespace(source_frame=5, blender_frame=105)
+        current = SimpleNamespace(source_id="source", source_frame=5)
+        chosen = SimpleNamespace(character_id="zed")
+        with mock.patch.object(ui, "_timeline", view()), \
+             mock.patch.object(ui, "_location", location), \
+             mock.patch.object(ui, "_view", current), \
+             mock.patch.object(ui, "_review_key_selection", selection), \
+             mock.patch.object(ui, "_selection", chosen), \
+             mock.patch.object(ui.vta_timeline_overlay, "hit_key", return_value="key-a"), \
+             mock.patch.object(ui, "_owning_vse_scene", return_value=scene), \
+             mock.patch.object(ui, "refresh", return_value=True), \
+             mock.patch.object(ui, "_sync_properties"):
+            self.assertTrue(ui.select_review_key_at(context, (50, 250), activate=True))
+            self.assertEqual(chosen.character_id, "amy")
+            self.assertEqual(selection.active_keyframe_id, "key-a")
+            self.assertEqual(selection.keyframe_ids, ("key-a",))
+            operator = SimpleNamespace(action="clear-review-key")
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
+                             {"keyframe_ids": ("key-a",)})
+            operator.action = "clear-assignment"
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
+                             {"character_id": "amy", "source_id": "source", "frame": 5})
+            operator.action = "delete-character"
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
+                             {"character_id": "amy"})
+        scene.frame_set.assert_called_once_with(105)
+
+    def test_right_click_key_uses_native_context_menu_and_empty_passes_through(self):
+        ui = self.ui
+        event = SimpleNamespace(type='RIGHTMOUSE', mouse_region_x=50,
+                                mouse_region_y=250, ctrl=False)
+        context = SimpleNamespace(area=SimpleNamespace(tag_redraw=mock.Mock()))
+        with mock.patch.object(ui, "select_review_key_at", return_value=True) as select, \
+             mock.patch.object(ui, "_open_native_sequencer_context_menu") as menu:
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(None, context, event),
+                             {'FINISHED'})
+            select.assert_called_once_with(context, (50, 250), activate=True)
+            menu.assert_called_once_with()
+        with mock.patch.object(ui, "select_review_key_at", return_value=False), \
+             mock.patch.object(ui, "_open_native_sequencer_context_menu") as menu:
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(None, context, event),
+                             {'PASS_THROUGH'})
+            menu.assert_not_called()
+        with mock.patch.object(ui, "select_review_key_at", return_value=True), \
+             mock.patch.object(ui, "_open_native_sequencer_context_menu",
+                               side_effect=RuntimeError("menu unavailable")):
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(None, context, event),
+                             {'PASS_THROUGH'})
+
+    def test_empty_left_click_clears_only_transient_key_selection(self):
+        ui = self.ui
+        selection = ReviewKeySelection()
+        selection.click(view(), "key-a")
+        event = SimpleNamespace(type='LEFTMOUSE', mouse_region_x=20,
+                                mouse_region_y=20, ctrl=False)
+        context = SimpleNamespace(area=SimpleNamespace(tag_redraw=mock.Mock()))
+        with mock.patch.object(ui, "_review_key_selection", selection), \
+             mock.patch.object(ui, "select_review_key_at", return_value=False):
+            self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(None, context, event),
+                             {'PASS_THROUGH'})
+        self.assertEqual(selection.keyframe_ids, ())
+        context.area.tag_redraw.assert_called_once_with()
 
     def test_cancel_and_direct_execute_cannot_mutate(self):
         ui = self.ui
