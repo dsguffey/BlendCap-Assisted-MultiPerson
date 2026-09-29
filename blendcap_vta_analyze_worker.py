@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import uuid
 
 
@@ -21,6 +22,7 @@ STOP_NAME = "vta-analysis-stop"
 LOCK_NAME = "vta-analysis.lock"
 PROMPT = "person"
 CONFIDENCE = 0.5
+_STATUS_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16)
 
 
 class AnalysisLaunchError(RuntimeError):
@@ -67,10 +69,29 @@ def write_status(companion_root: Path, payload: dict) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        # Windows can briefly deny replacement while the UI/Defender has the
+        # destination open. The temporary writer is closed above; retry only
+        # that transient publication operation, never the cache checkpoint.
+        for attempt in range(len(_STATUS_RETRY_DELAYS) + 1):
+            try:
+                os.replace(temporary, destination)
+                break
+            except PermissionError as exc:
+                if (getattr(exc, "winerror", None) not in (5, 32)
+                        or attempt == len(_STATUS_RETRY_DELAYS)):
+                    raise AnalysisLaunchError(
+                        f"Could not update analysis status file: {exc}"
+                    ) from exc
+                time.sleep(_STATUS_RETRY_DELAYS[attempt])
     finally:
         if temporary is not None:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                # Do not replace a publication failure with a secondary
+                # cleanup error if a scanner still holds this temp name.
+                if sys.exc_info()[0] is None:
+                    raise
 
 
 def _source_for_video(project, source_path: Path):
@@ -128,6 +149,7 @@ def run_analysis(args: argparse.Namespace) -> dict:
         "provider": "pytorch-sam3", "model": "sam3-image",
         "pid": os.getpid(), "newly_analyzed": 0, "skipped": 0,
         "completed_in_requested_range": 0,
+        "total_analyzed_frames": len(cache.analyzed_frames) if cache is not None else 0,
     }
     stop = root / "analysis" / STOP_NAME
     stop.unlink(missing_ok=True)  # stale request from a completed earlier process
@@ -154,6 +176,7 @@ def run_analysis(args: argparse.Namespace) -> dict:
                 "newly_analyzed": snapshot.newly_analyzed_count,
                 "skipped": snapshot.skipped_completed_count,
                 "completed_in_requested_range": snapshot.completed_count,
+                "total_analyzed_frames": len(cache.analyzed_frames),
             })
 
         if (args.start is None and args.end is None and source.start_frame == 0
@@ -182,7 +205,12 @@ def run_analysis(args: argparse.Namespace) -> dict:
         write_status(root, final)
         return final
     except Exception as exc:
-        write_status(root, {**base, "state": "failed", "error": str(exc)})
+        try:
+            write_status(root, {**base, "state": "failed", "error": str(exc)})
+        except Exception:
+            # Status is observational. A second status-file failure must not
+            # replace the original exception or affect completed cache data.
+            pass
         raise
     finally:
         runtime.unload()
@@ -218,10 +246,13 @@ def main(argv: list[str] | None = None) -> int:
             except (OSError, ValueError):
                 pass
             if not isinstance(current, dict) or current.get("state") != "failed":
-                write_status(root, {
-                    "schema": "blendcap-vta-analysis-status", "version": 1,
-                    "state": "failed", "error": str(exc), "pid": os.getpid(),
-                })
+                try:
+                    write_status(root, {
+                        "schema": "blendcap-vta-analysis-status", "version": 1,
+                        "state": "failed", "error": str(exc), "pid": os.getpid(),
+                    })
+                except Exception:
+                    pass
             raise
         print(json.dumps(result, sort_keys=True))
         return 0

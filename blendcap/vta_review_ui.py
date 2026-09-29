@@ -59,6 +59,7 @@ _analysis_root = None
 _analysis_total = 0
 _analysis_start = None
 _analysis_end = None
+_analysis_fallback_status = None
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
@@ -214,6 +215,22 @@ def _analysis_locked(root: Path | None = None) -> bool:
                 (active_root / "analysis" / "vta-analysis.lock").exists())
 
 
+def _analysis_percent(status: dict | None) -> float:
+    if not isinstance(status, dict):
+        return 0.0
+    first, last = status.get("start_frame"), status.get("end_frame")
+    completed = status.get("completed_in_requested_range")
+    if not all(type(value) is int for value in (first, last, completed)) or last < first:
+        return 0.0
+    return 100.0 * min(max(completed, 0), last - first + 1) / (last - first + 1)
+
+
+def _analysis_error_summary(detail: str) -> str:
+    if "analysis status file" in detail.lower() or "vta-analysis-status.json" in detail.lower():
+        return "Analysis failed: could not update its status file."
+    return "Analysis failed. Open Error Details for the cause."
+
+
 def _require_analysis_idle() -> None:
     if _analysis_locked():
         raise VtaReviewUiError("Unavailable while candidate analysis is running.")
@@ -231,11 +248,14 @@ def _edit_available(operator) -> bool:
 def _analysis_timer():
     """Redraw persistent progress while the worker owns durable checkpoints."""
     global _analysis_process, _analysis_progress_started, _cache_signature
+    global _analysis_fallback_status
     process = _analysis_process
     if process is None:
         return None
     manager = bpy.context.window_manager
     status = _analysis_status_for(_analysis_root) if _analysis_root is not None else None
+    if hasattr(manager, "blendcap_vta_analysis_progress"):
+        manager.blendcap_vta_analysis_progress = _analysis_percent(status)
     if _analysis_progress_started and status is not None:
         count = status.get("completed_in_requested_range")
         if isinstance(count, int):
@@ -246,8 +266,30 @@ def _analysis_timer():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
-    if process.poll() is None:
+    exit_code = process.poll()
+    if exit_code is None:
         return 0.5
+    current_status = (status is not None and
+                      status.get("pid") == getattr(process, "pid", None))
+    if (exit_code != 0 and _analysis_root is not None
+            and (not current_status or status.get("state") not in
+                 {"failed", "cancelled", "complete"})):
+        detail = "Analysis worker exited before it could publish a final status."
+        try:
+            lines = (_analysis_root / "analysis" / "vta-analysis.log").read_text(
+                encoding="utf-8", errors="replace").splitlines()
+            detail = next((line for line in reversed(lines)
+                           if line.startswith("VTA analysis failed:")), detail)
+        except OSError:
+            pass
+        _analysis_fallback_status = {
+            "state": "failed", "error": detail,
+            "start_frame": _analysis_start, "end_frame": _analysis_end,
+            "completed_in_requested_range":
+                status.get("completed_in_requested_range", 0) if status else 0,
+            "total_analyzed_frames": status.get("total_analyzed_frames") if status else None,
+            "source_coverage": status.get("source_coverage") if status else None,
+        }
     _analysis_process = None
     _cache_signature = None  # force a fresh candidate projection after final checkpoint
     if _analysis_progress_started:
@@ -284,7 +326,7 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
 
     def execute(self, context):
         global _analysis_process, _analysis_progress_started, _analysis_root, _analysis_total
-        global _analysis_start, _analysis_end
+        global _analysis_start, _analysis_end, _analysis_fallback_status
         global _status, _status_is_error
         try:
             location = _location_from_context(context)
@@ -328,7 +370,9 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
             _analysis_root = root
             _analysis_total = end - start + 1
             _analysis_start, _analysis_end = start, end
+            _analysis_fallback_status = None
             manager = context.window_manager
+            manager.blendcap_vta_analysis_progress = 0.0
             if hasattr(manager, "progress_begin"):
                 try:
                     manager.progress_begin(0, _analysis_total)
@@ -362,6 +406,28 @@ class BLENDCAP_OT_vta_analyze_stop(bpy.types.Operator):
                 raise VtaReviewUiError("No candidate analysis is running for this source.")
             (root / "analysis" / STOP_NAME).write_text("stop\n", encoding="utf-8")
             self.report({'INFO'}, "Cancel requested; completed frame checkpoints will remain.")
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'}, user_message(exc))
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_copy_analysis_error(bpy.types.Operator):
+    bl_idname = "blendcap.vta_copy_analysis_error"
+    bl_label = "Copy Error Details"
+    bl_description = "Copy the full analysis error to the clipboard"
+
+    def execute(self, context):
+        try:
+            root = _location_from_context(context).companion_root
+            status = (_analysis_fallback_status if root == _analysis_root
+                      and _analysis_fallback_status is not None
+                      else _analysis_status_for(root))
+            detail = status.get("error") if status else None
+            if not isinstance(detail, str) or not detail:
+                raise VtaReviewUiError("No analysis error details are available.")
+            context.window_manager.clipboard = detail
+            self.report({'INFO'}, "Analysis error details copied.")
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'}, user_message(exc))
@@ -1451,6 +1517,9 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
         status = _analysis_status_for(
             root, _view.source_id if _view else None
         ) if root is not None else None
+        if (root is not None and root == _analysis_root and not active
+                and _analysis_fallback_status is not None):
+            status = _analysis_fallback_status
         if (active and root == _analysis_root and _analysis_process is not None
                 and (status is None or status.get("pid") != _analysis_process.pid)):
             status = {"state": "starting", "start_frame": _analysis_start,
@@ -1470,16 +1539,38 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
                 total = end - start + 1
                 completed = status.get("completed_in_requested_range")
                 if isinstance(completed, int) and total > 0:
-                    box.label(text=f"Progress: {completed} / {total} frames")
+                    box.label(text=f"Current run: {completed} / {total} frames")
+                    bar = box.row()
+                    bar.enabled = False
+                    bar.prop(wm, "blendcap_vta_analysis_progress", text="Progress", slider=True)
+            newly, reused = status.get("newly_analyzed"), status.get("skipped")
+            if isinstance(newly, int) and isinstance(reused, int):
+                box.label(text=f"New this run: {newly}; reused cached: {reused}")
             current = status.get("current_frame")
             if location is not None and isinstance(current, int):
                 box.label(text=f"Most recent Blender frame: {visible_frame(location, current)}")
             if isinstance(status.get("total_analyzed_frames"), int):
-                box.label(text=f"Total cached: {status['total_analyzed_frames']} frames")
+                coverage = status.get("source_coverage")
+                source_total = (coverage[1] - coverage[0] + 1
+                                if isinstance(coverage, list) and len(coverage) == 2
+                                and all(type(value) is int for value in coverage) else None)
+                suffix = f" / {source_total}" if source_total is not None else ""
+                box.label(text=f"Total analyzed: {status['total_analyzed_frames']}{suffix} frames")
             if state in {"analyzing", "running"}:
                 box.operator("blendcap.vta_analyze_stop", text="Cancel Analysis")
             if state == "failed":
-                box.label(text=str(status.get("error", "See analysis log")), icon='ERROR')
+                detail = str(status.get("error", "See analysis log"))
+                box.label(text=_analysis_error_summary(detail), icon='ERROR')
+                disclosure = box.row()
+                disclosure.prop(wm, "blendcap_vta_error_details", text="Error Details",
+                                icon=('TRIA_DOWN' if wm.blendcap_vta_error_details
+                                      else 'TRIA_RIGHT'), emboss=False)
+                if wm.blendcap_vta_error_details:
+                    details = box.box()
+                    for line in textwrap.wrap(detail, width=66, break_long_words=True):
+                        details.label(text=line)
+                    details.operator("blendcap.vta_copy_analysis_error", text="Copy Details",
+                                     icon='COPYDOWN')
         if _view is not None:
             box.label(text=f"Current frame: {_view.state_label}")
         layout.label(text="Provider: offline SAM3 (CUDA)")
@@ -1633,6 +1724,7 @@ classes = (
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,
+    BLENDCAP_OT_vta_copy_analysis_error,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
     BLENDCAP_OT_vta_review_hard_state,
@@ -1664,6 +1756,12 @@ def register_properties() -> None:
         name="Start Blender Frame", default=0, min=0)
     bpy.types.WindowManager.blendcap_vta_analyze_end = bpy.props.IntProperty(
         name="End Blender Frame", default=0, min=0)
+    bpy.types.WindowManager.blendcap_vta_analysis_progress = bpy.props.FloatProperty(
+        name="Analyze Progress", default=0.0, min=0.0, max=100.0,
+        subtype='PERCENTAGE', description="Completed portion of the current Analyze range")
+    bpy.types.WindowManager.blendcap_vta_error_details = bpy.props.BoolProperty(
+        name="Error Details", default=False,
+        description="Show the technical Analyze error and a copy button")
     bpy.types.WindowManager.blendcap_vta_candidate = bpy.props.EnumProperty(
         name="Candidate",
         items=candidate_items,
@@ -1713,6 +1811,8 @@ def unregister_properties() -> None:
     del bpy.types.WindowManager.blendcap_vta_analyze_scope
     del bpy.types.WindowManager.blendcap_vta_analyze_start
     del bpy.types.WindowManager.blendcap_vta_analyze_end
+    del bpy.types.WindowManager.blendcap_vta_analysis_progress
+    del bpy.types.WindowManager.blendcap_vta_error_details
     del bpy.types.WindowManager.blendcap_vta_candidate
     del bpy.types.WindowManager.blendcap_vta_character
     del bpy.types.WindowManager.blendcap_vta_new_character_name

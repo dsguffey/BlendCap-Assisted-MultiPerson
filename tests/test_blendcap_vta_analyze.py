@@ -39,6 +39,60 @@ class AnalyzeContractTests(unittest.TestCase):
                              {"state": "complete", "frame": 5})
             self.assertEqual(list((root / "analysis").glob("*.tmp")), [])
 
+    def test_status_replace_retries_transient_windows_access_conflict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker.write_status(root, {"state": "starting"})
+            original_replace = worker.os.replace
+            calls = []
+
+            def transient(source, destination):
+                calls.append((source, destination))
+                # The temp writer is closed before publication begins.
+                with Path(source).open("rb") as handle:
+                    self.assertIn(b'"running"', handle.read())
+                if len(calls) == 1:
+                    error = PermissionError("simulated Windows destination reader")
+                    error.winerror = 5
+                    raise error
+                return original_replace(source, destination)
+
+            with mock.patch.object(worker.os, "replace", side_effect=transient), \
+                 mock.patch.object(worker.time, "sleep") as sleep:
+                worker.write_status(root, {"state": "running"})
+            self.assertEqual(len(calls), 2)
+            sleep.assert_called_once_with(worker._STATUS_RETRY_DELAYS[0])
+            self.assertEqual(json.loads(worker.status_path(root).read_text())["state"], "running")
+            self.assertEqual(list((root / "analysis").glob("*.tmp")), [])
+
+    def test_persistent_status_conflict_preserves_prior_status_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worker.write_status(root, {"state": "starting"})
+
+            def denied(_source, _destination):
+                error = PermissionError("persistent Windows destination lock")
+                error.winerror = 32
+                raise error
+
+            with mock.patch.object(worker.os, "replace", side_effect=denied), \
+                 mock.patch.object(worker.time, "sleep") as sleep, \
+                 self.assertRaisesRegex(worker.AnalysisLaunchError, "status file"):
+                worker.write_status(root, {"state": "running"})
+            self.assertEqual(sleep.call_count, len(worker._STATUS_RETRY_DELAYS))
+            self.assertEqual(json.loads(worker.status_path(root).read_text())["state"], "starting")
+            self.assertEqual(list((root / "analysis").glob("*.tmp")), [])
+
+    def test_non_sharing_status_error_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(worker.os, "replace", side_effect=PermissionError("ACL")), \
+                 mock.patch.object(worker.time, "sleep") as sleep, \
+                 self.assertRaises(worker.AnalysisLaunchError):
+                worker.write_status(root, {"state": "starting"})
+            sleep.assert_not_called()
+            self.assertEqual(list((root / "analysis").glob("*.tmp")), [])
+
     def test_source_is_bound_by_hash_not_filename_and_no_character_is_created(self):
         with tempfile.TemporaryDirectory() as directory:
             video = Path(directory) / "renamed.mp4"
@@ -86,20 +140,33 @@ class AnalyzeContractTests(unittest.TestCase):
                 create_character=mock.Mock(side_effect=AssertionError("Analyze created a Character")),
             )
             called = []
+            stop = root / "analysis" / worker.STOP_NAME
+            cancel_first = {"value": True}
 
             def analyze(kind, *args, **kwargs):
                 called.append(kind)
                 start, end = (0, 2) if kind == "whole" else (args[5], args[6])
+                newly = skipped = completed = 0
                 for frame in range(start, end + 1):
-                    if frame not in frames:
-                        kwargs["on_progress"](SimpleNamespace(
-                            status=SimpleNamespace(value="running"), current_frame=frame,
-                            newly_analyzed_count=0, skipped_completed_count=1,
-                            completed_count=1,
-                        ))
+                    if kwargs["should_stop"]():
+                        return SimpleNamespace(stopped=True, newly_analyzed_count=newly,
+                                               skipped_completed_count=skipped)
+                    if frame in frames:
+                        skipped += 1
+                    else:
                         frames.add(frame)
-                return SimpleNamespace(stopped=False, newly_analyzed_count=2,
-                                       skipped_completed_count=1)
+                        newly += 1
+                    completed += 1
+                    kwargs["on_progress"](SimpleNamespace(
+                        status=SimpleNamespace(value="running"), current_frame=frame,
+                        newly_analyzed_count=newly, skipped_completed_count=skipped,
+                        completed_count=completed,
+                    ))
+                    if cancel_first["value"] and completed == 2:
+                        stop.write_text("stop")
+                        cancel_first["value"] = False
+                return SimpleNamespace(stopped=False, newly_analyzed_count=newly,
+                                       skipped_completed_count=skipped)
 
             runtime = SimpleNamespace(
                 load=lambda: SimpleNamespace(descriptor=descriptor), unload=mock.Mock(),
@@ -129,12 +196,18 @@ class AnalyzeContractTests(unittest.TestCase):
                         kinesia_root=str(root), checkpoint=str(video))
             with mock.patch.dict(sys.modules, modules):
                 first = worker.run_analysis(argparse.Namespace(**base, start=None, end=None))
+                self.assertEqual(frames, {0, 1})
+                self.assertFalse(stop.exists())
                 second = worker.run_analysis(argparse.Namespace(**base, start=1, end=2))
             self.assertEqual(called, ["whole", "range"])
-            self.assertEqual(first["state"], "complete")
-            self.assertEqual(first["total_analyzed_frames"], 3)
+            self.assertEqual(first["state"], "cancelled")
+            self.assertEqual(first["total_analyzed_frames"], 2)
             self.assertEqual(second["completed_in_requested_range"], 2)
+            self.assertEqual(second["newly_analyzed"], 1)
+            self.assertEqual(second["skipped"], 1)
+            self.assertEqual(second["total_analyzed_frames"], 3)
             self.assertEqual(json.loads(worker.status_path(root).read_text())["state"], "complete")
+            self.assertFalse(stop.exists())
             project.create_character.assert_not_called()
             runtime.unload.assert_called()
 
@@ -160,6 +233,21 @@ class AnalyzeContractTests(unittest.TestCase):
             status = json.loads(worker.status_path(root).read_text())
             self.assertEqual(status["state"], "failed")
             self.assertIn("private VTA core", status["error"])
+            self.assertFalse((root / "analysis" / worker.LOCK_NAME).exists())
+
+    def test_status_failure_does_not_mask_original_or_leave_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            arguments = ["--core-root", directory, "--kinesia-root", directory,
+                         "--checkpoint", directory, "--companion-root", directory,
+                         "--video", directory]
+            with mock.patch.object(worker, "run_analysis", side_effect=
+                                   worker.AnalysisLaunchError("original status publication failure")), \
+                 mock.patch.object(worker, "write_status", side_effect=
+                                   worker.AnalysisLaunchError("secondary status failure")), \
+                 self.assertRaisesRegex(worker.AnalysisLaunchError,
+                                        "original status publication failure"):
+                worker.main(arguments)
             self.assertFalse((root / "analysis" / worker.LOCK_NAME).exists())
 
 
@@ -228,6 +316,32 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
             self.assertEqual(manager.progress_update.call_args_list,
                              [mock.call(4), mock.call(4)])
             manager.progress_end.assert_called_once()
+
+    def test_nonzero_worker_exit_exposes_error_when_status_cannot_publish(self):
+        ui = self.ui
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'analysis').mkdir()
+            (root / 'analysis' / 'vta-analysis.log').write_text(
+                'warning\nVTA analysis failed: Could not update analysis status file: '
+                '[WinError 5] target\n', encoding='utf-8')
+            manager = SimpleNamespace(windows=[], blendcap_vta_analysis_progress=0.0)
+            fake_bpy = SimpleNamespace(context=SimpleNamespace(window_manager=manager))
+            process = SimpleNamespace(poll=lambda: 1, pid=22)
+            with mock.patch.object(ui, 'bpy', fake_bpy), \
+                 mock.patch.object(ui, '_analysis_process', process), \
+                 mock.patch.object(ui, '_analysis_root', root), \
+                 mock.patch.object(ui, '_analysis_start', 11), \
+                 mock.patch.object(ui, '_analysis_end', 162), \
+                 mock.patch.object(ui, '_analysis_fallback_status', None), \
+                 mock.patch.object(ui, '_analysis_status_for', return_value={
+                     'state': 'complete', 'pid': 21, 'completed_in_requested_range': 0,
+                     'total_analyzed_frames': 15,
+                 }):
+                self.assertIsNone(ui._analysis_timer())
+                self.assertEqual(ui._analysis_fallback_status['state'], 'failed')
+                self.assertIn('WinError 5', ui._analysis_fallback_status['error'])
+                self.assertEqual(ui._analysis_fallback_status['total_analyzed_frames'], 15)
 
     def test_analysis_lock_blocks_mutations_but_not_read_only_selection(self):
         ui = self.ui
@@ -315,10 +429,14 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         location = SimpleNamespace(companion_root=root, source_frame=0, blender_frame=1)
         wm = SimpleNamespace(blendcap_vta_analyze_scope='RANGE',
                              blendcap_vta_analyze_start=4,
-                             blendcap_vta_analyze_end=10)
+                             blendcap_vta_analyze_end=10,
+                             blendcap_vta_analysis_progress=57.0,
+                             blendcap_vta_error_details=False)
         context = SimpleNamespace(window_manager=wm)
         status = dict(state='running', start_frame=3, end_frame=9,
-                      current_frame=6, completed_in_requested_range=4)
+                      current_frame=6, completed_in_requested_range=4,
+                      newly_analyzed=3, skipped=1, total_analyzed_frames=15,
+                      source_coverage=[0, 162])
         with mock.patch.object(ui, '_location', location), \
              mock.patch.object(ui, '_view', None), \
              mock.patch.object(ui, '_backend', SimpleNamespace(
@@ -330,10 +448,61 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         texts = [call.kwargs['text'] for call in layout.box.return_value.label.call_args_list]
         self.assertIn('Analyzing…', texts)
         self.assertIn('Blender frames 4–10 (inclusive)', texts)
-        self.assertIn('Progress: 4 / 7 frames', texts)
+        self.assertIn('Current run: 4 / 7 frames', texts)
+        self.assertIn('New this run: 3; reused cached: 1', texts)
+        self.assertIn('Total analyzed: 15 / 163 frames', texts)
         self.assertIn('Most recent Blender frame: 7', texts)
+        layout.box.return_value.row.return_value.prop.assert_any_call(
+            wm, 'blendcap_vta_analysis_progress', text='Progress', slider=True)
         layout.box.return_value.operator.assert_any_call(
             'blendcap.vta_analyze_stop', text='Cancel Analysis')
+
+    def test_progress_calculation_and_failure_details_disclosure(self):
+        ui = self.ui
+        self.assertEqual(ui._analysis_percent(dict(start_frame=11, end_frame=162,
+                                                    completed_in_requested_range=0)), 0.0)
+        self.assertEqual(ui._analysis_percent(dict(start_frame=11, end_frame=162,
+                                                    completed_in_requested_range=76)), 50.0)
+        detail = "[WinError 5] Access denied: C:/fixture/vta-analysis-status.json"
+        root = Path('C:/fixture')
+        location = SimpleNamespace(companion_root=root, source_frame=0, blender_frame=1)
+        wm = SimpleNamespace(blendcap_vta_analyze_scope='WHOLE',
+                             blendcap_vta_error_details=False,
+                             blendcap_vta_analysis_progress=0.0)
+        status = dict(state='failed', error=detail, start_frame=11, end_frame=162,
+                      completed_in_requested_range=0)
+        layout = mock.Mock()
+        with mock.patch.object(ui, '_location', location), \
+             mock.patch.object(ui, '_view', None), \
+             mock.patch.object(ui, '_backend', SimpleNamespace(
+                 source_coverage=lambda _location: (0, 162))), \
+             mock.patch.object(ui, '_analysis_locked', return_value=False), \
+             mock.patch.object(ui, '_analysis_status_for', return_value=status):
+            ui.VIEW3D_PT_blendcap_vta_analyze.draw(SimpleNamespace(layout=layout),
+                                                   SimpleNamespace(window_manager=wm))
+            labels = [call.kwargs['text'] for call in layout.box.return_value.label.call_args_list]
+            self.assertIn('Analysis failed: could not update its status file.', labels)
+            self.assertFalse(any('WinError' in text for text in labels))
+            wm.blendcap_vta_error_details = True
+            ui.VIEW3D_PT_blendcap_vta_analyze.draw(SimpleNamespace(layout=layout),
+                                                   SimpleNamespace(window_manager=wm))
+        detail_labels = [call.kwargs['text'] for call in
+                         layout.box.return_value.box.return_value.label.call_args_list]
+        self.assertTrue(any('WinError' in text for text in detail_labels))
+        layout.box.return_value.box.return_value.operator.assert_any_call(
+            'blendcap.vta_copy_analysis_error', text='Copy Details', icon='COPYDOWN')
+
+    def test_copy_error_details_uses_full_status_text(self):
+        ui = self.ui
+        wm = SimpleNamespace(clipboard='')
+        operator = SimpleNamespace(report=mock.Mock())
+        with mock.patch.object(ui, '_location_from_context', return_value=
+                               SimpleNamespace(companion_root=Path('C:/fixture'))), \
+             mock.patch.object(ui, '_analysis_status_for', return_value={
+                 'state': 'failed', 'error': '[WinError 5] technical path'}):
+            self.assertEqual(ui.BLENDCAP_OT_vta_copy_analysis_error.execute(
+                operator, SimpleNamespace(window_manager=wm)), {'FINISHED'})
+        self.assertEqual(wm.clipboard, '[WinError 5] technical path')
 
     def test_missing_runtime_cancels_without_launch_or_tracking(self):
         ui = self.ui

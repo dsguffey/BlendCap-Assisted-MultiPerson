@@ -15,9 +15,13 @@ in the local Video-to-Animation project area.
    inclusive (internally, source/cache indices 3–9). The controls reject
    reversed or out-of-source ranges; they do not silently clamp them.
 2. Confirm the native progress state shows Analyzing, completed/total, and
-   most recent Blender frame. Cancel requests a stop at the next between-frame
-   checkpoint; completed cache records remain valid and untouched frames stay
-   Not Analyzed. A later Analyze can resume.
+   most recent Blender frame. The Analyze panel also shows a progress slider,
+   **Current run** (completed range frames), **New this run / reused cached**,
+   and **Total analyzed** across the source. On failure it shows a short
+   summary; expand **Error Details** or use **Copy Details** for the technical
+   error. Cancel requests a stop at the next between-frame checkpoint;
+   completed cache records remain valid and untouched frames stay Not
+   Analyzed. A later Analyze can resume.
 3. During analysis, the VTA mutation controls are disabled (another Analyze,
    Character creation/management, assignments, hard review decisions, Update
    Tracking, and the VTA runtime preferences in Advanced). Scrubbing,
