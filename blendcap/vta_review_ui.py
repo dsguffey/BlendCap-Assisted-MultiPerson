@@ -34,6 +34,7 @@ from ..blendcap_vta_analysis_runtime import (
 )
 from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, key_at
+from ..blendcap_vta_area_mode import ROLE_PREVIEW, role_for
 from . import vta_invalidation, vta_overlay, vta_timeline_overlay
 from .helpers import (
     _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
@@ -591,6 +592,9 @@ def _overlay_enabled(context) -> bool:
     scene = getattr(context, "sequencer_scene", None) or getattr(context, "scene", None)
     return bool(
         scene is not None
+        and role_for(getattr(context, 'workspace', None),
+                     getattr(context, 'screen', None),
+                     getattr(context, 'area', None)) == ROLE_PREVIEW
         and getattr(scene, "blendcap_show_vta_candidate_overlay", True)
     )
 
@@ -645,13 +649,15 @@ class BLENDCAP_OT_vta_candidate_select(bpy.types.Operator):
         area = getattr(context, "area", None)
         region = getattr(context, "region", None)
         space = getattr(context, "space_data", None)
-        return vta_overlay.is_vse_preview_region(
+        return (_overlay_enabled(context) and vta_overlay.is_vse_preview_region(
             getattr(area, "type", None),
             getattr(region, "type", None),
             getattr(space, "view_type", None),
-        )
+        ))
 
     def invoke(self, context, event):
+        if not BLENDCAP_OT_vta_candidate_select.poll(context):
+            return {'PASS_THROUGH'}
         if getattr(event, 'value', None) == 'CLICK_DRAG':
             # This explicit review tool is read-only. Consume left drags so
             # Blender's Preview strip-transform gesture cannot move the image
@@ -1074,10 +1080,14 @@ class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return _timeline is not None and vta_timeline_overlay.is_timeline_region(
+        return (_timeline is not None
+                and role_for(getattr(context, 'workspace', None),
+                             getattr(context, 'screen', None),
+                             getattr(context, 'area', None)) == ROLE_PREVIEW
+                and vta_timeline_overlay.is_timeline_region(
             getattr(context, "area", None), getattr(context, "region", None),
             getattr(context, "space_data", None),
-        )
+        ))
 
     def invoke(self, context, event):
         if event.type == 'RIGHTMOUSE':
@@ -1086,7 +1096,7 @@ class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
             ):
                 return {'PASS_THROUGH'}
             # Open Blender's existing context menu; never replace strip-context
-            # behavior on empty space or outside the active review-key tool.
+            # behavior on empty space or outside VTA Preview mode.
             try:
                 _open_native_sequencer_context_menu()
             except RuntimeError:
@@ -1104,30 +1114,6 @@ class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
         return {'PASS_THROUGH'}
 
 
-class BLENDCAP_WST_vta_review_key_select(bpy.types.WorkSpaceTool):
-    bl_space_type = 'SEQUENCE_EDITOR'
-    bl_context_mode = 'SEQUENCER'
-    bl_idname = "blendcap.vta_review_key_select"
-    bl_label = "Select VTA Review Key"
-    bl_description = "Click VTA review keys; Ctrl-click to extend selection"
-    bl_icon = "ops.generic.select"
-    bl_widget = None
-    bl_keymap = (
-        (BLENDCAP_OT_vta_review_key_select.bl_idname,
-         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
-        (BLENDCAP_OT_vta_review_key_select.bl_idname,
-         {"type": 'LEFTMOUSE', "value": 'PRESS', "ctrl": True}, None),
-        (BLENDCAP_OT_vta_review_key_select.bl_idname,
-         {"type": 'RIGHTMOUSE', "value": 'PRESS'}, None),
-    )
-
-
-class BLENDCAP_WST_vta_review_key_select_combined(BLENDCAP_WST_vta_review_key_select):
-    bl_context_mode = 'SEQUENCER_PREVIEW'
-    bl_idname = "blendcap.vta_review_key_select_combined"
-
-
-_registered_timeline_tools = []
 _review_context_keymap = None
 
 
@@ -1161,28 +1147,6 @@ def _unregister_review_context_keymap():
         for item in items:
             keymap.keymap_items.remove(item)
         _review_context_keymap = None
-
-
-def _register_timeline_tools():
-    if _registered_timeline_tools:
-        return
-    try:
-        for tool in (BLENDCAP_WST_vta_review_key_select,
-                     BLENDCAP_WST_vta_review_key_select_combined):
-            bpy.utils.register_tool(tool, after={"builtin.select_box"}, separator=True)
-            _registered_timeline_tools.append(tool)
-    except Exception:
-        _unregister_timeline_tools()
-        raise
-
-
-def _unregister_timeline_tools():
-    for tool in reversed(_registered_timeline_tools):
-        try:
-            bpy.utils.unregister_tool(tool)
-        except (RuntimeError, ValueError):
-            pass
-    _registered_timeline_tools.clear()
 
 
 _MANAGEMENT_ACTIONS = (
@@ -1353,33 +1317,12 @@ def _draw_management_actions(layout, *, actions=None, availability=None):
         row.operator("blendcap.vta_review_manage", text=label).action = action
 
 
-def _draw_select_review_keys(layout, context):
-    view_type = getattr(getattr(context, "space_data", None), "view_type", None)
-    if view_type not in {'SEQUENCER', 'SEQUENCER_PREVIEW'}:
-        return
-    tool_id = (BLENDCAP_WST_vta_review_key_select.bl_idname
-               if view_type == 'SEQUENCER'
-               else BLENDCAP_WST_vta_review_key_select_combined.bl_idname)
-    layout.operator("wm.tool_set_by_id", text="Select VTA Review Keys").name = tool_id
-
-
-def _draw_vta_select(self, context):
-    """Expose the existing native WorkSpaceTool in Blender's Select menu."""
-    if getattr(getattr(context, "space_data", None), "view_type", None) not in {
-        'SEQUENCER', 'SEQUENCER_PREVIEW'
-    }:
-        return
-    self.layout.separator()
-    _draw_select_review_keys(self.layout, context)
-
-
 class BLENDCAP_MT_vta_commands(bpy.types.Menu):
     bl_label = "VTA Commands"
     bl_idname = "BLENDCAP_MT_vta_commands"
 
     def draw(self, context):
         layout = self.layout
-        _draw_select_review_keys(layout, context)
         analyze = layout.row()
         analyze.enabled = not _analysis_locked()
         analyze.operator("blendcap.vta_analyze", text="Analyze Candidates")
@@ -1410,6 +1353,10 @@ def _draw_vta_header(self, context):
         'SEQUENCER', 'SEQUENCER_PREVIEW'
     }:
         return
+    if role_for(getattr(context, 'workspace', None),
+                getattr(context, 'screen', None),
+                getattr(context, 'area', None)) != ROLE_PREVIEW:
+        return
     self.layout.separator()
     self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
 
@@ -1419,6 +1366,10 @@ def _draw_vta_context(self, context):
     if getattr(getattr(context, "space_data", None), "view_type", None) not in {
         'SEQUENCER', 'SEQUENCER_PREVIEW'
     }:
+        return
+    if role_for(getattr(context, 'workspace', None),
+                getattr(context, 'screen', None),
+                getattr(context, 'area', None)) != ROLE_PREVIEW:
         return
     self.layout.separator()
     self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
@@ -1739,8 +1690,8 @@ class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Candidate Boxes")
-        layout.label(text="Review keys: VTA Commands / Select / toolbar")
-        layout.label(text="Lanes hide over occupied strips")
+        layout.label(text="Review keys: click in VTA Review Timeline")
+        layout.label(text="Legacy Sequencer lanes hide over strips")
         layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
         layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
 
@@ -1828,20 +1779,17 @@ def register_properties() -> None:
         default="",
     )
     _register_preview_tools()
-    _register_timeline_tools()
     _register_review_context_keymap()
     vta_overlay.register(overlay_state)
     vta_timeline_overlay.register(timeline_state)
     _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_context_menu)
     _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_editor_menus)
     _set_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
-    _set_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
     _set_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
 
 
 def unregister_properties() -> None:
     global _analysis_progress_started
-    _remove_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()
@@ -1855,7 +1803,6 @@ def unregister_properties() -> None:
             pass
         _analysis_progress_started = False
     _unregister_review_context_keymap()
-    _unregister_timeline_tools()
     _unregister_preview_tools()
     del bpy.types.Scene.blendcap_show_vta_candidate_overlay
     del bpy.types.WindowManager.blendcap_vta_analyze_scope

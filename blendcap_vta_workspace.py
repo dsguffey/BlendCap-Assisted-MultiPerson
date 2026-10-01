@@ -1,32 +1,35 @@
-"""Blender-independent scope and hit testing for the provisional VTA workspace.
-
-The workspace tag is durable; an Area pointer is never saved.  The unique
-Dope Sheet in a tagged workspace is the review host.  An ambiguous layout
-fails closed, leaving Blender's ordinary Dope Sheet untouched.
-"""
+"""Blender-independent scope and hit testing for a VTA Review Timeline area."""
 
 from __future__ import annotations
 
+import math
+
 if __package__:
     from .blendcap_vta_timeline import hit_test_keys, lane_layout
+    from .blendcap_vta_area_mode import ROLE_TIMELINE, WORKSPACE_TAG, role_for
 else:
     from blendcap_vta_timeline import hit_test_keys, lane_layout
+    from blendcap_vta_area_mode import ROLE_TIMELINE, WORKSPACE_TAG, role_for
 
 
 WORKSPACE_NAME = "Video to Animation"
-WORKSPACE_TAG = "blendcap_vta_review_workspace"
 ROW_HEIGHT = 26.0
 TOP_PADDING = 28.0
 
 
+def grid_step(frame_span, pixel_width, *, minimum_pixels=48):
+    """Choose a 1/2/5 cadence with bounded line count at any zoom."""
+    target = max(1.0, float(frame_span) * minimum_pixels / max(1, pixel_width))
+    scale = 10 ** math.floor(math.log10(target))
+    return next(value for value in (scale, 2 * scale, 5 * scale, 10 * scale)
+                if value >= target)
+
+
 def review_area(workspace, screen):
-    if workspace is None or screen is None or workspace.get(WORKSPACE_TAG) != 1:
-        return None
-    if not any(item is screen or item == screen for item in workspace.screens):
+    if screen is None:
         return None
     areas = [area for area in screen.areas
-             if getattr(area, "type", None) == "DOPESHEET_EDITOR"
-             and getattr(area, "ui_type", None) == "DOPESHEET"]
+             if role_for(workspace, screen, area) == ROLE_TIMELINE]
     return areas[0] if len(areas) == 1 else None
 
 

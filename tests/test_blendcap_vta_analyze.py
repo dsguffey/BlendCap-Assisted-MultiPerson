@@ -369,7 +369,9 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                                  {'CANCELLED'})
                 self.assertIn("Unavailable while candidate analysis is running",
                               operator.report.call_args.args[1])
-                with mock.patch.object(ui, "select_overlay_candidate_at", return_value=True):
+                with mock.patch.object(ui.BLENDCAP_OT_vta_candidate_select,
+                                       "poll", return_value=True), \
+                     mock.patch.object(ui, "select_overlay_candidate_at", return_value=True):
                     event = SimpleNamespace(mouse_region_x=1, mouse_region_y=2)
                     self.assertEqual(ui.BLENDCAP_OT_vta_candidate_select.invoke(
                         None, None, event), {'FINISHED'})
@@ -606,9 +608,8 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                           'Update Tracking', 'Display', 'Advanced'])
         self.assertTrue(all(item.bl_parent_id == 'VIEW3D_PT_blendcap_vta_review'
                             for item in children))
-        bindings = ui.BLENDCAP_WST_vta_review_key_select.bl_keymap
-        self.assertEqual({item[1]['type'] for item in bindings},
-                         {'LEFTMOUSE', 'RIGHTMOUSE'})
+        self.assertFalse(hasattr(ui, 'BLENDCAP_WST_vta_review_key_select'))
+        self.assertIsNotNone(ui.BLENDCAP_OT_vta_review_key_select)
 
 
 if __name__ == "__main__":

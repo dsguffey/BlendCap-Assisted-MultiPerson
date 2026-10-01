@@ -10,8 +10,9 @@ from unittest import mock
 from blendcap_vta_timeline import TimelineCharacter, TimelineDerived, TimelineKey, TimelineView
 from blendcap_vta_workspace import (
     WORKSPACE_TAG, character_lanes, hit_character, hit_review_key,
-    is_review_region, review_area,
+    grid_step, is_review_region, review_area,
 )
+from blendcap_vta_area_mode import MODE_KEY, ROLE_PREVIEW, ROLE_TIMELINE, role_for, set_role
 from blendcap.vta_invalidation import invalidate_windows
 
 try:
@@ -33,20 +34,24 @@ class ScopeTests(unittest.TestCase):
     def test_only_tagged_workspace_unique_dopesheet_is_review_host(self):
         area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
         other = SimpleNamespace(type='SEQUENCE_EDITOR', ui_type='SEQUENCE_EDITOR')
-        screen = SimpleNamespace(areas=(area, other))
+        class Screen(dict):
+            def __init__(self, areas):
+                super().__init__()
+                self.areas = areas
+        screen = Screen((area, other))
         workspace = {WORKSPACE_TAG: 1}
-        workspace = SimpleNamespace(get=workspace.get, screens=(screen,))
         window = SimpleNamespace(type='WINDOW')
         channels = SimpleNamespace(type='CHANNELS')
         self.assertIs(review_area(workspace, screen), area)
         self.assertTrue(is_review_region(workspace, screen, area, window))
         self.assertTrue(is_review_region(workspace, screen, area, channels))
         self.assertFalse(is_review_region(workspace, screen, other, window))
-        self.assertIsNone(review_area(SimpleNamespace(get=lambda *_: None,
-                                                 screens=(screen,)), screen))
-        self.assertIsNone(review_area(workspace, SimpleNamespace(areas=(area,))))
+        self.assertIsNone(review_area({}, screen))
+        self.assertIsNone(review_area(workspace, None))
         screen.areas = (area, SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET'))
         self.assertIsNone(review_area(workspace, screen))
+        set_role({}, screen, area, ROLE_TIMELINE)
+        self.assertIs(review_area({}, screen), area)
 
     def test_key_and_character_hit_use_stable_ids_and_frame_offset(self):
         view = data()
@@ -59,6 +64,10 @@ class ScopeTests(unittest.TestCase):
         self.assertIsNone(hit_review_key(view, view2d, 240,
                                          (266, lanes['black-id']), offset=100))
         self.assertEqual(view.derived[0].source_frame, 34)
+
+    def test_grid_cadence_stays_bounded_at_extreme_zoom(self):
+        self.assertEqual(grid_step(200, 1000), 10)
+        self.assertGreaterEqual(grid_step(100_000_000, 1000), 4_800_000)
 
     def test_one_invalidation_reaches_preview_sequencer_timeline_and_sidebar(self):
         areas = [SimpleNamespace(type=kind, tag_redraw=mock.Mock()) for kind in
@@ -86,7 +95,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
         cls.ui = sys.modules[package + '.blendcap.vta_review_ui']
 
     def test_bundled_workspace_contains_only_tagged_unique_review_host(self):
-        path = Path(__file__).resolve().parents[1] / 'vta_workspace.blend'
+        path = Path(__file__).resolve().parents[1] / 'vta_workspace_mode.blend'
         before_scenes = set(bpy.data.scenes.keys())
         before_clips = set(bpy.data.movieclips.keys())
         with bpy.data.libraries.load(str(path), link=False) as (source, target):
@@ -96,9 +105,13 @@ class BlenderWorkspaceTests(unittest.TestCase):
         self.assertEqual(workspace.get(WORKSPACE_TAG), 1)
         self.assertEqual(len(workspace.screens), 1)
         screen = workspace.screens[0]
+        self.assertIsInstance(screen.get(MODE_KEY), str)
         self.assertIsNotNone(review_area(workspace, screen))
         kinds = {area.type for area in screen.areas}
         self.assertTrue({'VIEW_3D', 'SEQUENCE_EDITOR', 'DOPESHEET_EDITOR'} <= kinds)
+        preview = next(area for area in screen.areas if area.type == 'SEQUENCE_EDITOR')
+        self.assertEqual(preview.spaces.active.view_type, 'PREVIEW')
+        self.assertEqual(role_for(workspace, screen, preview), ROLE_PREVIEW)
         self.assertEqual(set(bpy.data.scenes.keys()), before_scenes)
         self.assertEqual(set(bpy.data.movieclips.keys()), before_clips)
         self.assertFalse(any(area.type == 'DOPESHEET_EDITOR' and
@@ -177,6 +190,30 @@ class BlenderWorkspaceTests(unittest.TestCase):
             self.assertEqual(len(bpy.data.actions), pre_actions)
         finally:
             self.addon.unregister()
+
+    def test_toggle_scopes_mode_to_one_editor_and_restores_stock_dopesheet(self):
+        class Screen(dict):
+            def __init__(self, areas):
+                super().__init__()
+                self.areas = areas
+
+        first = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
+        second = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
+        screen = Screen((first, second))
+        context = SimpleNamespace(workspace={}, screen=screen, area=first,
+                                  space_data=SimpleNamespace())
+        operator = SimpleNamespace(report=mock.Mock())
+        toggle = self.workspace.BLENDCAP_OT_vta_toggle_editor_mode
+        with mock.patch.object(self.ui, 'refresh', return_value=True) as refresh, \
+             mock.patch.object(self.workspace.vta_invalidation,
+                               'request_redraw') as redraw:
+            self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
+            self.assertIs(review_area({}, screen), first)
+            self.assertIsNone(role_for({}, screen, second))
+            refresh.assert_called_once_with(context, force=True)
+            self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
+            self.assertIsNone(review_area({}, screen))
+            self.assertEqual(redraw.call_count, 2)
 
 
 if __name__ == '__main__':

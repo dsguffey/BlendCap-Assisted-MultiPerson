@@ -680,6 +680,7 @@ class BlenderAssignOperatorTests(unittest.TestCase):
 
         with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
              mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="assigned"), \
+             mock.patch.object(self.panel_ui, "role_for", return_value="preview"), \
              mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
             self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))
         self.assertEqual(self.selection.character_id, "character-red")
@@ -717,6 +718,7 @@ class BlenderAssignOperatorTests(unittest.TestCase):
 
         with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
              mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="observation-a"), \
+             mock.patch.object(self.panel_ui, "role_for", return_value="preview"), \
              mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
             self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))
         self.assertEqual(self.selection.observation_id, "observation-a")
@@ -724,7 +726,9 @@ class BlenderAssignOperatorTests(unittest.TestCase):
 
     def test_preview_click_selects_but_drag_is_consumed_without_selection(self):
         operator = object()
-        with mock.patch.object(self.panel_ui, "select_overlay_candidate_at", return_value=True) as select:
+        with mock.patch.object(self.panel_ui.BLENDCAP_OT_vta_candidate_select,
+                               "poll", return_value=True), \
+             mock.patch.object(self.panel_ui, "select_overlay_candidate_at", return_value=True) as select:
             self.assertEqual(self.panel_ui.BLENDCAP_OT_vta_candidate_select.invoke(
                 operator, None, SimpleNamespace(value='CLICK_DRAG')
             ), {'FINISHED'})
@@ -733,6 +737,13 @@ class BlenderAssignOperatorTests(unittest.TestCase):
                 operator, None, SimpleNamespace(value='CLICK', mouse_region_x=10, mouse_region_y=12)
             ), {'FINISHED'})
             select.assert_called_once_with(None, (10, 12))
+        with mock.patch.object(self.panel_ui.BLENDCAP_OT_vta_candidate_select,
+                               "poll", return_value=False), \
+             mock.patch.object(self.panel_ui, "select_overlay_candidate_at") as select:
+            self.assertEqual(self.panel_ui.BLENDCAP_OT_vta_candidate_select.invoke(
+                operator, None, SimpleNamespace(value='CLICK_DRAG')
+            ), {'PASS_THROUGH'})
+            select.assert_not_called()
         for tool in (self.panel_ui.BLENDCAP_WST_vta_candidate_select_preview,
                      self.panel_ui.BLENDCAP_WST_vta_candidate_select_combined):
             self.assertEqual({entry[1]["value"] for entry in tool.bl_keymap},

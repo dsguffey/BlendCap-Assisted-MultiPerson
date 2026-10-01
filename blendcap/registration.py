@@ -101,8 +101,10 @@ from .vta_review_ui import (
 )
 from .vta_workspace import (
     BLENDCAP_OT_open_vta_workspace,
+    BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_vta_timeline_select,
     BLENDCAP_MT_vta_timeline_context,
+    BLENDCAP_MT_vta_timeline_commands,
     register as register_vta_workspace,
     unregister as unregister_vta_workspace,
 )
@@ -208,6 +210,7 @@ classes = (
     BLENDCAP_OT_open_license,
     BLENDCAP_OT_append_workspace,
     BLENDCAP_OT_open_vta_workspace,
+    BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_generate_mocap,
     BLENDCAP_OT_cancel,
     BLENDCAP_OT_cancel_cleanup,
@@ -260,6 +263,7 @@ classes = (
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_commands,
     BLENDCAP_MT_vta_timeline_context,
+    BLENDCAP_MT_vta_timeline_commands,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
     VIEW3D_PT_blendcap_vta_characters,

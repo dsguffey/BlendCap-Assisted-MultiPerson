@@ -3,6 +3,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+if __package__ == 'blendcap':
+    from blendcap_vta_area_mode import ROLE_PREVIEW, role_for
+else:
+    from ..blendcap_vta_area_mode import ROLE_PREVIEW, role_for
+
 
 @dataclass(frozen=True)
 class OverlayCandidate:
@@ -241,6 +246,8 @@ def _draw() -> None:
         from gpu_extras.batch import batch_for_shader
         area, region = bpy.context.area, bpy.context.region
         if area is None or region is None or area.type != 'SEQUENCE_EDITOR':
+            return
+        if role_for(bpy.context.workspace, bpy.context.screen, area) != ROLE_PREVIEW:
             return
         space = area.spaces.active
         preview_scene = getattr(bpy.context, "sequencer_scene", None) or bpy.context.scene

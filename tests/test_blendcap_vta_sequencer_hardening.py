@@ -38,11 +38,12 @@ class SequencerHardeningTests(unittest.TestCase):
         self.assertIn("BLENDCAP_OT_vta_review_key_select", names)
         self.assertIn("BLENDCAP_MT_vta_commands", names)
 
-    def test_select_and_context_hooks_use_existing_blender_menus(self):
+    def test_context_hooks_keep_legacy_fallback_without_obsolete_tool(self):
         source = (ROOT / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8")
-        self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_select, _draw_vta_select)", source)
         self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)", source)
         self.assertIn("_set_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)", source)
+        self.assertNotIn("_draw_select_review_keys", source)
+        self.assertNotIn("BLENDCAP_WST_vta_review_key_select", source)
         self.assertNotIn("SEQUENCER_MT_editor_menus.append", source)
         self.assertNotIn("BLENDCAP_MT_vta_review", source)
         self.assertNotIn('text="First Lane"', source)
@@ -126,10 +127,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             self.assertEqual(panel.calls, [call for call in menu.calls
                                            if call[0] == "blendcap.vta_review_manage"])
             self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
-            self.assertIn(("wm.tool_set_by_id", "Select VTA Review Keys", True), menu.calls)
             self.assertEqual({call[0] for call in menu.calls}, {
             "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
-            "blendcap.vta_analyze", "wm.tool_set_by_id"
+            "blendcap.vta_analyze"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()
@@ -147,18 +147,17 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 self.assertFalse(missing["delete-character"])
                 self.assertFalse(missing["update-tracking"])
 
-    def test_header_context_and_select_use_native_menu_and_shared_tool(self):
+    def test_header_and_context_use_native_menu_in_vta_mode(self):
         ui = self.ui
         context = SimpleNamespace(space_data=SimpleNamespace(view_type='SEQUENCER'))
         header = mock.Mock()
-        ui._draw_vta_header(SimpleNamespace(layout=header), context)
+        with mock.patch.object(ui, 'role_for', return_value='preview'):
+            ui._draw_vta_header(SimpleNamespace(layout=header), context)
         header.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
         right_click = mock.Mock()
-        ui._draw_vta_context(SimpleNamespace(layout=right_click), context)
+        with mock.patch.object(ui, 'role_for', return_value='preview'):
+            ui._draw_vta_context(SimpleNamespace(layout=right_click), context)
         right_click.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
-        select = mock.Mock()
-        ui._draw_vta_select(SimpleNamespace(layout=select), context)
-        select.operator.assert_called_once_with("wm.tool_set_by_id", text="Select VTA Review Keys")
 
     def test_operator_poll_and_native_hooks_survive_reregister_without_duplicates(self):
         addon = self.addon
@@ -179,10 +178,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                                  ui.BLENDCAP_MT_vta_commands)
                 with mock.patch.object(ui, "_view", object()), mock.patch.object(ui, "_location", object()):
                     self.assertTrue(bpy.ops.blendcap.vta_review_manage.poll())
-                self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header")), 1)
-                self.assertEqual(len(ui._registered_timeline_tools), 2)
+                self.assertFalse(hasattr(ui, '_registered_timeline_tools'))
                 self.assertIsNotNone(ui._review_context_keymap)
                 self.assertEqual(sum(
                     item.idname == "blendcap.vta_review_key_select"
@@ -209,10 +207,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                         panel.draw(SimpleNamespace(layout=mock.Mock()), bpy.context)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
-                self.assertFalse(hooks(bpy.types.SEQUENCER_MT_select, "_draw_vta_select"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context"))
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header"))
-                self.assertFalse(ui._registered_timeline_tools)
                 self.assertIsNone(ui._review_context_keymap)
                 self.assertIsNone(ui.vta_timeline_overlay._handler)
         finally:

@@ -1,7 +1,7 @@
-"""Provisional VTA workspace and ProjectState-backed Dope Sheet presentation.
+"""Per-editor VTA modes and ProjectState-backed Dope Sheet presentation.
 
-Only a tagged workspace's unique Dope Sheet is a VTA timeline.  No Action,
-F-curve, Blender keyframe, or tracking authority is created here.
+The bundled workspace is an optional preset. No Action, F-curve, Blender
+keyframe, or tracking authority is created here.
 """
 
 from __future__ import annotations
@@ -11,8 +11,11 @@ from pathlib import Path
 import bpy
 
 from ..blendcap_vta_workspace import (
-    WORKSPACE_NAME, WORKSPACE_TAG, ROW_HEIGHT, character_lanes,
+    WORKSPACE_NAME, WORKSPACE_TAG, ROW_HEIGHT, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area,
+)
+from ..blendcap_vta_area_mode import (
+    ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
 )
 from . import vta_invalidation
 
@@ -20,6 +23,7 @@ from . import vta_invalidation
 _window_handler = None
 _channel_handler = None
 _header_registered = False
+_preview_header_registered = False
 _keymaps = []
 
 
@@ -42,11 +46,34 @@ def _state(context):
 
 
 def _draw_header(self, context):
-    host = review_area(getattr(context, 'workspace', None),
-                       getattr(context, 'screen', None))
-    if host is not None and host == getattr(context, 'area', None):
-        self.layout.separator()
-        self.layout.label(text='VTA Review Timeline', icon='KEY_HLT')
+    area = getattr(context, 'area', None)
+    if area is None or area.type != 'DOPESHEET_EDITOR' or area.ui_type != 'DOPESHEET':
+        return
+    active = _scope(context)
+    self.layout.separator()
+    self.layout.operator('blendcap.vta_toggle_editor_mode',
+                         text='Exit VTA Mode' if active else 'Enter VTA Mode',
+                         icon='CHECKBOX_HLT' if active else 'CHECKBOX_DEHLT')
+    if active:
+        if _state(context)[0] is None:
+            _ui().refresh(context)
+        self.layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
+        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
+
+
+def _draw_preview_header(self, context):
+    area = getattr(context, 'area', None)
+    space = getattr(context, 'space_data', None)
+    if (area is None or area.type != 'SEQUENCE_EDITOR' or
+            getattr(space, 'view_type', None) not in {'PREVIEW', 'SEQUENCER_PREVIEW'}):
+        return
+    active = role_for(context.workspace, context.screen, area) == ROLE_PREVIEW
+    self.layout.separator()
+    self.layout.operator('blendcap.vta_toggle_editor_mode',
+                         text='Exit VTA Preview' if active else 'Enter VTA Preview',
+                         icon='CHECKBOX_HLT' if active else 'CHECKBOX_DEHLT')
+    if active:
+        self.layout.label(text='VTA MODE — Preview')
 
 
 def _line(shader, batch_for_shader, points, color):
@@ -73,15 +100,25 @@ def _draw_channels():
         if not _scope(context) or context.region.type != 'CHANNELS':
             return
         view, _selected, _active, _offset, first, current = _state(context)
-        if view is None:
-            return
         region = context.region
-        names = {item.character_id: item.display_name for item in view.characters}
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
+              (.115, .115, .115, 1))
+        if view is None:
+            blf.position(0, 10, region.height - 19, 0)
+            blf.size(0, 11)
+            blf.color(0, .9, .7, .5, 1)
+            blf.draw(0, 'Review unavailable')
+            return
+        names = {item.character_id: item.display_name for item in view.characters}
+        blf.position(0, 10, region.height - 19, 0)
+        blf.size(0, 11)
+        blf.color(0, .75, .75, .75, 1)
+        blf.draw(0, 'Characters')
         for character_id, y in character_lanes(view, region.height, first):
             active = character_id == current
             _fill(shader, batch_for_shader, 0, y - 12, region.width, y + 12,
-                  (.17, .27, .34, .96) if active else (.12, .14, .17, .94))
+                  (.17, .24, .30, 1) if active else (.16, .16, .16, 1))
             if active:
                 _fill(shader, batch_for_shader, 0, y - 12, 4, y + 12,
                       (.95, .9, .45, 1))
@@ -102,15 +139,39 @@ def _draw_window():
         if not _scope(context) or context.region.type != 'WINDOW':
             return
         view, selected, active, offset, first, current = _state(context)
+        region = context.region
+        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
+              (.105, .105, .105, 1))
         if view is None:
             return
-        region = context.region
         lanes = dict(character_lanes(view, region.height, first))
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        # The Dope Sheet supplies View2D navigation, not visible native keys.
+        # Draw a modest Blender-like ruler/grid above the ProjectState lanes.
+        left = region.view2d.region_to_view(0, 0)[0]
+        right = region.view2d.region_to_view(region.width, 0)[0]
+        span = max(1.0, right - left)
+        step = grid_step(span, region.width)
+        first_grid = int(left // step) * step
+        for tick in range(min(200, int((right - first_grid) / step) + 2)):
+            frame = first_grid + tick * step
+            x = region.view2d.view_to_region(frame, 0, clip=False)[0]
+            _line(shader, batch_for_shader, ((x, 0), (x, region.height - 24)),
+                  (.25, .25, .25, 1))
+            import blf
+            blf.position(0, x + 3, region.height - 17, 0)
+            blf.size(0, 11)
+            blf.color(0, .72, .72, .72, 1)
+            blf.draw(0, str(frame))
         for character_id, y in lanes.items():
             _fill(shader, batch_for_shader, 0, y - 12, region.width, y + 12,
-                  (.14, .18, .21, .36) if character_id == current
-                  else (.08, .10, .12, .24))
+                  (.17, .24, .30, 1) if character_id == current
+                  else (.15, .15, .15, 1))
+        playhead = region.view2d.view_to_region(context.scene.frame_current, 0,
+                                               clip=False)[0]
+        if 0 <= playhead < region.width:
+            _line(shader, batch_for_shader,
+                  ((playhead, 0), (playhead, region.height)), (.38, .63, .95, 1))
         frame_x = lambda frame: region.view2d.view_to_region(
             frame + offset, 0, clip=False)[0]
         for mark in view.derived:
@@ -179,7 +240,7 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
             if WORKSPACE_NAME in bpy.data.workspaces:
                 self.report({'ERROR'}, 'A workspace named Video to Animation already exists; it was not replaced.')
                 return {'CANCELLED'}
-            path = Path(__file__).resolve().parent.parent / 'vta_workspace.blend'
+            path = Path(__file__).resolve().parent.parent / 'vta_workspace_mode.blend'
             if not path.is_file():
                 self.report({'ERROR'}, 'Bundled VTA workspace is unavailable.')
                 return {'CANCELLED'}
@@ -196,6 +257,8 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
                 self.report({'ERROR'}, 'Bundled workspace is missing its VTA scope tag.')
                 return {'CANCELLED'}
         context.window.workspace = workspace
+        for screen in workspace.screens:
+            initialize_workspace_preset(workspace, screen)
         vta_invalidation.request_redraw()
         self.report({'INFO'}, 'Video to Animation workspace opened. Layout is provisional.')
         return {'FINISHED'}
@@ -209,6 +272,54 @@ class BLENDCAP_MT_vta_timeline_context(bpy.types.Menu):
         self.layout.operator_context = 'INVOKE_DEFAULT'
         self.layout.operator('blendcap.vta_review_manage', text='Clear Review Key').action = 'clear-review-key'
         self.layout.operator('blendcap.vta_review_manage', text='Clear Selected Review Keys').action = 'clear-selected-review-keys'
+        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
+
+
+class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
+    bl_idname = 'BLENDCAP_MT_vta_timeline_commands'
+    bl_label = 'VTA Commands'
+
+    def draw(self, context):
+        ui = _ui()
+        layout = self.layout
+        layout.operator('blendcap.vta_review_refresh', text='Refresh Review')
+        if not ui.refresh(context):
+            layout.label(text='VTA review unavailable', icon='INFO')
+            return
+        ui._draw_management_actions(layout)
+        row = layout.row()
+        row.enabled = ui._action_availability()['update-tracking']
+        row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+
+
+class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_toggle_editor_mode'
+    bl_label = 'Enter / Exit VTA Mode'
+    bl_description = 'Toggle VTA presentation only in this editor area'
+
+    @classmethod
+    def poll(cls, context):
+        area = getattr(context, 'area', None)
+        if area is None:
+            return False
+        return ((area.type == 'DOPESHEET_EDITOR' and area.ui_type == 'DOPESHEET')
+                or (area.type == 'SEQUENCE_EDITOR' and
+                    getattr(getattr(context, 'space_data', None), 'view_type', None)
+                    in {'PREVIEW', 'SEQUENCER_PREVIEW'}))
+
+    def execute(self, context):
+        area = context.area
+        role = ROLE_TIMELINE if area.type == 'DOPESHEET_EDITOR' else ROLE_PREVIEW
+        active = role_for(context.workspace, context.screen, area) == role
+        try:
+            set_role(context.workspace, context.screen, area, None if active else role)
+        except ValueError as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        if not active and role == ROLE_TIMELINE:
+            _ui().refresh(context, force=True)
+        vta_invalidation.request_redraw()
+        return {'FINISHED'}
 
 
 class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
@@ -245,7 +356,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
 
 
 def register():
-    global _window_handler, _channel_handler, _header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered
     if _window_handler is None:
         _window_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_window, (), 'WINDOW', 'POST_PIXEL')
@@ -255,6 +366,9 @@ def register():
     if not _header_registered:
         bpy.types.DOPESHEET_HT_header.append(_draw_header)
         _header_registered = True
+    if not _preview_header_registered:
+        bpy.types.SEQUENCER_HT_header.append(_draw_preview_header)
+        _preview_header_registered = True
     config = getattr(bpy.context.window_manager.keyconfigs, 'addon', None)
     if config is not None and not _keymaps:
         for region in ('WINDOW', 'CHANNELS'):
@@ -269,7 +383,7 @@ def register():
 
 
 def unregister():
-    global _window_handler, _channel_handler, _header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered
     for keymap, items in _keymaps:
         for item in items:
             keymap.keymap_items.remove(item)
@@ -277,6 +391,9 @@ def unregister():
     if _header_registered:
         bpy.types.DOPESHEET_HT_header.remove(_draw_header)
         _header_registered = False
+    if _preview_header_registered:
+        bpy.types.SEQUENCER_HT_header.remove(_draw_preview_header)
+        _preview_header_registered = False
     if _window_handler is not None:
         bpy.types.SpaceDopeSheetEditor.draw_handler_remove(_window_handler, 'WINDOW')
         _window_handler = None

@@ -7,6 +7,10 @@ No native channel, strip, playhead, or project authority is created.
 from __future__ import annotations
 
 from ..blendcap_vta_timeline import hit_test_keys
+if __package__ == 'blendcap':
+    from blendcap_vta_area_mode import ROLE_PREVIEW, role_for
+else:
+    from ..blendcap_vta_area_mode import ROLE_PREVIEW, role_for
 
 
 GUTTER_WIDTH = 152
@@ -96,6 +100,8 @@ def _draw() -> None:
         context = bpy.context
         area, region, space = context.area, context.region, context.space_data
         if not is_timeline_region(area, region, space) or _state_provider is None:
+            return
+        if role_for(context.workspace, context.screen, area) != ROLE_PREVIEW:
             return
         view, selected_ids, active_id, frame_offset, scroll = _state_provider()
         if view is None:

@@ -160,19 +160,12 @@ class BlenderTimelineTests(unittest.TestCase):
         cls.ui = sys.modules[package + ".blendcap.vta_review_ui"]
         cls.overlay = sys.modules[package + ".blendcap.vta_timeline_overlay"]
 
-    def test_tool_and_native_menu_share_management_operator(self):
+    def test_direct_selection_and_native_menu_share_management_operator(self):
         ui = self.ui
-        self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select.bl_context_mode, 'SEQUENCER')
-        self.assertEqual(ui.BLENDCAP_WST_vta_review_key_select_combined.bl_context_mode,
-                         'SEQUENCER_PREVIEW')
-        self.assertEqual(len(ui.BLENDCAP_WST_vta_review_key_select.bl_keymap), 3)
-        self.assertEqual({item[0] for item in ui.BLENDCAP_WST_vta_review_key_select.bl_keymap},
-                         {"blendcap.vta_review_key_select"})
-        self.assertEqual({item[1]["type"] for item in ui.BLENDCAP_WST_vta_review_key_select.bl_keymap},
-                         {'LEFTMOUSE', 'RIGHTMOUSE'})
+        self.assertFalse(hasattr(ui, 'BLENDCAP_WST_vta_review_key_select'))
+        self.assertIsNotNone(ui.BLENDCAP_OT_vta_review_key_select)
         self.assertIn(ui.BLENDCAP_OT_vta_review_manage, ui.classes)
         self.assertNotIn("BLENDCAP_MT_vta_review", vars(ui))
-        self.assertTrue(callable(ui._draw_vta_select))
         self.assertTrue(callable(ui._draw_vta_context))
 
     def test_context_keymap_is_tool_independent_and_removed(self):
