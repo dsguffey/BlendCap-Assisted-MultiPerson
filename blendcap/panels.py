@@ -117,6 +117,8 @@ def _draw_setup_section(layout, hide_setup):
         row.operator("blendcap.install_open_prefs", icon='PREFERENCES',
                      text="Open Preferences")
         row.operator("blendcap.append_workspace", text="Open Workspace", icon='WORKSPACE')
+        box.operator("blendcap.open_vta_workspace", text="Open VTA Workspace",
+                     icon='WORKSPACE')
 
         layout.separator()
 

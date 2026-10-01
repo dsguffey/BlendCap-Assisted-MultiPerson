@@ -34,7 +34,7 @@ from ..blendcap_vta_analysis_runtime import (
 )
 from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, key_at
-from . import vta_overlay, vta_timeline_overlay
+from . import vta_invalidation, vta_overlay, vta_timeline_overlay
 from .helpers import (
     _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
 )
@@ -170,7 +170,7 @@ def _sync_properties(context) -> None:
         wm.blendcap_vta_character = _selection.character_id or _NO_SELECTION
     finally:
         _syncing_properties = False
-    vta_overlay.request_redraw()
+    vta_invalidation.request_redraw()
 
 
 def overlay_state():
@@ -547,6 +547,16 @@ def refresh(context, *, force: bool = False) -> bool:
         return False
 
 
+def _accept_mutated_review(context, refreshed) -> None:
+    """Requery keys and frame review together before notifying every surface."""
+    global _view
+    _view = refreshed
+    _selection.accept_review(refreshed)
+    if not refresh(context, force=True):
+        raise VtaReviewUiError(_status)
+    vta_invalidation.request_redraw()
+
+
 def candidate_items(_self, context):
     return _candidate_enum_items
 
@@ -565,7 +575,7 @@ def _candidate_changed(self, _context):
         character = _selection.character_id or _NO_SELECTION
         if self.blendcap_vta_character != character:
             self.blendcap_vta_character = character
-    vta_overlay.request_redraw()
+    vta_invalidation.request_redraw()
 
 
 def _character_changed(self, _context):
@@ -574,7 +584,7 @@ def _character_changed(self, _context):
     _selection.character_id = (
         "" if self.blendcap_vta_character == _NO_SELECTION else self.blendcap_vta_character
     )
-    vta_overlay.request_redraw()
+    vta_invalidation.request_redraw()
 
 
 def _overlay_enabled(context) -> bool:
@@ -824,10 +834,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
                 _receipt, refreshed = _get_backend(context).apply_confirmed_reassignment(
                     _location, confirmed_request
                 )
-            _view = refreshed
-            _selection.accept_review(refreshed)
-            _rebuild_enum_items()
-            _sync_properties(context)
+            _accept_mutated_review(context, refreshed)
             character = next(
                 row.display_name for row in refreshed.characters
                 if row.character_id == character_id
@@ -943,10 +950,7 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
             _receipt, refreshed = _get_backend(context).apply_hard_state(
                 _location, request, confirmed=confirmed
             )
-            _view = refreshed
-            _selection.accept_review(refreshed)
-            _rebuild_enum_items()
-            _sync_properties(context)
+            _accept_mutated_review(context, refreshed)
             _status = f"Recorded {HARD_STATE_LABELS[self.decision_kind]} for the selected Character."
             _status_is_error = False
             self.report({'INFO'}, _status)
@@ -992,8 +996,7 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             if not _selection.select_character(refreshed, character.character_id):
                 raise VtaReviewUiError("The new Character is not available after reload.")
             context.window_manager.blendcap_vta_new_character_name = ""
-            _rebuild_enum_items()
-            _sync_properties(context)
+            _accept_mutated_review(context, refreshed)
             _status = f"Created Character {character.display_name}. Select a candidate and Assign it separately."
             _status_is_error = False
             self.report({'INFO'}, _status)
@@ -1005,21 +1008,21 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def select_review_key_at(context, point, *, extend: bool = False,
-                         activate: bool = False) -> bool:
-    """Select one projected user key and navigate via its durable identity."""
+def select_timeline_character(context, character_id: str) -> bool:
+    """Share Current Character across Preview, sidebar, VSE, and VTA timeline."""
+    if _timeline is None or character_id not in {
+        item.character_id for item in _timeline.characters
+    }:
+        return False
+    _selection.character_id = character_id
+    _sync_properties(context)
+    return True
+
+
+def select_timeline_key(context, key_id: str, *, extend: bool = False,
+                        activate: bool = False) -> bool:
+    """Select a durable review key without treating row/frame as identity."""
     if _timeline is None or _location is None:
-        return False
-    region = getattr(context, "region", None)
-    if region is None:
-        return False
-    key_id = vta_timeline_overlay.hit_key(
-        _timeline, region.view2d, region.height, point,
-        _location.blender_frame - _location.source_frame,
-        _lane_scroll(),
-        vta_timeline_overlay.occupied_strip_channels(context),
-    )
-    if key_id is None:
         return False
     selected = (_review_key_selection.activate(_timeline, key_id) if activate
                 else _review_key_selection.click(_timeline, key_id, extend=extend))
@@ -1039,6 +1042,24 @@ def select_review_key_at(context, point, *, extend: bool = False,
     refresh(context, force=True)
     _sync_properties(context)
     return True
+
+
+def select_review_key_at(context, point, *, extend: bool = False,
+                         activate: bool = False) -> bool:
+    """Select one projected VSE key and navigate via its durable identity."""
+    if _timeline is None or _location is None:
+        return False
+    region = getattr(context, "region", None)
+    if region is None:
+        return False
+    key_id = vta_timeline_overlay.hit_key(
+        _timeline, region.view2d, region.height, point,
+        _location.blender_frame - _location.source_frame,
+        _lane_scroll(),
+        vta_timeline_overlay.occupied_strip_channels(context),
+    )
+    return (select_timeline_key(context, key_id, extend=extend, activate=activate)
+            if key_id is not None else False)
 
 
 def _open_native_sequencer_context_menu():
@@ -1476,6 +1497,8 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     def draw(self, context):
         refresh(context)
         layout = self.layout
+        layout.operator('blendcap.open_vta_workspace', text='Open VTA Workspace',
+                        icon='WORKSPACE')
         if _location is not None:
             layout.label(text=f"Blender frame {_location.blender_frame}")
         if _view is None:

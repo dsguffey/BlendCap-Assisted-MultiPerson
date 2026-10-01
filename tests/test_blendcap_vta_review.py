@@ -692,7 +692,7 @@ class BlenderAssignOperatorTests(unittest.TestCase):
         ))
         wm = SimpleNamespace(blendcap_vta_character="character-black")
         with mock.patch.object(self.panel_ui, "_timeline", timeline), \
-             mock.patch.object(self.panel_ui.vta_overlay, "request_redraw") as redraw:
+             mock.patch.object(self.panel_ui.vta_invalidation, "request_redraw") as redraw:
             self.panel_ui._character_changed(wm, None)
             self.assertEqual(self.panel_ui._lane_scroll(), 1)
         self.assertEqual(self.selection.character_id, "character-black")

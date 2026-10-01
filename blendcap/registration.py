@@ -99,6 +99,13 @@ from .vta_review_ui import (
     register_properties as register_vta_review_properties,
     unregister_properties as unregister_vta_review_properties,
 )
+from .vta_workspace import (
+    BLENDCAP_OT_open_vta_workspace,
+    BLENDCAP_OT_vta_timeline_select,
+    BLENDCAP_MT_vta_timeline_context,
+    register as register_vta_workspace,
+    unregister as unregister_vta_workspace,
+)
 from . import retarget
 
 
@@ -200,6 +207,7 @@ classes = (
     BLENDCAP_OT_deps_missing,
     BLENDCAP_OT_open_license,
     BLENDCAP_OT_append_workspace,
+    BLENDCAP_OT_open_vta_workspace,
     BLENDCAP_OT_generate_mocap,
     BLENDCAP_OT_cancel,
     BLENDCAP_OT_cancel_cleanup,
@@ -241,6 +249,7 @@ classes = (
     OUTPUT_PT_blendcap_ui,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
+    BLENDCAP_OT_vta_timeline_select,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,
     BLENDCAP_OT_vta_review_refresh,
@@ -250,6 +259,7 @@ classes = (
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_MT_vta_commands,
+    BLENDCAP_MT_vta_timeline_context,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
     VIEW3D_PT_blendcap_vta_characters,
@@ -497,6 +507,7 @@ def register():
     bpy.types.WindowManager.blendcap_uninstall_armed = bpy.props.BoolProperty(
         default=False)
     register_vta_review_properties()
+    register_vta_workspace()
 
     # --- Retargeting v2 scene state ---
     bpy.types.Scene.blendcap_retarget_pairs = bpy.props.CollectionProperty(type=BlendCapBonePair)
@@ -818,6 +829,7 @@ def register():
 
 
 def unregister():
+    unregister_vta_workspace()
     unregister_vta_review_properties()
     if _clear_dangling_retarget_rigs in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_clear_dangling_retarget_rigs)
