@@ -357,9 +357,15 @@ class SelectionState:
         self.accept_review(view)
         if view.state != "analyzed-with-candidates":
             return False
-        if observation_id not in {item.observation_id for item in view.candidates}:
+        selected = next((item for item in view.candidates
+                         if item.observation_id == observation_id), None)
+        if selected is None:
             return False
         self.observation_id = observation_id
+        # An assigned candidate carries an authoritative Character relation.
+        # Unassigned candidates do not change Character intent.
+        if selected.assigned_character_id is not None:
+            self.character_id = selected.assigned_character_id
         return True
 
     def can_assign(self, view: ReviewView) -> bool:

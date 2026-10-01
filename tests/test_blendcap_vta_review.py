@@ -124,6 +124,23 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertTrue(all(candidate.assigned_character_id is None for candidate in view.candidates))
         self.assertFalse(selection.can_assign(view))
 
+    def test_assigned_candidate_selects_its_stable_character_unassigned_preserves_context(self):
+        view = review_ui.present_review(Review(
+            candidates=(
+                Candidate("revision-1", "assigned", assigned_character_id="character-red"),
+                Candidate("revision-1", "unassigned"),
+            ),
+            character_assignments=(Assignment("character-red", "assigned"),),
+        ))
+        selection = review_ui.SelectionState()
+        self.assertTrue(selection.select_character(view, "character-black"))
+        self.assertTrue(selection.select_observation(view, "assigned"))
+        self.assertEqual(selection.character_id, "character-red")
+        self.assertTrue(selection.select_observation(view, "unassigned"))
+        self.assertEqual(selection.character_id, "character-red")
+        self.assertFalse(selection.select_observation(view, "nonexistent"))
+        self.assertEqual(selection.character_id, "character-red")
+
     def test_blender_create_action_is_drawn_and_registered(self):
         repo_root = Path(__file__).resolve().parents[1]
         ui_tree = ast.parse((repo_root / "blendcap" / "vta_review_ui.py").read_text(encoding="utf-8"))
@@ -596,6 +613,7 @@ class BlenderAssignOperatorTests(unittest.TestCase):
         spec.loader.exec_module(addon)
         from blendcap_vta_review_operator_test.blendcap import vta_review_ui
         cls.panel_ui = vta_review_ui
+        cls.real_sync_properties = staticmethod(vta_review_ui._sync_properties)
 
     def setUp(self):
         self.selection = review_ui.SelectionState()
@@ -640,6 +658,124 @@ class BlenderAssignOperatorTests(unittest.TestCase):
                 return panel_ui.BLENDCAP_OT_vta_review_assign.execute(self, context)
 
         return OperatorDouble()
+
+    def test_preview_assigned_click_updates_current_character(self):
+        current = review_ui.present_review(Review(
+            candidates=(Candidate("revision-1", "assigned", assigned_character_id="character-red"),),
+            character_assignments=(Assignment("character-red", "assigned"),),
+        ), source_dimensions=(100, 100))
+        self.panel_ui._view = current
+        wm = SimpleNamespace(blendcap_vta_candidate="", blendcap_vta_character="character-black")
+        context = SimpleNamespace(
+            area=SimpleNamespace(type='SEQUENCE_EDITOR'),
+            region=SimpleNamespace(type='PREVIEW', view2d=object()),
+            space_data=SimpleNamespace(view_type='PREVIEW'),
+            scene=SimpleNamespace(blendcap_show_vta_candidate_overlay=True),
+            window_manager=wm,
+        )
+
+        def sync(ctx):
+            ctx.window_manager.blendcap_vta_candidate = self.selection.observation_id
+            ctx.window_manager.blendcap_vta_character = self.selection.character_id
+
+        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
+             mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="assigned"), \
+             mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
+            self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))
+        self.assertEqual(self.selection.character_id, "character-red")
+        self.assertEqual(wm.blendcap_vta_character, "character-red")
+
+    def test_sidebar_character_change_updates_shared_timeline_context(self):
+        timeline = SimpleNamespace(characters=(
+            SimpleNamespace(character_id="character-red"),
+            SimpleNamespace(character_id="character-black"),
+        ))
+        wm = SimpleNamespace(blendcap_vta_character="character-black")
+        with mock.patch.object(self.panel_ui, "_timeline", timeline), \
+             mock.patch.object(self.panel_ui.vta_overlay, "request_redraw") as redraw:
+            self.panel_ui._character_changed(wm, None)
+            self.assertEqual(self.panel_ui._lane_scroll(), 1)
+        self.assertEqual(self.selection.character_id, "character-black")
+        redraw.assert_called_once()
+
+    def test_preview_unassigned_click_keeps_existing_character(self):
+        current = review_ui.present_review(Review(), source_dimensions=(100, 100))
+        self.panel_ui._view = current
+        self.selection.character_id = "character-black"
+        wm = SimpleNamespace(blendcap_vta_candidate="", blendcap_vta_character="character-black")
+        context = SimpleNamespace(
+            area=SimpleNamespace(type='SEQUENCE_EDITOR'),
+            region=SimpleNamespace(type='PREVIEW', view2d=object()),
+            space_data=SimpleNamespace(view_type='PREVIEW'),
+            scene=SimpleNamespace(blendcap_show_vta_candidate_overlay=True),
+            window_manager=wm,
+        )
+
+        def sync(ctx):
+            ctx.window_manager.blendcap_vta_candidate = self.selection.observation_id
+            ctx.window_manager.blendcap_vta_character = self.selection.character_id
+
+        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
+             mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="observation-a"), \
+             mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
+            self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))
+        self.assertEqual(self.selection.observation_id, "observation-a")
+        self.assertEqual(wm.blendcap_vta_character, "character-black")
+
+    def test_preview_click_selects_but_drag_is_consumed_without_selection(self):
+        operator = object()
+        with mock.patch.object(self.panel_ui, "select_overlay_candidate_at", return_value=True) as select:
+            self.assertEqual(self.panel_ui.BLENDCAP_OT_vta_candidate_select.invoke(
+                operator, None, SimpleNamespace(value='CLICK_DRAG')
+            ), {'FINISHED'})
+            select.assert_not_called()
+            self.assertEqual(self.panel_ui.BLENDCAP_OT_vta_candidate_select.invoke(
+                operator, None, SimpleNamespace(value='CLICK', mouse_region_x=10, mouse_region_y=12)
+            ), {'FINISHED'})
+            select.assert_called_once_with(None, (10, 12))
+        for tool in (self.panel_ui.BLENDCAP_WST_vta_candidate_select_preview,
+                     self.panel_ui.BLENDCAP_WST_vta_candidate_select_combined):
+            self.assertEqual({entry[1]["value"] for entry in tool.bl_keymap},
+                             {'CLICK', 'CLICK_DRAG'})
+
+    def test_programmatic_refresh_does_not_override_reassignment_character(self):
+        current = review_ui.present_review(Review(
+            candidates=(Candidate("revision-1", "assigned", assigned_character_id="character-red"),),
+            character_assignments=(Assignment("character-red", "assigned"),),
+        ))
+        self.panel_ui._view = current
+        self.selection.accept_review(current)
+        self.selection.observation_id = "assigned"
+        self.selection.character_id = "character-black"  # deliberate reassignment intent
+        panel = self.panel_ui
+
+        class CallbackWindowManager:
+            def __init__(self):
+                self._candidate = ""
+                self._character = ""
+
+            @property
+            def blendcap_vta_candidate(self): return self._candidate
+
+            @blendcap_vta_candidate.setter
+            def blendcap_vta_candidate(self, value):
+                self._candidate = value
+                panel._candidate_changed(self, None)
+
+            @property
+            def blendcap_vta_character(self): return self._character
+
+            @blendcap_vta_character.setter
+            def blendcap_vta_character(self, value):
+                self._character = value
+                panel._character_changed(self, None)
+
+        wm = CallbackWindowManager()
+        with mock.patch.object(panel.vta_overlay, "request_redraw"):
+            type(self).real_sync_properties(SimpleNamespace(window_manager=wm))
+        self.assertEqual(wm.blendcap_vta_candidate, "assigned")
+        self.assertEqual(wm.blendcap_vta_character, "character-black")
+        self.assertEqual(self.selection.character_id, "character-black")
 
     def _hard_operator(self, kind="occluded"):
         panel_ui = self.panel_ui

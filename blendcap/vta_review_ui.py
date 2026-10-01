@@ -63,6 +63,7 @@ _analysis_fallback_status = None
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
+_syncing_properties = False
 
 
 def _configured_core_location(context) -> str:
@@ -159,9 +160,16 @@ def _owning_vse_scene(context, location: ReviewLocation):
 
 
 def _sync_properties(context) -> None:
+    global _syncing_properties
+    if _syncing_properties:
+        return
     wm = context.window_manager
-    wm.blendcap_vta_candidate = _selection.observation_id or _NO_SELECTION
-    wm.blendcap_vta_character = _selection.character_id or _NO_SELECTION
+    _syncing_properties = True
+    try:
+        wm.blendcap_vta_candidate = _selection.observation_id or _NO_SELECTION
+        wm.blendcap_vta_character = _selection.character_id or _NO_SELECTION
+    finally:
+        _syncing_properties = False
     vta_overlay.request_redraw()
 
 
@@ -548,15 +556,25 @@ def character_items(_self, context):
 
 
 def _candidate_changed(self, _context):
-    _selection.observation_id = (
-        "" if self.blendcap_vta_candidate == _NO_SELECTION else self.blendcap_vta_candidate
-    )
+    if _syncing_properties:
+        return
+    candidate = self.blendcap_vta_candidate
+    if candidate == _NO_SELECTION:
+        _selection.observation_id = ""
+    elif _view is not None and _selection.select_observation(_view, candidate):
+        character = _selection.character_id or _NO_SELECTION
+        if self.blendcap_vta_character != character:
+            self.blendcap_vta_character = character
+    vta_overlay.request_redraw()
 
 
 def _character_changed(self, _context):
+    if _syncing_properties:
+        return
     _selection.character_id = (
         "" if self.blendcap_vta_character == _NO_SELECTION else self.blendcap_vta_character
     )
+    vta_overlay.request_redraw()
 
 
 def _overlay_enabled(context) -> bool:
@@ -624,6 +642,11 @@ class BLENDCAP_OT_vta_candidate_select(bpy.types.Operator):
         )
 
     def invoke(self, context, event):
+        if getattr(event, 'value', None) == 'CLICK_DRAG':
+            # This explicit review tool is read-only. Consume left drags so
+            # Blender's Preview strip-transform gesture cannot move the image
+            # (and its derived overlay) during ordinary candidate inspection.
+            return {'FINISHED'}
         return (
             {'FINISHED'}
             if select_overlay_candidate_at(
@@ -644,7 +667,9 @@ class BLENDCAP_WST_vta_candidate_select_preview(bpy.types.WorkSpaceTool):
     bl_widget = None
     bl_keymap = (
         (BLENDCAP_OT_vta_candidate_select.bl_idname,
-         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+         {"type": 'LEFTMOUSE', "value": 'CLICK'}, None),
+        (BLENDCAP_OT_vta_candidate_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'CLICK_DRAG'}, None),
     )
 
 
@@ -659,7 +684,9 @@ class BLENDCAP_WST_vta_candidate_select_combined(bpy.types.WorkSpaceTool):
     bl_widget = None
     bl_keymap = (
         (BLENDCAP_OT_vta_candidate_select.bl_idname,
-         {"type": 'LEFTMOUSE', "value": 'PRESS'}, None),
+         {"type": 'LEFTMOUSE', "value": 'CLICK'}, None),
+        (BLENDCAP_OT_vta_candidate_select.bl_idname,
+         {"type": 'LEFTMOUSE', "value": 'CLICK_DRAG'}, None),
     )
 
 

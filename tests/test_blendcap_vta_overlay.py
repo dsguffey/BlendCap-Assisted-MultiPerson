@@ -9,6 +9,7 @@ from blendcap.vta_overlay import (
     hit_test_overlay_candidates,
     hit_test_review_candidate,
     is_vse_preview_region,
+    layout_overlay_labels,
     source_box_to_region,
 )
 from blendcap_vta_review import CandidateRow, ReviewView, SelectionState
@@ -129,6 +130,21 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(
             hit_test_overlay_candidates((assigned,), (10, 10)), "assigned"
         )
+
+    def test_label_plates_avoid_overlap_and_remain_near_boxes(self):
+        candidates = (
+            OverlayRegionCandidate("a", "Candidate 1", (20, 20, 90, 80), None, False),
+            OverlayRegionCandidate("b", "Candidate 2", (25, 25, 95, 82), None, False),
+        )
+        placements = layout_overlay_labels(candidates, lambda _label: (86, 15), 300, 180)
+        first, second = (placement.rect for placement in placements)
+        self.assertEqual([item.observation_id for item in placements], ["a", "b"])
+        self.assertTrue(first[2] <= second[0] or second[2] <= first[0] or
+                        first[3] <= second[1] or second[3] <= first[1])
+        self.assertTrue(all(0 <= rect[0] < rect[2] <= 300 and
+                            0 <= rect[1] < rect[3] <= 180 for rect in (first, second)))
+        self.assertEqual(layout_overlay_labels(candidates, lambda _label: (86, 15), 300, 180),
+                         placements)
 
     def test_preview_binds_scene_owning_authoritative_strip_without_hardcoded_name(self):
         class Strip:

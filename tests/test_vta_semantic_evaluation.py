@@ -8,7 +8,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.vta_semantic_evaluation import prepare, score, sha256, validate_labels, write_new
+from tools.vta_semantic_evaluation import (
+    prepare, resolve_anchor_character_ids, score, sha256, validate_labels, write_new,
+)
 
 
 def save(path: Path, value: dict) -> None:
@@ -140,6 +142,130 @@ class SemanticEvaluationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             write_new(output, {"marker": 2})
         self.assertEqual(read_json_for_test(output)["marker"], 1)
+
+    def test_version_two_anchor_exclusion_accepted_set_and_no_valid_are_scoring_only(self):
+        project = read_json_for_test(self.project_path)
+        project["identity_keyframes"] = [
+            {"character_id": "red", "frame": 3,
+             "candidate_evidence": {"observation_id": "r3"}},
+            {"character_id": "black", "frame": 3,
+             "candidate_evidence": {"observation_id": "b3"}},
+        ]
+        save(self.project_path, project)
+        cache = read_json_for_test(self.cache_path)
+        self.assertEqual(resolve_anchor_character_ids(
+            project, cache, 3, {"Red": 1, "Black": 2}
+        ), {"Red": "red", "Black": "black"})
+        labels = prepare(self.root, ("red", "black"), (4, 5, 6), 1,
+                         version=2, excluded_blender_frames=(4,))
+        labels["semantic_identity_map"] = {"Red": "red", "Black": "black"}
+        for row in labels["frames"]:
+            row["labels"]["red"].update(kind="candidate", candidate_position=1)
+            row["labels"]["black"].update(kind="candidate", candidate_position=2)
+        labels["frames"][1]["labels"]["red"] = {
+            "kind": "accepted-set", "candidate_position": None, "candidate_positions": [1, 2]
+        }
+        labels["frames"][1]["note"] = "Two plausible boxes"
+        labels["frames"][2]["labels"]["red"] = {
+            "kind": "no-valid-candidate", "candidate_position": None,
+            "candidate_positions": None,
+        }
+        labels["frames"][2]["labels"]["black"] = {
+            "kind": "no-valid-candidate", "candidate_position": None,
+            "candidate_positions": None,
+        }
+        save(self.labels_path, labels)
+        save(self.baseline_path, self._baseline())
+        before = [sha256(path) for path in (self.project_path, self.cache_path, self.baseline_path)]
+        report = score(self.root, self.baseline_path, self.labels_path)
+        self.assertEqual(report["frames"][0]["characters"]["red"]["outcome"],
+                         "excluded-authoritative-anchor")
+        self.assertEqual(report["frames"][1]["characters"]["red"]["outcome"],
+                         "unresolved-with-candidate")
+        self.assertEqual(report["frames"][2]["characters"]["red"]["outcome"],
+                         "false-match")
+        self.assertEqual(report["frames"][2]["characters"]["black"]["outcome"],
+                         "correct-conservative-unresolved")
+        self.assertEqual(report["joint_summary"]["independently_scored_frames"], 2)
+        self.assertEqual([sha256(path) for path in
+                          (self.project_path, self.cache_path, self.baseline_path)], before)
+
+    def test_version_two_rejects_malformed_accepted_set(self):
+        labels = prepare(self.root, ("red", "black"), (4, 5, 6), 1,
+                         version=2, excluded_blender_frames=(4,))
+        for row in labels["frames"]:
+            for character, position in (("red", 1), ("black", 2)):
+                row["labels"][character].update(kind="candidate", candidate_position=position)
+        labels["frames"][1]["labels"]["red"] = {
+            "kind": "accepted-set", "candidate_position": None, "candidate_positions": [1, 1]
+        }
+        with self.assertRaisesRegex(ValueError, "Accepted-set"):
+            validate_labels(labels, prepare(self.root, ("red", "black"), (4, 5, 6), 1,
+                                            version=2, excluded_blender_frames=(4,)))
+
+    def test_accepted_set_credits_either_box_but_not_an_unrelated_one(self):
+        labels = prepare(self.root, ("red", "black"), (4, 5, 6), 1, version=2)
+        for row in labels["frames"]:
+            for character, position in (("red", 1), ("black", 2)):
+                row["labels"][character].update(kind="candidate", candidate_position=position)
+        labels["frames"][1]["labels"]["red"] = {
+            "kind": "accepted-set", "candidate_position": None, "candidate_positions": [1, 2]
+        }
+        baseline = self._baseline()
+        baseline["characters"]["red"]["records"][1]["observation_id"] = "b4"
+        save(self.labels_path, labels)
+        save(self.baseline_path, baseline)
+        report = score(self.root, self.baseline_path, self.labels_path)
+        self.assertEqual(report["frames"][1]["characters"]["red"]["outcome"],
+                         "correct-accepted-set")
+        self.assertEqual(report["coverage_vs_correctness"]["red"]["correct_candidate_cases"], 2)
+
+    def test_frame_17_inclusion_and_three_no_valid_frames_are_not_tracker_inputs(self):
+        cache = read_json_for_test(self.cache_path)
+        cache["frames"] = [
+            {"frame": frame, "state": "analyzed", "timestamp_seconds": frame / 24,
+             "candidates": [{"observation_id": f"o{frame}-{position}",
+                             "box_xyxy": [position, 1, position + 1, 2]}
+                            for position in range(1, 9)]}
+            for frame in (0, 16, 66, 72, 80, 140)
+        ]
+        save(self.cache_path, cache)
+        labels = prepare(self.root, ("red", "black"), (1, 17, 67, 73, 81, 141), 1,
+                         version=2)
+        for row in labels["frames"]:
+            for character, position in (("red", 1), ("black", 2)):
+                row["labels"][character].update(kind="candidate", candidate_position=position)
+        for row in labels["frames"]:
+            if row["blender_frame"] in (67, 73, 81):
+                for character in ("red", "black"):
+                    row["labels"][character] = {
+                        "kind": "no-valid-candidate", "candidate_position": None,
+                        "candidate_positions": None,
+                    }
+            if row["blender_frame"] == 141:
+                row["labels"]["red"] = {
+                    "kind": "accepted-set", "candidate_position": None,
+                    "candidate_positions": [2, 5],
+                }
+        save(self.labels_path, labels)
+        baseline = self._baseline()
+        for character in ("red", "black"):
+            baseline["characters"][character]["scope"] = {"start_frame": 0, "end_frame": 140}
+            baseline["characters"][character]["records"] = [
+                {"frame": frame, "state": "unresolved", "observation_id": None}
+                for frame in (0, 16, 66, 72, 80, 140)
+            ]
+        save(self.baseline_path, baseline)
+        before = self.project_path.read_bytes()
+        report = score(self.root, self.baseline_path, self.labels_path)
+        self.assertEqual([row["blender_frame"] for row in report["frames"]],
+                         [1, 17, 67, 73, 81, 141])
+        for frame in (67, 73, 81):
+            row = next(row for row in report["frames"] if row["blender_frame"] == frame)
+            self.assertEqual([row["characters"][character]["outcome"]
+                              for character in ("red", "black")],
+                             ["correct-conservative-unresolved"] * 2)
+        self.assertEqual(self.project_path.read_bytes(), before)
 
 
 def read_json_for_test(path: Path) -> dict:

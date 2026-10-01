@@ -23,6 +23,43 @@ class OverlayRegionCandidate:
     selected: bool
 
 
+@dataclass(frozen=True)
+class OverlayLabelPlacement:
+    observation_id: str
+    rect: tuple[float, float, float, float]
+
+
+def layout_overlay_labels(candidates, measure, region_width: float,
+                          region_height: float) -> tuple[OverlayLabelPlacement, ...]:
+    """Greedily place compact label plates without common-case overlap."""
+    occupied = []
+    placements = []
+    for item in candidates:
+        text_width, text_height = measure(item.label)
+        plate_width = min(max(1.0, region_width - 4.0), text_width + 10.0)
+        plate_height = text_height + 8.0
+        left = min(max(min(item.region_box[0], item.region_box[2]) + 4.0, 2.0),
+                   max(2.0, region_width - plate_width - 2.0))
+        preferred = max(item.region_box[1], item.region_box[3]) + 4.0
+        step = plate_height + 3.0
+        offsets = (0, *(value for distance in range(1, 32)
+                        for value in (distance, -distance)))
+        choices = []
+        for offset in offsets:
+            bottom = min(max(preferred + offset * step, 2.0),
+                         max(2.0, region_height - plate_height - 2.0))
+            rect = (left, bottom, left + plate_width, bottom + plate_height)
+            if rect not in choices:
+                choices.append(rect)
+        chosen = next((rect for rect in choices if all(
+            rect[2] + 2 <= used[0] or used[2] + 2 <= rect[0] or
+            rect[3] + 2 <= used[1] or used[3] + 2 <= rect[1]
+            for used in occupied)), choices[0])
+        occupied.append(chosen)
+        placements.append(OverlayLabelPlacement(item.observation_id, chosen))
+    return tuple(placements)
+
+
 def build_overlay_candidates(view, selected_observation_id: str) -> tuple[OverlayCandidate, ...]:
     """Project only immutable review rows; order is never an identity key."""
     if view is None or view.state != "analyzed-with-candidates":
@@ -213,11 +250,24 @@ def _draw() -> None:
         if view is None or view.source_width is None or view.source_height is None:
             return
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        for item in build_overlay_region_candidates(view, selected, region.view2d):
+        candidates = build_overlay_region_candidates(view, selected, region.view2d)
+        blf.size(0, 15)
+        label_rects = layout_overlay_labels(
+            candidates, lambda label: blf.dimensions(0, label), region.width, region.height
+        )
+        for item, placement in zip(candidates, label_rects):
             x1, y1, x2, y2 = item.region_box
             color = (1.0, .75, .1, 1.0) if item.selected else (.1, .85, 1.0, 1.0)
             batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ((x1,y1),(x2,y1),(x2,y2),(x1,y2),(x1,y1))})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)
-            blf.position(0, x1 + 4, y2 + 4, 0); blf.size(0, 13); blf.color(0, *color); blf.draw(0, item.label)
+            left, bottom, right, top = placement.rect
+            plate = batch_for_shader(shader, 'TRIS', {"pos": (
+                (left,bottom),(right,bottom),(right,top),
+                (left,bottom),(right,top),(left,top),
+            )})
+            shader.bind(); shader.uniform_float("color", (0.025, 0.035, 0.05, 0.86)); plate.draw(shader)
+            blf.position(0, left + 5, bottom + 4, 0)
+            blf.color(0, 1.0, 0.95 if item.selected else 1.0, 0.72 if item.selected else 1.0, 1.0)
+            blf.draw(0, item.label)
     except Exception:
         return
