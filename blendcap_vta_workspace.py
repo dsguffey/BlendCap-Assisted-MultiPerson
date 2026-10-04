@@ -14,7 +14,9 @@ else:
 
 WORKSPACE_NAME = "Video to Animation"
 ROW_HEIGHT = 26.0
-TOP_PADDING = 28.0
+# Blender's native Dope Sheet reserves the top of WINDOW for its frame ruler.
+# Keep the first VTA key below that event zone, not merely below our drawn text.
+TOP_PADDING = 62.0
 
 
 def grid_step(frame_span, pixel_width, *, minimum_pixels=48):

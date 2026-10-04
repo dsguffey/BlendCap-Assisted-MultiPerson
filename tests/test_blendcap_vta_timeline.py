@@ -33,6 +33,18 @@ def view():
 
 
 class TimelineProofTests(unittest.TestCase):
+    def test_character_projection_sorts_names_without_changing_stable_ids(self):
+        private = SimpleNamespace(source_id='source', characters=(
+            SimpleNamespace(character_id='z', display_name='Yellow'),
+            SimpleNamespace(character_id='b', display_name='alice'),
+            SimpleNamespace(character_id='a', display_name='Alice'),
+            SimpleNamespace(character_id='w', display_name='White'),
+        ), keys=())
+        projected = present_timeline(private)
+        self.assertEqual([item.character_id for item in projected.characters],
+                         ['a', 'b', 'w', 'z'])
+        self.assertEqual(private.characters[0].character_id, 'z')
+
     def test_thin_backend_uses_private_projection_and_command(self):
         private_timeline = SimpleNamespace(
             source_id="source",
@@ -201,7 +213,7 @@ class BlenderTimelineTests(unittest.TestCase):
         self.assertEqual([item.display_name for item in rows.characters],
                          ["Character 1", "Ada", "character 3"])
 
-    def test_click_selection_navigates_by_key_id(self):
+    def test_click_selection_uses_key_id_without_moving_time(self):
         ui = self.ui
         selection = ReviewKeySelection()
         scene = SimpleNamespace(frame_set=mock.Mock())
@@ -219,7 +231,7 @@ class BlenderTimelineTests(unittest.TestCase):
             self.assertTrue(ui.select_review_key_at(context, (50, 250)))
             self.assertEqual(ui._selection.character_id, "amy")
             self.assertEqual(selection.keyframe_ids, ("key-a",))
-        scene.frame_set.assert_called_once_with(105)
+        scene.frame_set.assert_not_called()
 
     def test_right_click_key_overrides_stale_character_for_management(self):
         ui = self.ui
@@ -251,7 +263,7 @@ class BlenderTimelineTests(unittest.TestCase):
             operator.action = "delete-character"
             self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
                              {"character_id": "amy"})
-        scene.frame_set.assert_called_once_with(105)
+        scene.frame_set.assert_not_called()
 
     def test_right_click_from_blank_selection_activates_key_before_native_menu(self):
         ui = self.ui
@@ -274,10 +286,10 @@ class BlenderTimelineTests(unittest.TestCase):
              mock.patch.object(ui, "_open_native_sequencer_context_menu",
                                side_effect=lambda: observed.append(
                                    (selection.active_keyframe_id, chosen.character_id,
-                                    scene.frame_set.call_args.args[0]))):
+                                    scene.frame_set.call_count))):
             self.assertEqual(ui.BLENDCAP_OT_vta_review_key_select.invoke(
                 None, context, event), {'FINISHED'})
-        self.assertEqual(observed, [("key-a", "amy", 105)])
+        self.assertEqual(observed, [("key-a", "amy", 0)])
 
     def test_lane_headroom_preserves_glyph_bounds_and_strip_filter(self):
         overlay = self.overlay

@@ -1027,7 +1027,7 @@ def select_timeline_character(context, character_id: str) -> bool:
 
 def select_timeline_key(context, key_id: str, *, extend: bool = False,
                         activate: bool = False) -> bool:
-    """Select a durable review key without treating row/frame as identity."""
+    """Select a durable key and Character without changing the current frame."""
     if _timeline is None or _location is None:
         return False
     selected = (_review_key_selection.activate(_timeline, key_id) if activate
@@ -1039,6 +1039,17 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
         _sync_properties(context)
         return True
     _selection.character_id = key.character_id
+    _sync_properties(context)
+    return True
+
+
+def go_to_selected_timeline_key(context) -> bool:
+    """Explicit time navigation, separate from ordinary key selection."""
+    if _timeline is None or _location is None:
+        return False
+    key = key_at(_timeline, _review_key_selection.active_keyframe_id)
+    if key is None:
+        return False
     scene = _owning_vse_scene(context, _location)
     target_frame = key.source_frame + _location.blender_frame - _location.source_frame
     scene.frame_set(target_frame)
@@ -1052,7 +1063,7 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
 
 def select_review_key_at(context, point, *, extend: bool = False,
                          activate: bool = False) -> bool:
-    """Select one projected VSE key and navigate via its durable identity."""
+    """Select one projected VSE key by durable identity without navigation."""
     if _timeline is None or _location is None:
         return False
     region = getattr(context, "region", None)
@@ -1075,7 +1086,7 @@ def _open_native_sequencer_context_menu():
 class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_key_select"
     bl_label = "Select VTA Review Key"
-    bl_description = "Inspect one authoritative VTA key and jump to its frame"
+    bl_description = "Select one authoritative VTA key without changing the frame"
     bl_options = {'INTERNAL'}
 
     @classmethod

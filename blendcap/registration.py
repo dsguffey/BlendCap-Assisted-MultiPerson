@@ -102,9 +102,11 @@ from .vta_review_ui import (
 from .vta_workspace import (
     BLENDCAP_OT_open_vta_workspace,
     BLENDCAP_OT_vta_toggle_editor_mode,
+    BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_timeline_select,
     BLENDCAP_MT_vta_timeline_context,
     BLENDCAP_MT_vta_timeline_commands,
+    BLENDCAP_PT_vta_timeline,
     register as register_vta_workspace,
     unregister as unregister_vta_workspace,
 )
@@ -253,6 +255,7 @@ classes = (
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_timeline_select,
+    BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,
     BLENDCAP_OT_vta_review_refresh,
@@ -264,6 +267,7 @@ classes = (
     BLENDCAP_MT_vta_commands,
     BLENDCAP_MT_vta_timeline_context,
     BLENDCAP_MT_vta_timeline_commands,
+    BLENDCAP_PT_vta_timeline,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
     VIEW3D_PT_blendcap_vta_characters,

@@ -65,6 +65,18 @@ class ScopeTests(unittest.TestCase):
                                          (266, lanes['black-id']), offset=100))
         self.assertEqual(view.derived[0].source_frame, 34)
 
+    def test_first_character_key_is_below_native_ruler_and_clickable(self):
+        view = data()
+        height = 240
+        top_id, top_y = character_lanes(view, height)[0]
+        self.assertEqual(top_id, 'red-id')
+        self.assertLess(top_y, height - 60)
+        view2d = SimpleNamespace(view_to_region=lambda frame, _y, clip=False: (frame * 2, 0))
+        self.assertEqual(hit_review_key(view, view2d, height, (66, top_y)),
+                         'durable-red')
+        self.assertIsNone(hit_review_key(view, view2d, height,
+                                         (66, height - 20)))
+
     def test_grid_cadence_stays_bounded_at_extreme_zoom(self):
         self.assertEqual(grid_step(200, 1000), 10)
         self.assertGreaterEqual(grid_step(100_000_000, 1000), 4_800_000)
@@ -134,7 +146,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
             refresh.assert_called_once_with(mock.ANY, force=True)
             redraw.assert_called_once()
 
-    def test_key_click_navigates_scene_and_syncs_stable_character(self):
+    def test_key_click_syncs_character_without_navigation(self):
         ui = self.ui
         scene = SimpleNamespace(frame_set=mock.Mock())
         context = SimpleNamespace(scene=scene)
@@ -147,12 +159,67 @@ class BlenderWorkspaceTests(unittest.TestCase):
             self.assertTrue(ui.select_timeline_key(context, 'durable-red'))
             self.assertEqual(ui._selection.character_id, 'red-id')
             self.assertEqual(ui._review_key_selection.active_keyframe_id, 'durable-red')
-            scene.frame_set.assert_called_once_with(133)
+            scene.frame_set.assert_not_called()
             notify.assert_called_once()
             self.assertTrue(ui.select_timeline_key(context, 'durable-black', extend=True))
             self.assertEqual(ui._review_key_selection.keyframe_ids,
                              ('durable-black', 'durable-red'))
+            self.assertTrue(ui.select_timeline_key(context, 'durable-red', activate=True))
+            self.assertEqual(ui._selection.character_id, 'red-id')
+            scene.frame_set.assert_not_called()
+            self.assertTrue(ui.go_to_selected_timeline_key(context))
+            scene.frame_set.assert_called_once_with(133)
             self.assertFalse(ui.select_timeline_key(context, 'missing'))
+
+    def test_top_row_window_event_selects_vta_key(self):
+        view = data()
+        region = SimpleNamespace(type='WINDOW', height=240,
+                                 view2d=SimpleNamespace(
+                                     view_to_region=lambda frame, _y, clip=False: (frame * 2, 0)))
+        context = SimpleNamespace(region=region)
+        event = SimpleNamespace(type='LEFTMOUSE', ctrl=False,
+                                mouse_region_x=66,
+                                mouse_region_y=character_lanes(view, 240)[0][1])
+        with mock.patch.object(self.workspace, '_state', return_value=(
+            view, (), None, 0, 0, None)), \
+             mock.patch.object(self.ui, 'select_timeline_key', return_value=True) as select:
+            self.assertEqual(self.workspace.BLENDCAP_OT_vta_timeline_select.invoke(
+                object(), context, event), {'FINISHED'})
+            select.assert_called_once_with(context, 'durable-red', extend=False,
+                                           activate=False)
+
+    def test_mode_header_has_depressed_active_state_and_stock_exit(self):
+        area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
+        context = SimpleNamespace(area=area)
+        layout = mock.Mock()
+        with mock.patch.object(self.workspace, '_scope', return_value=True), \
+             mock.patch.object(self.workspace, '_state', return_value=(
+                 data(), (), None, 0, 0, None)):
+            self.workspace._draw_header(SimpleNamespace(layout=layout), context)
+        self.assertTrue(layout.operator.call_args.kwargs['depress'])
+        self.assertIn('Exit VTA Mode', layout.operator.call_args.kwargs['text'])
+        self.assertTrue(layout.menu.called)
+        layout.reset_mock()
+        with mock.patch.object(self.workspace, '_scope', return_value=False):
+            self.workspace._draw_header(SimpleNamespace(layout=layout), context)
+        self.assertFalse(layout.operator.call_args.kwargs['depress'])
+        self.assertFalse(layout.menu.called)
+
+    def test_timeline_menu_and_sidebar_share_management_actions(self):
+        ui = self.ui
+        layout = mock.Mock()
+        with mock.patch.object(ui, 'refresh', return_value=True), \
+             mock.patch.object(ui, '_draw_management_actions') as actions, \
+             mock.patch.object(ui, '_action_availability', return_value={
+                 'update-tracking': True}):
+            self.workspace.BLENDCAP_MT_vta_timeline_commands.draw(
+                SimpleNamespace(layout=layout), object())
+        actions.assert_called_once_with(layout)
+        self.assertIn(('blendcap.vta_update_tracking',),
+                      [call.args for call in layout.row.return_value.operator.call_args_list])
+        self.assertEqual(self.workspace.BLENDCAP_PT_vta_timeline.bl_region_type, 'UI')
+        self.assertEqual(self.workspace._text_size(SimpleNamespace(
+            scene=SimpleNamespace(blendcap_vta_timeline_text_size=18))), 18)
 
     def test_registration_is_reversible_without_proxy_animation_data(self):
         workspace = self.workspace

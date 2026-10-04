@@ -53,7 +53,7 @@ def _draw_header(self, context):
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
                          text='Exit VTA Mode' if active else 'Enter VTA Mode',
-                         icon='CHECKBOX_HLT' if active else 'CHECKBOX_DEHLT')
+                         icon='KEY_HLT' if active else 'KEY_DEHLT', depress=active)
     if active:
         if _state(context)[0] is None:
             _ui().refresh(context)
@@ -71,7 +71,7 @@ def _draw_preview_header(self, context):
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
                          text='Exit VTA Preview' if active else 'Enter VTA Preview',
-                         icon='CHECKBOX_HLT' if active else 'CHECKBOX_DEHLT')
+                         icon='KEY_HLT' if active else 'KEY_DEHLT', depress=active)
     if active:
         self.layout.label(text='VTA MODE — Preview')
 
@@ -92,6 +92,11 @@ def _fill(shader, batch_for_shader, x0, y0, x1, y1, color):
     batch.draw(shader)
 
 
+def _text_size(context):
+    return getattr(getattr(context, 'scene', None),
+                   'blendcap_vta_timeline_text_size', 13)
+
+
 def _draw_channels():
     try:
         import blf, gpu
@@ -106,13 +111,13 @@ def _draw_channels():
               (.115, .115, .115, 1))
         if view is None:
             blf.position(0, 10, region.height - 19, 0)
-            blf.size(0, 11)
+            blf.size(0, _text_size(context))
             blf.color(0, .9, .7, .5, 1)
             blf.draw(0, 'Review unavailable')
             return
         names = {item.character_id: item.display_name for item in view.characters}
         blf.position(0, 10, region.height - 19, 0)
-        blf.size(0, 11)
+        blf.size(0, _text_size(context))
         blf.color(0, .75, .75, .75, 1)
         blf.draw(0, 'Characters')
         for character_id, y in character_lanes(view, region.height, first):
@@ -123,7 +128,7 @@ def _draw_channels():
                 _fill(shader, batch_for_shader, 0, y - 12, 4, y + 12,
                       (.95, .9, .45, 1))
             blf.position(0, 10, y - 5, 0)
-            blf.size(0, 12)
+            blf.size(0, _text_size(context))
             blf.color(0, 1, 1, 1, 1)
             blf.draw(0, names[character_id][:36])
     except Exception:
@@ -160,7 +165,7 @@ def _draw_window():
                   (.25, .25, .25, 1))
             import blf
             blf.position(0, x + 3, region.height - 17, 0)
-            blf.size(0, 11)
+            blf.size(0, _text_size(context))
             blf.color(0, .72, .72, .72, 1)
             blf.draw(0, str(frame))
         for character_id, y in lanes.items():
@@ -269,9 +274,14 @@ class BLENDCAP_MT_vta_timeline_context(bpy.types.Menu):
     bl_label = 'VTA Review Key'
 
     def draw(self, _context):
-        self.layout.operator_context = 'INVOKE_DEFAULT'
-        self.layout.operator('blendcap.vta_review_manage', text='Clear Review Key').action = 'clear-review-key'
-        self.layout.operator('blendcap.vta_review_manage', text='Clear Selected Review Keys').action = 'clear-selected-review-keys'
+        ui = _ui()
+        row = self.layout.row()
+        row.enabled = ui._review_key_selection.active_keyframe_id is not None
+        row.operator('blendcap.vta_goto_review_key', text='Go to Review Key')
+        ui._draw_management_actions(
+            self.layout, actions={'clear-review-key', 'clear-selected-review-keys'},
+            availability=ui._action_availability(),
+        )
         self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
 
 
@@ -288,8 +298,60 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
             return
         ui._draw_management_actions(layout)
         row = layout.row()
+        row.enabled = ui._review_key_selection.active_keyframe_id is not None
+        row.operator('blendcap.vta_goto_review_key', text='Go to Review Key')
+        row = layout.row()
         row.enabled = ui._action_availability()['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+
+
+class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
+    bl_idname = 'BLENDCAP_PT_vta_timeline'
+    bl_label = 'VTA Review Timeline'
+    bl_space_type = 'DOPESHEET_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = 'VTA'
+
+    @classmethod
+    def poll(cls, context):
+        area = getattr(context, 'area', None)
+        return (area is not None and
+                role_for(getattr(context, 'workspace', None),
+                         getattr(context, 'screen', None), area) == ROLE_TIMELINE)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
+        layout.prop(context.scene, 'blendcap_vta_timeline_text_size',
+                    text='Timeline Text Size')
+        layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
+        ui = _ui()
+        layout.label(text=f'Selected keys: {len(ui._review_key_selection.keyframe_ids)}')
+        if ui._selection.character_id and ui._timeline:
+            character = next((item for item in ui._timeline.characters
+                              if item.character_id == ui._selection.character_id), None)
+            if character is not None:
+                layout.label(text=f'Current Character: {character.display_name}')
+
+
+class BLENDCAP_OT_vta_goto_review_key(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_goto_review_key'
+    bl_label = 'Go to Review Key'
+    bl_description = 'Explicitly move the current frame to the selected review key'
+
+    @classmethod
+    def poll(cls, context):
+        ui = _ui()
+        return (role_for(getattr(context, 'workspace', None),
+                         getattr(context, 'screen', None),
+                         getattr(context, 'area', None)) == ROLE_TIMELINE
+                and ui._review_key_selection.active_keyframe_id is not None)
+
+    def execute(self, context):
+        if not _ui().go_to_selected_timeline_key(context):
+            self.report({'WARNING'}, 'Select a VTA review key first.')
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
@@ -363,6 +425,9 @@ def register():
     if _channel_handler is None:
         _channel_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_channels, (), 'CHANNELS', 'POST_PIXEL')
+    bpy.types.Scene.blendcap_vta_timeline_text_size = bpy.props.IntProperty(
+        name='Timeline Text Size', description='VTA canvas text size only',
+        default=13, min=10, max=18)
     if not _header_registered:
         bpy.types.DOPESHEET_HT_header.append(_draw_header)
         _header_registered = True
@@ -388,6 +453,8 @@ def unregister():
         for item in items:
             keymap.keymap_items.remove(item)
     _keymaps.clear()
+    if hasattr(bpy.types.Scene, 'blendcap_vta_timeline_text_size'):
+        del bpy.types.Scene.blendcap_vta_timeline_text_size
     if _header_registered:
         bpy.types.DOPESHEET_HT_header.remove(_draw_header)
         _header_registered = False

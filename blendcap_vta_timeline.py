@@ -53,10 +53,11 @@ class TimelineView:
 
 
 def present_timeline(private_timeline) -> TimelineView:
-    characters = tuple(
+    characters = sorted((
         TimelineCharacter(item.character_id, item.display_name)
         for item in private_timeline.characters
-    )
+    ), key=lambda item: (item.display_name.casefold(), item.display_name,
+                         item.character_id))
     keys = tuple(
         TimelineKey(item.keyframe_id, item.character_id, item.frame,
                     item.state.value, item.observation_id)
@@ -68,7 +69,7 @@ def present_timeline(private_timeline) -> TimelineView:
         TimelineDerived(item.character_id, item.frame, item.state.value)
         for item in getattr(private_timeline, "derived", ())
     )
-    return TimelineView(private_timeline.source_id, characters, keys, derived)
+    return TimelineView(private_timeline.source_id, tuple(characters), keys, derived)
 
 
 class ReviewKeySelection:
