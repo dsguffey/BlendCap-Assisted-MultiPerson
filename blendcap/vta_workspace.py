@@ -49,7 +49,10 @@ def _draw_header(self, context):
     area = getattr(context, 'area', None)
     if area is None or area.type != 'DOPESHEET_EDITOR' or area.ui_type != 'DOPESHEET':
         return
-    active = _scope(context)
+    # Header draw contexts use the HEADER region, while _scope intentionally
+    # accepts only the canvas regions. The editor role is the mode authority.
+    active = role_for(getattr(context, 'workspace', None),
+                      getattr(context, 'screen', None), area) == ROLE_TIMELINE
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
                          text='Exit VTA Mode' if active else 'Enter VTA Mode',
@@ -59,6 +62,8 @@ def _draw_header(self, context):
             _ui().refresh(context)
         self.layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
         self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
+        self.layout.prop(context.space_data, 'show_region_ui',
+                         text='VTA Sidebar', toggle=True)
 
 
 def _draw_preview_header(self, context):
@@ -95,6 +100,10 @@ def _fill(shader, batch_for_shader, x0, y0, x1, y1, color):
 def _text_size(context):
     return getattr(getattr(context, 'scene', None),
                    'blendcap_vta_timeline_text_size', 13)
+
+
+def _timeline_text_size_changed(_self, _context):
+    vta_invalidation.request_redraw()
 
 
 def _draw_channels():
@@ -264,6 +273,9 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
         context.window.workspace = workspace
         for screen in workspace.screens:
             initialize_workspace_preset(workspace, screen)
+            for area in screen.areas:
+                if role_for(workspace, screen, area) == ROLE_TIMELINE:
+                    area.spaces.active.show_region_ui = True
         vta_invalidation.request_redraw()
         self.report({'INFO'}, 'Video to Animation workspace opened. Layout is provisional.')
         return {'FINISHED'}
@@ -320,18 +332,39 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
                          getattr(context, 'screen', None), area) == ROLE_TIMELINE)
 
     def draw(self, context):
+        ui = _ui()
+        ui.refresh(context)
+        availability = ui._action_availability()
         layout = self.layout
         layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
+        layout.label(text='Display')
         layout.prop(context.scene, 'blendcap_vta_timeline_text_size',
                     text='Timeline Text Size')
-        layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
-        ui = _ui()
         layout.label(text=f'Selected keys: {len(ui._review_key_selection.keyframe_ids)}')
         if ui._selection.character_id and ui._timeline:
             character = next((item for item in ui._timeline.characters
                               if item.character_id == ui._selection.character_id), None)
             if character is not None:
                 layout.label(text=f'Current Character: {character.display_name}')
+        layout.separator()
+        layout.label(text='Review Keys')
+        row = layout.row()
+        row.enabled = ui._review_key_selection.active_keyframe_id is not None
+        row.operator('blendcap.vta_goto_review_key', text='Go to Review Key')
+        ui._draw_management_actions(layout, actions={
+            'clear-review-key', 'clear-selected-review-keys',
+            'clear-all-review-keys-on-frame',
+        }, availability=availability)
+        layout.separator()
+        layout.label(text='Character')
+        ui._draw_management_actions(layout, actions={
+            'clear-assignment', 'rename-character', 'delete-character',
+        }, availability=availability)
+        layout.separator()
+        row = layout.row()
+        row.enabled = availability['update-tracking']
+        row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+        layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
 
 
 class BLENDCAP_OT_vta_goto_review_key(bpy.types.Operator):
@@ -379,6 +412,7 @@ class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
         if not active and role == ROLE_TIMELINE:
+            area.spaces.active.show_region_ui = True
             _ui().refresh(context, force=True)
         vta_invalidation.request_redraw()
         return {'FINISHED'}
@@ -427,7 +461,7 @@ def register():
             _draw_channels, (), 'CHANNELS', 'POST_PIXEL')
     bpy.types.Scene.blendcap_vta_timeline_text_size = bpy.props.IntProperty(
         name='Timeline Text Size', description='VTA canvas text size only',
-        default=13, min=10, max=18)
+        default=13, min=10, max=18, update=_timeline_text_size_changed)
     if not _header_registered:
         bpy.types.DOPESHEET_HT_header.append(_draw_header)
         _header_registered = True

@@ -190,20 +190,25 @@ class BlenderWorkspaceTests(unittest.TestCase):
 
     def test_mode_header_has_depressed_active_state_and_stock_exit(self):
         area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
-        context = SimpleNamespace(area=area)
+        space = SimpleNamespace(show_region_ui=False)
+        context = SimpleNamespace(area=area, space_data=space,
+                                  region=SimpleNamespace(type='HEADER'))
         layout = mock.Mock()
-        with mock.patch.object(self.workspace, '_scope', return_value=True), \
+        with mock.patch.object(self.workspace, 'role_for', return_value=ROLE_TIMELINE), \
              mock.patch.object(self.workspace, '_state', return_value=(
                  data(), (), None, 0, 0, None)):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertTrue(layout.operator.call_args.kwargs['depress'])
         self.assertIn('Exit VTA Mode', layout.operator.call_args.kwargs['text'])
         self.assertTrue(layout.menu.called)
+        layout.prop.assert_called_once_with(space, 'show_region_ui',
+                                            text='VTA Sidebar', toggle=True)
         layout.reset_mock()
-        with mock.patch.object(self.workspace, '_scope', return_value=False):
+        with mock.patch.object(self.workspace, 'role_for', return_value=None):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertFalse(layout.operator.call_args.kwargs['depress'])
         self.assertFalse(layout.menu.called)
+        layout.prop.assert_not_called()
 
     def test_timeline_menu_and_sidebar_share_management_actions(self):
         ui = self.ui
@@ -220,6 +225,46 @@ class BlenderWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.workspace.BLENDCAP_PT_vta_timeline.bl_region_type, 'UI')
         self.assertEqual(self.workspace._text_size(SimpleNamespace(
             scene=SimpleNamespace(blendcap_vta_timeline_text_size=18))), 18)
+
+    def test_real_timeline_sidebar_draws_commands_and_text_size(self):
+        ui = self.ui
+        layout = mock.Mock()
+        context = SimpleNamespace(scene=SimpleNamespace(),
+                                  area=SimpleNamespace(type='DOPESHEET_EDITOR',
+                                                       ui_type='DOPESHEET'))
+        availability = {'update-tracking': True}
+        with mock.patch.object(self.workspace, 'role_for', return_value=ROLE_TIMELINE), \
+             mock.patch.object(ui, 'refresh', return_value=True), \
+             mock.patch.object(ui, '_action_availability', return_value=availability), \
+             mock.patch.object(ui, '_draw_management_actions') as actions:
+            self.assertTrue(self.workspace.BLENDCAP_PT_vta_timeline.poll(context))
+            self.workspace.BLENDCAP_PT_vta_timeline.draw(
+                SimpleNamespace(layout=layout), context)
+        layout.prop.assert_called_once_with(
+            context.scene, 'blendcap_vta_timeline_text_size',
+            text='Timeline Text Size')
+        self.assertEqual(actions.call_count, 2)
+        self.assertEqual(actions.call_args_list[0].kwargs['actions'], {
+            'clear-review-key', 'clear-selected-review-keys',
+            'clear-all-review-keys-on-frame'})
+        self.assertEqual(actions.call_args_list[1].kwargs['actions'], {
+            'clear-assignment', 'rename-character', 'delete-character'})
+        ids = [call.args[0] for call in layout.row.return_value.operator.call_args_list]
+        self.assertIn('blendcap.vta_goto_review_key', ids)
+        self.assertIn('blendcap.vta_update_tracking', ids)
+        self.assertTrue(any(call.args == ('BLENDCAP_MT_vta_timeline_commands',)
+                            for call in layout.menu.call_args_list))
+
+    def test_text_size_change_requests_redraw(self):
+        self.workspace.register()
+        try:
+            with mock.patch.object(self.workspace.vta_invalidation,
+                                   'request_redraw') as redraw:
+                bpy.context.scene.blendcap_vta_timeline_text_size = 18
+                redraw.assert_called_once_with()
+            self.assertEqual(bpy.context.scene.blendcap_vta_timeline_text_size, 18)
+        finally:
+            self.workspace.unregister()
 
     def test_registration_is_reversible_without_proxy_animation_data(self):
         workspace = self.workspace
@@ -254,6 +299,9 @@ class BlenderWorkspaceTests(unittest.TestCase):
                 area=review_area(tagged[0], review_screen),
                 region=SimpleNamespace(type='WINDOW'))
             self.assertTrue(self.workspace.BLENDCAP_OT_vta_timeline_select.poll(review_context))
+            self.assertTrue(review_context.area.spaces.active.show_region_ui)
+            self.assertTrue(self.workspace.BLENDCAP_PT_vta_timeline.poll(review_context))
+            self.assertTrue(hasattr(bpy.types, 'BLENDCAP_PT_vta_timeline'))
             self.assertEqual(len(bpy.data.actions), pre_actions)
         finally:
             self.addon.unregister()
@@ -264,7 +312,9 @@ class BlenderWorkspaceTests(unittest.TestCase):
                 super().__init__()
                 self.areas = areas
 
-        first = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
+        first_space = SimpleNamespace(show_region_ui=False)
+        first = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET',
+                                spaces=SimpleNamespace(active=first_space))
         second = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
         screen = Screen((first, second))
         context = SimpleNamespace(workspace={}, screen=screen, area=first,
@@ -276,6 +326,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
                                'request_redraw') as redraw:
             self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
             self.assertIs(review_area({}, screen), first)
+            self.assertTrue(first_space.show_region_ui)
             self.assertIsNone(role_for({}, screen, second))
             refresh.assert_called_once_with(context, force=True)
             self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
