@@ -131,3 +131,28 @@ Both have zero reported candidate conflicts and zero records outside their
 scopes. The copied project-state SHA-256 remains
 `f9d8db3bc0caf2d73db9cf2e5e78054f9a58608f675421e49b4b10aca5c902df`.
 These structural counts predate the completed semantic evaluation above.
+
+## October 4 approved UI and signal-research handoff
+
+UI batch `2882beddc015b16b638abfd3d4656820737ced5f` is committed locally:
+one blue/gray **VTA Mode** button after Key, active-only VTA Commands,
+display-scale-aware text/rows/keys, text size 10–32, and VTA-only empty-canvas
+drag selection (Shift/Ctrl adds; Escape/right-click cancels). This is distinct
+from VSE strip/Preview gestures. The user approved the UI batch; it is frozen
+for this research pass. No push or native desktop control.
+
+See [bounded signal research](vta_tracking_signal_research_20261004.md) for
+the separate offline benchmark and current recommendation. Both original and
+human-corrected geometry snapshots reproduce exactly. Velocity and sparse LK
+flow do not remove the known errors. Color/OSNet agreement still swaps identities;
+appearance rank/gate-exception prototypes increase White's corrected-scheme
+swaps from one to three. Passing Yellow's source-91 geometry discontinuity
+does not establish correctness at that unlabelled step or sustained recovery.
+
+Do not change production thresholds or interpret experimental outputs as
+ProjectState authority. Keep V1 human-assisted; further anchors require actual
+human review, not automatic conversion of the scoring labels. The next action
+is bounded human recovery at an observed discontinuity, not a new ReID model.
+Raw predictions, features, timings and every labelled outcome remain in ignored
+`checkpoints/dev-preview/vta_signal_research_20261004/run02/`. All frozen input
+hashes were rechecked; no existing fixture, cache, truth or private code changed.
