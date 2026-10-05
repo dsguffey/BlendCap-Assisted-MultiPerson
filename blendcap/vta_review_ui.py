@@ -1422,6 +1422,69 @@ def _remove_legacy_vta_menu_hook(menu):
             menu.remove(item)
 
 
+class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
+    bl_idname = "blendcap.vta_motion_trust"
+    bl_label = "Edit Motion Trust"
+    bl_description = "Edit this Character's human-authored motion barrier; never run tracking automatically"
+    action: bpy.props.EnumProperty(items=(
+        ('MARK', 'Mark Untrusted', ''), ('CLEAR', 'Clear Range', ''),
+        ('CURRENT', 'Use Current Frame', '')), default='MARK')
+
+    def execute(self, context):
+        global _status, _status_is_error
+        if not _edit_available(self):
+            return {'CANCELLED'}
+        try:
+            location = _location_from_context(context)
+            wm = context.window_manager
+            if self.action == 'CURRENT':
+                wm.blendcap_vta_motion_start = location.blender_frame
+                wm.blendcap_vta_motion_end = location.blender_frame
+                return {'FINISHED'}
+            if not _selection.character_id:
+                raise VtaReviewUiError("Select a Character before editing Motion Trust.")
+            _get_backend(context).set_motion_trust(
+                location, _selection.character_id,
+                wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end,
+                action='mark' if self.action == 'MARK' else 'clear')
+            if not refresh(context, force=True):
+                self.report({'WARNING'}, "Motion Trust saved; refresh review to display it.")
+                return {'FINISHED'}
+            vta_invalidation.request_redraw()
+            _status = ("Motion marked Untrusted. Identity keys retained." if self.action == 'MARK'
+                       else "Untrusted range cleared. Use Update Tracking explicitly when ready.")
+            _status_is_error = False
+            self.report({'INFO'}, _status)
+            return {'FINISHED'}
+        except Exception as exc:
+            _status, _status_is_error = user_message(exc), True
+            self.report({'ERROR'}, _status)
+            return {'CANCELLED'}
+
+
+def draw_motion_trust(layout, context):
+    """Small addition confined to the existing VTA timeline N-panel."""
+    layout.label(text='Motion Trust')
+    wm = context.window_manager
+    controls = layout.column()
+    controls.enabled = bool(_view and _selection.character_id) and not _analysis_locked()
+    row = controls.row(align=True)
+    row.prop(wm, 'blendcap_vta_motion_start', text='Start Frame')
+    row.prop(wm, 'blendcap_vta_motion_end', text='End Frame')
+    controls.operator('blendcap.vta_motion_trust', text='Use Current Frame').action = 'CURRENT'
+    row = controls.row(align=True)
+    row.operator('blendcap.vta_motion_trust', text='Mark Untrusted').action = 'MARK'
+    row.operator('blendcap.vta_motion_trust', text='Clear Range').action = 'CLEAR'
+    layout.label(text='Clear subtracts the inclusive range; tracking stays explicit')
+    selected = next((c for c in _view.characters if c.character_id == _selection.character_id), None) if _view else None
+    if selected is not None and selected.motion_untrusted:
+        layout.label(text='Motion: Untrusted', icon='INFO')
+    if _timeline and _location:
+        for interval in _timeline.untrusted_motion_intervals:
+            if interval.character_id == _selection.character_id:
+                layout.label(text=f'Untrusted: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+
+
 class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
     """Explicitly derive continuity from cached candidates within local hard keys."""
 
@@ -1635,6 +1698,8 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         )
         layout.label(text=(f"Active Character: {selected_character.display_name}"
                            if selected_character else "Select a Character above"), icon='USER')
+        if selected_character is not None and selected_character.motion_untrusted:
+            layout.label(text="Motion: Untrusted", icon='INFO')
         assignment_box = layout.box()
         assignment_box.label(text="Candidate Assignment")
         for candidate in _view.candidates:
@@ -1756,6 +1821,7 @@ classes = (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
+    BLENDCAP_OT_vta_motion_trust,
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
@@ -1768,6 +1834,10 @@ classes = (
 
 
 def register_properties() -> None:
+    bpy.types.WindowManager.blendcap_vta_motion_start = bpy.props.IntProperty(
+        name="Start Frame", default=1)
+    bpy.types.WindowManager.blendcap_vta_motion_end = bpy.props.IntProperty(
+        name="End Frame", default=1)
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
         name="Show VTA Candidate Overlay", default=True,
         description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
@@ -1814,6 +1884,8 @@ def register_properties() -> None:
 
 def unregister_properties() -> None:
     global _analysis_progress_started
+    del bpy.types.WindowManager.blendcap_vta_motion_start
+    del bpy.types.WindowManager.blendcap_vta_motion_end
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()

@@ -14,6 +14,7 @@ import bpy
 from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
+    motion_interval_rects,
 )
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
@@ -201,11 +202,29 @@ def _draw_window():
                   else (.15, .15, .15, 1))
         playhead = region.view2d.view_to_region(context.scene.frame_current, 0,
                                                clip=False)[0]
+        frame_x = lambda frame: region.view2d.view_to_region(
+            frame + offset, 0, clip=False)[0]
+        # Independent motion truth is paint-only, beneath selectable identity keys.
+        for _, x0, x1, y0, y1 in motion_interval_rects(
+                view, region.view2d, region.width, region.height, offset, first, metrics=metrics):
+            _fill(shader, batch_for_shader, x0, y0, x1, y1, (.34, .23, .10, 1))
+            _line(shader, batch_for_shader, ((x0, y0), (x0, y1), (x1, y1), (x1, y0)),
+                  (.95, .70, .30, .85))
+            # Bounded repeated slash strokes distinguish Untrusted without color.
+            spacing = max(12 * scale, (x1 - x0) / 160)
+            for index in range(min(161, int((x1 - x0) / spacing) + 1)):
+                x = x0 + index * spacing
+                _line(shader, batch_for_shader,
+                      ((x, y0), (min(x1, x + 7 * scale), y1)), (.65, .48, .26, .65))
+            if x1 - x0 > metrics.font_size * 8:
+                import blf
+                blf.position(0, x0 + 5 * scale, y0 + 3 * scale, 0)
+                blf.size(0, metrics.font_size)
+                blf.color(0, 1, .83, .55, 1)
+                blf.draw(0, 'UNTRUSTED')
         if 0 <= playhead < region.width:
             _line(shader, batch_for_shader,
                   ((playhead, 0), (playhead, region.height)), (.38, .63, .95, 1))
-        frame_x = lambda frame: region.view2d.view_to_region(
-            frame + offset, 0, clip=False)[0]
         for mark in view.derived:
             y = lanes.get(mark.character_id)
             if y is None:
@@ -396,6 +415,9 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
         row.enabled = availability['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
         layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
+
+        layout.separator()
+        ui.draw_motion_trust(layout, context)
 
 
 class BLENDCAP_OT_vta_goto_review_key(bpy.types.Operator):

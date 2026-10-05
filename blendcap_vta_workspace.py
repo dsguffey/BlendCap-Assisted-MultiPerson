@@ -85,6 +85,26 @@ def hit_character(view, height, y, first=0, *, metrics=TimelineMetrics()):
                  if abs(center - y) <= metrics.row_height / 2), None)
 
 
+def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
+                          *, metrics=TimelineMetrics()):
+    """Paint-only inclusive frame cells; shares scaled Character row geometry."""
+    lanes = dict(character_lanes(view, height, first, metrics=metrics))
+    rectangles = []
+    for interval in getattr(view, 'untrusted_motion_intervals', ()):
+        y = lanes.get(interval.character_id)
+        if y is None:
+            continue
+        x0 = view2d.view_to_region(interval.start_frame + offset - .5, 0, clip=False)[0]
+        x1 = view2d.view_to_region(interval.end_frame + offset + .5, 0, clip=False)[0]
+        low, high = sorted((x0, x1))
+        if high < 0 or low > width:
+            continue
+        rectangles.append((interval.character_id, max(0, low), min(width, high),
+                           y - metrics.row_height / 2 + metrics.ui_scale,
+                           y + metrics.row_height / 2 - metrics.ui_scale))
+    return tuple(rectangles)
+
+
 def hit_review_key(view, view2d, height, point, offset=0, first=0,
                    *, metrics=TimelineMetrics()):
     if view is None:

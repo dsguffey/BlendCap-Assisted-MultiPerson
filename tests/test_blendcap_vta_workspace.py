@@ -419,6 +419,8 @@ class BlenderWorkspaceTests(unittest.TestCase):
         ui = self.ui
         layout = mock.Mock()
         context = SimpleNamespace(scene=SimpleNamespace(),
+                                  window_manager=SimpleNamespace(blendcap_vta_motion_start=67,
+                                                                 blendcap_vta_motion_end=90),
                                   area=SimpleNamespace(type='DOPESHEET_EDITOR',
                                                        ui_type='DOPESHEET'))
         availability = {'update-tracking': True}

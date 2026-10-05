@@ -46,6 +46,7 @@ class CharacterRow:
     decision_state: str | None = None
     derived_state: str | None = None
     derived_observation_id: str | None = None
+    motion_untrusted: bool = False
 
     @property
     def available(self) -> bool:
@@ -298,6 +299,7 @@ def present_review(
                         display_name=item.display_name,
                         occupied_observation_id=occupied_by_character.get(item.character_id),
                         decision_state=decisions_by_character.get(item.character_id),
+                        motion_untrusted=item.character_id in getattr(review, "motion_untrusted_character_ids", ()),
                         derived_state=(derived_by_character[item.character_id].state.value
                                        if item.character_id in derived_by_character else None),
                         derived_observation_id=(
@@ -541,6 +543,25 @@ class PrivateCoreBackend:
             if exc.__class__.__module__.startswith("vta_core"):
                 raise VtaReviewUiError(str(exc)) from exc
             raise
+
+    def set_motion_trust(self, location: ReviewLocation, character_id: str,
+                         start_visible: int, end_visible: int, *, action: str):
+        """Convert existing VSE frame coordinates, delegate all motion truth to core."""
+        project, source = self._load_project_source(location)
+        if character_id not in {c.character_id for c in project.characters}:
+            raise VtaReviewUiError("Select an existing Character before editing Motion Trust.")
+        start, end = map_visible_analysis_range(location, source["start_frame"], source["end_frame"],
+                                               start_visible, end_visible)
+        digest = hashlib.sha256(project.to_json().encode("utf-8")).hexdigest()
+        try:
+            receipt = self._core.apply_motion_trust_and_persist(
+                location.companion_root, character_id, source["source_id"], start, end,
+                action=action, expected_project_sha256=digest)
+        except Exception as exc:
+            if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+        return receipt
 
     def apply_management(self, location: ReviewLocation, request, *, confirmed: bool):
         self._load_context(location)
