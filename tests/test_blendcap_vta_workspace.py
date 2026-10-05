@@ -2,15 +2,15 @@
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 import sys
 import unittest
 from unittest import mock
 
 from blendcap_vta_timeline import TimelineCharacter, TimelineDerived, TimelineKey, TimelineView
 from blendcap_vta_workspace import (
-    WORKSPACE_TAG, character_lanes, hit_character, hit_review_key,
-    grid_step, is_review_region, review_area,
+    WORKSPACE_TAG, TimelineMetrics, character_lanes, hit_character, hit_review_key,
+    grid_step, is_review_region, review_area, review_keys_in_box,
 )
 from blendcap_vta_area_mode import MODE_KEY, ROLE_PREVIEW, ROLE_TIMELINE, role_for, set_role
 from blendcap.vta_invalidation import invalidate_windows
@@ -80,6 +80,43 @@ class ScopeTests(unittest.TestCase):
     def test_grid_cadence_stays_bounded_at_extreme_zoom(self):
         self.assertEqual(grid_step(200, 1000), 10)
         self.assertGreaterEqual(grid_step(100_000_000, 1000), 4_800_000)
+
+    def test_scaled_rows_and_hit_targets_share_display_geometry(self):
+        view = data()
+        view2d = SimpleNamespace(view_to_region=lambda frame, _y, clip=False: (frame * 2, 0))
+        for scale in (.75, 1, 1.5, 2, 3):
+            for text_size in (13, 18, 32):
+                with self.subTest(scale=scale, text_size=text_size):
+                    metrics = TimelineMetrics(scale, text_size)
+                    height = 400 * scale
+                    lanes = dict(character_lanes(view, height, metrics=metrics))
+                    y = lanes['red-id']
+                    self.assertAlmostEqual(y - lanes['black-id'], metrics.row_height)
+                    self.assertGreater(metrics.row_height, metrics.font_size)
+                    self.assertLess(y + metrics.hit_radius, height - 24 * scale)
+                    self.assertEqual(hit_character(view, height, y, metrics=metrics), 'red-id')
+                    self.assertEqual(hit_review_key(
+                        view, view2d, height, (66 + 8 * scale, y), metrics=metrics), 'durable-red')
+                    self.assertIsNone(hit_review_key(
+                        view, view2d, height, (66 + 10 * scale, y), metrics=metrics))
+
+    def test_box_selects_only_visible_durable_centers_in_both_directions(self):
+        view = data()
+        view2d = SimpleNamespace(view_to_region=lambda frame, _y, clip=False: (frame * 2, 0))
+        for scale in (1, 2):
+            metrics = TimelineMetrics(scale, 32)
+            height = 400 * scale
+            lanes = dict(character_lanes(view, height, metrics=metrics))
+            start, end = (250, lanes['black-id'] - 5), (310, lanes['red-id'] + 5)
+            expected = ('durable-black', 'durable-red')
+            for a, b in ((start, end), (end, start)):
+                self.assertEqual(review_keys_in_box(
+                    view, view2d, 500, height, a, b, offset=100, metrics=metrics), expected)
+            self.assertEqual(review_keys_in_box(
+                view, view2d, 500, height, (267, lanes['red-id'] - 5),
+                (269, lanes['red-id'] + 5), offset=100, metrics=metrics), ())
+            self.assertEqual(review_keys_in_box(
+                view, view2d, 240, height, start, end, offset=100, metrics=metrics), ())
 
     def test_one_invalidation_reaches_preview_sequencer_timeline_and_sidebar(self):
         areas = [SimpleNamespace(type=kind, tag_redraw=mock.Mock()) for kind in
@@ -188,7 +225,97 @@ class BlenderWorkspaceTests(unittest.TestCase):
             select.assert_called_once_with(context, 'durable-red', extend=False,
                                            activate=False)
 
-    def test_mode_header_has_depressed_active_state_and_stock_exit(self):
+    def _box_context(self):
+        region = SimpleNamespace(type='WINDOW', height=240, width=400, x=0, y=0,
+                                 view2d=SimpleNamespace(
+                                     view_to_region=lambda frame, _y, clip=False: (frame * 2, 0)))
+        return SimpleNamespace(region=region, area=object(),
+                               window_manager=SimpleNamespace(modal_handler_add=mock.Mock()))
+
+    def _box_event(self, kind, value='PRESS', point=(50, 120), *, shift=False):
+        return SimpleNamespace(type=kind, value=value, mouse_region_x=point[0],
+                               mouse_region_y=point[1], mouse_x=point[0], mouse_y=point[1],
+                               ctrl=False, shift=shift)
+
+    def test_drag_select_commits_group_on_release_and_supports_additive_selection(self):
+        cls = self.workspace.BLENDCAP_OT_vta_timeline_select
+        for extend in (False, True):
+            context = self._box_context()
+            operator = SimpleNamespace()
+            operator._finish_box = MethodType(cls._finish_box, operator)
+            view = data()
+            with mock.patch.object(self.workspace, '_state', return_value=(
+                view, (), None, 0, 0, None)), \
+                 mock.patch.object(self.workspace, '_scope', return_value=True), \
+                 mock.patch.object(self.ui, 'select_timeline_keys', return_value=True) as select, \
+                 mock.patch.object(self.workspace.vta_invalidation, 'request_redraw'):
+                try:
+                    self.assertEqual(cls.invoke(operator, context, self._box_event(
+                        'LEFTMOUSE', shift=extend)), {'RUNNING_MODAL'})
+                    context.window_manager.modal_handler_add.assert_called_once_with(operator)
+                    self.assertEqual(cls.modal(operator, context, self._box_event(
+                        'MOUSEMOVE', point=(120, 180))), {'RUNNING_MODAL'})
+                    self.assertTrue(self.workspace._box_gesture['dragged'])
+                    select.assert_not_called()
+                    self.assertEqual(cls.modal(operator, context, self._box_event(
+                        'LEFTMOUSE', 'RELEASE', (120, 180))), {'FINISHED'})
+                    select.assert_called_once_with(context, ('durable-black', 'durable-red'),
+                                                   extend=extend)
+                    self.assertIsNone(self.workspace._box_gesture)
+                finally:
+                    self.workspace._box_gesture = None
+
+    def test_drag_cancel_stale_view_and_native_ruler_do_not_change_selection(self):
+        cls = self.workspace.BLENDCAP_OT_vta_timeline_select
+        context = self._box_context()
+        view = data()
+        with mock.patch.object(self.workspace, '_state', return_value=(
+            view, (), None, 0, 0, None)) as state, \
+             mock.patch.object(self.workspace, '_scope', return_value=True) as scope, \
+             mock.patch.object(self.ui, 'select_timeline_keys') as select, \
+             mock.patch.object(self.workspace.vta_invalidation, 'request_redraw'):
+            self.assertEqual(cls.invoke(object(), context, self._box_event(
+                'LEFTMOUSE', point=(50, 235))), {'PASS_THROUGH'})
+            context.window_manager.modal_handler_add.assert_not_called()
+            for case in ('ESC', 'RIGHTMOUSE', 'stale', 'disabled', 'click'):
+                operator = SimpleNamespace()
+                operator._finish_box = MethodType(cls._finish_box, operator)
+                state.return_value = (view, (), None, 0, 0, None)
+                scope.return_value = True
+                try:
+                    cls.invoke(operator, context, self._box_event('LEFTMOUSE'))
+                    if case == 'stale':
+                        state.return_value = (data(), (), None, 0, 0, None)
+                    if case == 'disabled':
+                        scope.return_value = False
+                    event = (self._box_event('LEFTMOUSE', 'RELEASE', (51, 121)) if case == 'click'
+                             else self._box_event(case if case in {'ESC', 'RIGHTMOUSE'} else 'MOUSEMOVE'))
+                    result = cls.modal(operator, context, event)
+                    self.assertEqual(result, {'FINISHED'} if case == 'click' else {'CANCELLED'})
+                    self.assertIsNone(self.workspace._box_gesture)
+                    select.assert_not_called()
+                finally:
+                    self.workspace._box_gesture = None
+
+    def test_box_selection_syncs_sidebar_without_navigating_or_mutating_view(self):
+        ui = self.ui
+        view = data()
+        context = SimpleNamespace(scene=SimpleNamespace(frame_set=mock.Mock()))
+        before = repr(view)
+        with mock.patch.object(ui, '_timeline', view), \
+             mock.patch.object(ui, '_location', object()), \
+             mock.patch.object(ui._review_key_selection, '_ids', set()), \
+             mock.patch.object(ui._review_key_selection, '_active_id', None), \
+             mock.patch.object(ui, '_sync_properties') as sync:
+            self.assertTrue(ui.select_timeline_keys(context, ('durable-red', 'durable-black')))
+            self.assertEqual(ui._review_key_selection.keyframe_ids,
+                             ('durable-black', 'durable-red'))
+            self.assertEqual(ui._selection.character_id, 'black-id')
+            sync.assert_called_once_with(context)
+            context.scene.frame_set.assert_not_called()
+            self.assertEqual(repr(view), before)
+
+    def test_mode_header_has_one_toggle_and_active_only_commands(self):
         area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
         space = SimpleNamespace(show_region_ui=False)
         context = SimpleNamespace(area=area, space_data=space,
@@ -199,16 +326,78 @@ class BlenderWorkspaceTests(unittest.TestCase):
                  data(), (), None, 0, 0, None)):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertTrue(layout.operator.call_args.kwargs['depress'])
-        self.assertIn('Exit VTA Mode', layout.operator.call_args.kwargs['text'])
-        self.assertTrue(layout.menu.called)
-        layout.prop.assert_called_once_with(space, 'show_region_ui',
-                                            text='VTA Sidebar', toggle=True)
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'VTA Mode')
+        self.assertEqual(layout.operator.call_args.kwargs['icon'], 'KEY_HLT')
+        self.assertEqual(layout.operator.call_count, 1)
+        layout.menu.assert_called_once_with('BLENDCAP_MT_vta_timeline_commands',
+                                            text='VTA Commands')
+        layout.prop.assert_not_called()
+        layout.label.assert_not_called()
         layout.reset_mock()
         with mock.patch.object(self.workspace, 'role_for', return_value=None):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertFalse(layout.operator.call_args.kwargs['depress'])
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'VTA Mode')
+        self.assertEqual(layout.operator.call_count, 1)
         self.assertFalse(layout.menu.called)
         layout.prop.assert_not_called()
+        layout.label.assert_not_called()
+
+    def test_mode_toggle_follows_native_key_menu_and_unregisters_cleanly(self):
+        menu = bpy.types.DOPESHEET_MT_editor_menus
+        layout = mock.Mock()
+        context = SimpleNamespace(
+            area=SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET'),
+            space_data=SimpleNamespace(mode='DOPESHEET', show_markers=True),
+            active_action=None, workspace=SimpleNamespace(use_filter_by_owner=False))
+        workspace = self.workspace
+        for _ in range(2):
+            workspace.register()
+            try:
+                layout.reset_mock()
+                with mock.patch.object(workspace, 'role_for', return_value=ROLE_TIMELINE), \
+                     mock.patch.object(workspace, '_state', return_value=(
+                         data(), (), None, 0, 0, None)):
+                    menu.draw(SimpleNamespace(layout=layout), context)
+                calls = layout.method_calls
+                key_index = calls.index(mock.call.menu('DOPESHEET_MT_key'))
+                toggle_index = next(i for i, call in enumerate(calls)
+                                    if call[0] == 'operator' and
+                                    call.args[0] == 'blendcap.vta_toggle_editor_mode')
+                self.assertLess(key_index, toggle_index)
+                self.assertEqual(layout.operator.call_count, 1)
+            finally:
+                workspace.unregister()
+            layout.reset_mock()
+            menu.draw(SimpleNamespace(layout=layout), context)
+            layout.operator.assert_not_called()
+
+    def test_ui_scale_is_applied_once_and_background_zero_falls_back(self):
+        context = SimpleNamespace(
+            scene=SimpleNamespace(blendcap_vta_timeline_text_size=18),
+            preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=2, pixel_size=2)))
+        metrics = self.workspace._metrics(context)
+        self.assertEqual(metrics.font_size, 36)
+        context.preferences.system.ui_scale = 0
+        self.assertEqual(self.workspace._metrics(context).font_size, 18)
+
+    def test_scaled_window_event_uses_same_lanes_and_key_radius(self):
+        view = data()
+        context = SimpleNamespace(
+            region=SimpleNamespace(type='WINDOW', height=800, view2d=SimpleNamespace(
+                view_to_region=lambda frame, _y, clip=False: (frame * 2, 0))),
+            scene=SimpleNamespace(blendcap_vta_timeline_text_size=32),
+            preferences=SimpleNamespace(system=SimpleNamespace(ui_scale=2)))
+        y = character_lanes(view, 800, metrics=TimelineMetrics(2, 32))[0][1]
+        event = SimpleNamespace(type='LEFTMOUSE', ctrl=False, mouse_region_x=82,
+                                mouse_region_y=y)
+        with mock.patch.object(self.workspace, '_state', return_value=(
+            view, (), None, 0, 0, None)), \
+             mock.patch.object(self.ui, 'select_timeline_key', return_value=True) as select:
+            self.assertEqual(self.workspace.BLENDCAP_OT_vta_timeline_select.invoke(
+                object(), context, event), {'FINISHED'})
+            select.assert_called_once_with(context, 'durable-red', extend=False,
+                                           activate=False)
 
     def test_timeline_menu_and_sidebar_share_management_actions(self):
         ui = self.ui
@@ -260,9 +449,9 @@ class BlenderWorkspaceTests(unittest.TestCase):
         try:
             with mock.patch.object(self.workspace.vta_invalidation,
                                    'request_redraw') as redraw:
-                bpy.context.scene.blendcap_vta_timeline_text_size = 18
+                bpy.context.scene.blendcap_vta_timeline_text_size = 32
                 redraw.assert_called_once_with()
-            self.assertEqual(bpy.context.scene.blendcap_vta_timeline_text_size, 18)
+            self.assertEqual(bpy.context.scene.blendcap_vta_timeline_text_size, 32)
         finally:
             self.workspace.unregister()
 

@@ -143,6 +143,21 @@ class TimelineProofTests(unittest.TestCase):
         self.assertEqual(selection.keyframe_ids, ())
         self.assertIsNone(selection.active_keyframe_id)
 
+    def test_box_selection_replaces_adds_without_toggling_and_rejects_stale_ids(self):
+        selection = ReviewKeySelection()
+        selection.click(view(), 'key-a')
+        selection.select_box(view(), ('key-b', 'key-c'))
+        self.assertEqual(selection.keyframe_ids, ('key-b', 'key-c'))
+        selection.select_box(view(), ('key-b', 'key-d'), extend=True)
+        self.assertEqual(selection.keyframe_ids, ('key-b', 'key-c', 'key-d'))
+        self.assertFalse(selection.select_box(view(), ('missing',)))
+        self.assertEqual(selection.keyframe_ids, ('key-b', 'key-c', 'key-d'))
+        selection.select_box(view(), (), extend=True)
+        self.assertEqual(selection.keyframe_ids, ('key-b', 'key-c', 'key-d'))
+        selection.select_box(view(), ())
+        self.assertEqual(selection.keyframe_ids, ())
+        self.assertIsNone(selection.active_keyframe_id)
+
     def test_lane_layout_keeps_empty_row_and_hit_test_uses_frame_transform(self):
         rows = lane_layout(view(), top=100, row_height=24)
         self.assertEqual([name for name, _y in rows], ["amy", "empty", "zed"])

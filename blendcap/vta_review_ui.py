@@ -1043,6 +1043,19 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
     return True
 
 
+def select_timeline_keys(context, key_ids, *, extend: bool = False) -> bool:
+    """Apply a transient marquee selection without changing authority or time."""
+    if _timeline is None or _location is None:
+        return False
+    if not _review_key_selection.select_box(_timeline, key_ids, extend=extend):
+        return False
+    key = key_at(_timeline, _review_key_selection.active_keyframe_id)
+    if key is not None:
+        _selection.character_id = key.character_id
+    _sync_properties(context)
+    return True
+
+
 def go_to_selected_timeline_key(context) -> bool:
     """Explicit time navigation, separate from ordinary key selection."""
     if _timeline is None or _location is None:

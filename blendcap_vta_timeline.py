@@ -118,6 +118,16 @@ class ReviewKeySelection:
         self._active_id = keyframe_id
         return True
 
+    def select_box(self, view: TimelineView, keyframe_ids, *, extend: bool = False) -> bool:
+        """Replace or add a group of durable keys; additive selection never toggles."""
+        ids = set(keyframe_ids)
+        if not ids.issubset({item.keyframe_id for item in view.keys}):
+            return False
+        self._ids = self._ids | ids if extend else ids
+        if self._active_id not in self._ids:
+            self._active_id = min(self._ids) if self._ids else None
+        return True
+
     def clear(self) -> None:
         self._ids.clear()
         self._active_id = None

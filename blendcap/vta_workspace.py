@@ -7,12 +7,13 @@ keyframe, or tracking authority is created here.
 from __future__ import annotations
 
 from pathlib import Path
+import math
 
 import bpy
 
 from ..blendcap_vta_workspace import (
-    WORKSPACE_NAME, WORKSPACE_TAG, ROW_HEIGHT, character_lanes, grid_step,
-    hit_character, hit_review_key, is_review_region, review_area,
+    WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
+    hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
 )
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
@@ -25,6 +26,7 @@ _channel_handler = None
 _header_registered = False
 _preview_header_registered = False
 _keymaps = []
+_box_gesture = None
 
 
 def _ui():
@@ -46,6 +48,8 @@ def _state(context):
 
 
 def _draw_header(self, context):
+    # Extend the inline editor menus so the toggle follows Blender's Key menu.
+    # Blender can also render this group as a collapsed menu in narrow headers.
     area = getattr(context, 'area', None)
     if area is None or area.type != 'DOPESHEET_EDITOR' or area.ui_type != 'DOPESHEET':
         return
@@ -55,15 +59,11 @@ def _draw_header(self, context):
                       getattr(context, 'screen', None), area) == ROLE_TIMELINE
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
-                         text='Exit VTA Mode' if active else 'Enter VTA Mode',
-                         icon='KEY_HLT' if active else 'KEY_DEHLT', depress=active)
+                         text='VTA Mode', icon='KEY_HLT', depress=active)
     if active:
         if _state(context)[0] is None:
             _ui().refresh(context)
-        self.layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
         self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
-        self.layout.prop(context.space_data, 'show_region_ui',
-                         text='VTA Sidebar', toggle=True)
 
 
 def _draw_preview_header(self, context):
@@ -102,6 +102,16 @@ def _text_size(context):
                    'blendcap_vta_timeline_text_size', 13)
 
 
+def _metrics(context):
+    system = getattr(getattr(context, 'preferences', None), 'system', None)
+    # ui_scale already includes OS DPI and Blender's display scale. A background
+    # Blender process may report zero because it has no initialized display.
+    scale = getattr(system, 'ui_scale', 1.0)
+    if not math.isfinite(scale) or scale <= 0:
+        scale = 1.0
+    return TimelineMetrics(ui_scale=scale, text_size=_text_size(context))
+
+
 def _timeline_text_size_changed(_self, _context):
     vta_invalidation.request_redraw()
 
@@ -115,29 +125,32 @@ def _draw_channels():
             return
         view, _selected, _active, _offset, first, current = _state(context)
         region = context.region
+        metrics = _metrics(context)
+        scale = metrics.ui_scale
+        half_row = metrics.row_height / 2 - scale
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
               (.115, .115, .115, 1))
         if view is None:
-            blf.position(0, 10, region.height - 19, 0)
-            blf.size(0, _text_size(context))
+            blf.position(0, 10 * scale, region.height - metrics.font_size - 6 * scale, 0)
+            blf.size(0, metrics.font_size)
             blf.color(0, .9, .7, .5, 1)
             blf.draw(0, 'Review unavailable')
             return
         names = {item.character_id: item.display_name for item in view.characters}
-        blf.position(0, 10, region.height - 19, 0)
-        blf.size(0, _text_size(context))
+        blf.position(0, 10 * scale, region.height - metrics.font_size - 6 * scale, 0)
+        blf.size(0, metrics.font_size)
         blf.color(0, .75, .75, .75, 1)
         blf.draw(0, 'Characters')
-        for character_id, y in character_lanes(view, region.height, first):
+        for character_id, y in character_lanes(view, region.height, first, metrics=metrics):
             active = character_id == current
-            _fill(shader, batch_for_shader, 0, y - 12, region.width, y + 12,
+            _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
                   (.17, .24, .30, 1) if active else (.16, .16, .16, 1))
             if active:
-                _fill(shader, batch_for_shader, 0, y - 12, 4, y + 12,
+                _fill(shader, batch_for_shader, 0, y - half_row, 4 * scale, y + half_row,
                       (.95, .9, .45, 1))
-            blf.position(0, 10, y - 5, 0)
-            blf.size(0, _text_size(context))
+            blf.position(0, 10 * scale, y - metrics.font_size * .35, 0)
+            blf.size(0, metrics.font_size)
             blf.color(0, 1, 1, 1, 1)
             blf.draw(0, names[character_id][:36])
     except Exception:
@@ -154,31 +167,36 @@ def _draw_window():
             return
         view, selected, active, offset, first, current = _state(context)
         region = context.region
+        metrics = _metrics(context)
+        scale = metrics.ui_scale
+        half_row = metrics.row_height / 2 - scale
+        key_radius = metrics.key_radius
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
               (.105, .105, .105, 1))
         if view is None:
             return
-        lanes = dict(character_lanes(view, region.height, first))
+        lanes = dict(character_lanes(view, region.height, first, metrics=metrics))
         # The Dope Sheet supplies View2D navigation, not visible native keys.
         # Draw a modest Blender-like ruler/grid above the ProjectState lanes.
         left = region.view2d.region_to_view(0, 0)[0]
         right = region.view2d.region_to_view(region.width, 0)[0]
         span = max(1.0, right - left)
-        step = grid_step(span, region.width)
+        step = grid_step(span, region.width,
+                         minimum_pixels=max(48, metrics.text_size * 3) * scale)
         first_grid = int(left // step) * step
         for tick in range(min(200, int((right - first_grid) / step) + 2)):
             frame = first_grid + tick * step
             x = region.view2d.view_to_region(frame, 0, clip=False)[0]
-            _line(shader, batch_for_shader, ((x, 0), (x, region.height - 24)),
+            _line(shader, batch_for_shader, ((x, 0), (x, region.height - 24 * scale)),
                   (.25, .25, .25, 1))
             import blf
-            blf.position(0, x + 3, region.height - 17, 0)
-            blf.size(0, _text_size(context))
+            blf.position(0, x + 3 * scale, region.height - metrics.font_size - 4 * scale, 0)
+            blf.size(0, metrics.font_size)
             blf.color(0, .72, .72, .72, 1)
             blf.draw(0, str(frame))
         for character_id, y in lanes.items():
-            _fill(shader, batch_for_shader, 0, y - 12, region.width, y + 12,
+            _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
                   (.17, .24, .30, 1) if character_id == current
                   else (.15, .15, .15, 1))
         playhead = region.view2d.view_to_region(context.scene.frame_current, 0,
@@ -194,7 +212,7 @@ def _draw_window():
                 continue
             x = frame_x(mark.source_frame)
             if 0 <= x < region.width:
-                _line(shader, batch_for_shader, ((x, y - 3), (x, y + 3)),
+                _line(shader, batch_for_shader, ((x, y - 3 * scale), (x, y + 3 * scale)),
                       (.55, .68, .72, .55) if mark.state == 'visible'
                       else (.48, .5, .52, .4))
         for key in view.keys:
@@ -202,7 +220,7 @@ def _draw_window():
             if y is None:
                 continue
             x = frame_x(key.source_frame)
-            if not 8 <= x <= region.width - 8:
+            if not 8 * scale <= x <= region.width - 8 * scale:
                 continue
             color = {
                 'visible': (.45, .95, .48, 1),
@@ -212,28 +230,42 @@ def _draw_window():
                 'not-visible': (1, .48, .48, 1),
             }[key.state]
             if key.keyframe_id in selected:
+                radius = 10 * scale
                 _line(shader, batch_for_shader,
-                      ((x - 10, y - 10), (x + 10, y - 10), (x + 10, y + 10),
-                       (x - 10, y + 10), (x - 10, y - 10)),
+                      ((x - radius, y - radius), (x + radius, y - radius),
+                       (x + radius, y + radius), (x - radius, y + radius),
+                       (x - radius, y - radius)),
                       (1, 1, 1, 1) if key.keyframe_id == active
                       else (.7, .73, .77, .9))
             if key.is_assignment:
                 batch = batch_for_shader(shader, 'TRIS', {"pos": (
-                    (x, y + 7), (x + 7, y), (x, y - 7),
-                    (x, y + 7), (x, y - 7), (x - 7, y),
+                    (x, y + key_radius), (x + key_radius, y), (x, y - key_radius),
+                    (x, y + key_radius), (x, y - key_radius), (x - key_radius, y),
                 )})
                 shader.bind(); shader.uniform_float('color', color); batch.draw(shader)
-            elif key.state == 'occluded':
-                _line(shader, batch_for_shader, ((x - 6, y), (x, y + 6),
-                      (x + 6, y), (x, y - 6), (x - 6, y)), color)
-            elif key.state == 'no-valid-candidate':
-                _line(shader, batch_for_shader, ((x - 6, y - 6), (x + 6, y - 6),
-                      (x + 6, y + 6), (x - 6, y + 6), (x - 6, y - 6)), color)
             else:
-                _line(shader, batch_for_shader, ((x - 6, y - 6),
-                      (x + 6, y + 6)), color)
-                _line(shader, batch_for_shader, ((x - 6, y + 6),
-                      (x + 6, y - 6)), color)
+                radius = 6 * scale
+                if key.state == 'occluded':
+                    _line(shader, batch_for_shader, ((x - radius, y), (x, y + radius),
+                          (x + radius, y), (x, y - radius), (x - radius, y)), color)
+                elif key.state == 'no-valid-candidate':
+                    _line(shader, batch_for_shader,
+                          ((x - radius, y - radius), (x + radius, y - radius),
+                           (x + radius, y + radius), (x - radius, y + radius),
+                           (x - radius, y - radius)), color)
+                else:
+                    _line(shader, batch_for_shader, ((x - radius, y - radius),
+                          (x + radius, y + radius)), color)
+                    _line(shader, batch_for_shader, ((x - radius, y + radius),
+                          (x + radius, y - radius)), color)
+        gesture = _box_gesture
+        if (gesture is not None and gesture['dragged'] and
+                gesture['area'] == context.area and gesture['region'] == region):
+            x0, y0 = gesture['start']
+            x1, y1 = gesture['end']
+            _line(shader, batch_for_shader,
+                  ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)),
+                  (.7, .85, 1, 1))
     except Exception:
         return
 
@@ -336,7 +368,6 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
         ui.refresh(context)
         availability = ui._action_availability()
         layout = self.layout
-        layout.label(text='VTA MODE — Review Timeline', icon='KEY_HLT')
         layout.label(text='Display')
         layout.prop(context.scene, 'blendcap_vta_timeline_text_size',
                     text='Timeline Text Size')
@@ -421,6 +452,7 @@ class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
 class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
     bl_idname = 'blendcap.vta_timeline_select'
     bl_label = 'Select VTA Timeline Item'
+    bl_description = 'Click a key or drag empty canvas to select a group; Shift/Ctrl adds keys'
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -428,27 +460,85 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         return _scope(context)
 
     def invoke(self, context, event):
+        global _box_gesture
         ui = _ui()
         view, _selected, _active, offset, first, _current = _state(context)
         if view is None:
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
+        metrics = _metrics(context)
         if context.region.type == 'CHANNELS':
             if event.type == 'LEFTMOUSE':
-                character_id = hit_character(view, context.region.height, point[1], first)
+                character_id = hit_character(view, context.region.height, point[1], first,
+                                              metrics=metrics)
                 if character_id and ui.select_timeline_character(context, character_id):
                     return {'FINISHED'}
             return {'PASS_THROUGH'}
         key_id = hit_review_key(view, context.region.view2d,
-                                context.region.height, point, offset, first)
+                                context.region.height, point, offset, first, metrics=metrics)
         if key_id is None:
+            # Leave Blender's frame ruler and non-left-click tools native.
+            if (event.type == 'LEFTMOUSE' and
+                    point[1] < context.region.height - 24 * metrics.ui_scale and
+                    _box_gesture is None):
+                self._gesture_view = view
+                self._gesture_metrics = metrics
+                self._gesture_offset = offset
+                self._gesture_first = first
+                self._gesture_extend = bool(event.ctrl or getattr(event, 'shift', False))
+                self._gesture = dict(area=context.area, region=context.region,
+                                     start=point, end=point, dragged=False)
+                _box_gesture = self._gesture
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
             return {'PASS_THROUGH'}
-        if ui.select_timeline_key(context, key_id, extend=bool(event.ctrl),
+        if ui.select_timeline_key(context, key_id,
+                                  extend=bool(event.ctrl or getattr(event, 'shift', False)),
                                   activate=event.type == 'RIGHTMOUSE'):
             if event.type == 'RIGHTMOUSE':
                 bpy.ops.wm.call_menu('INVOKE_DEFAULT', name=BLENDCAP_MT_vta_timeline_context.bl_idname)
             return {'FINISHED'}
         return {'PASS_THROUGH'}
+
+    def _finish_box(self, result):
+        global _box_gesture
+        if _box_gesture is self._gesture:
+            _box_gesture = None
+        vta_invalidation.request_redraw()
+        return {result}
+
+    def cancel(self, _context):
+        if hasattr(self, '_gesture'):
+            self._finish_box('CANCELLED')
+
+    def modal(self, context, event):
+        gesture = self._gesture
+        if (gesture is not _box_gesture or not _scope(context) or
+                context.area != gesture['area'] or context.region != gesture['region'] or
+                _state(context)[0] is not self._gesture_view or
+                _metrics(context) != self._gesture_metrics):
+            return self._finish_box('CANCELLED')
+        if event.type in {'ESC', 'RIGHTMOUSE', 'WINDOW_DEACTIVATE'}:
+            return self._finish_box('CANCELLED')
+        region = gesture['region']
+        scale = self._gesture_metrics.ui_scale
+        if event.type in {'MOUSEMOVE', 'LEFTMOUSE'}:
+            x = getattr(event, 'mouse_x', region.x + event.mouse_region_x) - region.x
+            y = getattr(event, 'mouse_y', region.y + event.mouse_region_y) - region.y
+            gesture['end'] = (max(0, min(region.width, x)),
+                              max(0, min(region.height - 24 * scale, y)))
+            start = gesture['start']
+            gesture['dragged'] |= math.hypot(x - start[0], y - start[1]) > 4 * scale
+            vta_invalidation.request_redraw()
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            if gesture['dragged']:
+                ids = review_keys_in_box(
+                    self._gesture_view, region.view2d, region.width, region.height,
+                    gesture['start'], gesture['end'], self._gesture_offset,
+                    self._gesture_first, metrics=self._gesture_metrics)
+                _ui().select_timeline_keys(context, ids, extend=self._gesture_extend)
+            return self._finish_box('FINISHED')
+        return {'RUNNING_MODAL'}
 
 
 def register():
@@ -460,10 +550,10 @@ def register():
         _channel_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_channels, (), 'CHANNELS', 'POST_PIXEL')
     bpy.types.Scene.blendcap_vta_timeline_text_size = bpy.props.IntProperty(
-        name='Timeline Text Size', description='VTA canvas text size only',
-        default=13, min=10, max=18, update=_timeline_text_size_changed)
+        name='Timeline Text Size', description='VTA text size before Blender UI scaling; rows adapt to fit',
+        default=13, min=10, max=32, update=_timeline_text_size_changed)
     if not _header_registered:
-        bpy.types.DOPESHEET_HT_header.append(_draw_header)
+        bpy.types.DOPESHEET_MT_editor_menus.append(_draw_header)
         _header_registered = True
     if not _preview_header_registered:
         bpy.types.SEQUENCER_HT_header.append(_draw_preview_header)
@@ -477,12 +567,14 @@ def register():
                 BLENDCAP_OT_vta_timeline_select.bl_idname, button, 'PRESS', **modifiers,
             ) for button, modifiers in (("LEFTMOUSE", {}),
                                        ("LEFTMOUSE", {"ctrl": True}),
+                                       ("LEFTMOUSE", {"shift": True}),
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
 
 
 def unregister():
-    global _window_handler, _channel_handler, _header_registered, _preview_header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture
+    _box_gesture = None
     for keymap, items in _keymaps:
         for item in items:
             keymap.keymap_items.remove(item)
@@ -490,7 +582,7 @@ def unregister():
     if hasattr(bpy.types.Scene, 'blendcap_vta_timeline_text_size'):
         del bpy.types.Scene.blendcap_vta_timeline_text_size
     if _header_registered:
-        bpy.types.DOPESHEET_HT_header.remove(_draw_header)
+        bpy.types.DOPESHEET_MT_editor_menus.remove(_draw_header)
         _header_registered = False
     if _preview_header_registered:
         bpy.types.SEQUENCER_HT_header.remove(_draw_preview_header)
