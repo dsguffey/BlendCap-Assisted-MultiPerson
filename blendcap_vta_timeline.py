@@ -82,6 +82,45 @@ def present_timeline(private_timeline) -> TimelineView:
     return TimelineView(private_timeline.source_id, tuple(characters), keys, derived, intervals)
 
 
+class TimelineCharacterSelection:
+    """Session-only selected set plus one active member, ordered by displayed rows."""
+
+    def __init__(self):
+        self._ids = set()
+        self.active_id = None
+
+    @property
+    def character_ids(self):
+        return tuple(sorted(self._ids))
+
+    def reconcile(self, view):
+        ordered = () if view is None else tuple(c.character_id for c in view.characters)
+        self._ids.intersection_update(ordered)
+        if self.active_id not in self._ids:
+            self.active_id = next((cid for cid in ordered if cid in self._ids), None)
+
+    def click(self, view, character_id, *, extend=False):
+        if character_id not in {c.character_id for c in view.characters}:
+            return False
+        if extend and character_id in self._ids:
+            self._ids.remove(character_id)
+        else:
+            self._ids = self._ids | {character_id} if extend else {character_id}
+            self.active_id = character_id
+        self.reconcile(view)
+        return True
+
+    def select_box(self, view, character_ids, *, extend=False, active_id=None):
+        ids = set(character_ids)
+        if not ids <= {c.character_id for c in view.characters}:
+            return False
+        self._ids = self._ids | ids if extend else ids
+        if active_id in self._ids:
+            self.active_id = active_id
+        self.reconcile(view)
+        return True
+
+
 class ReviewKeySelection:
     """Transient stable-ID selection; neither rows nor frames are identities."""
 

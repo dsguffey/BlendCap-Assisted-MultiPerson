@@ -133,6 +133,11 @@ class ReviewPresentationTests(unittest.TestCase):
             character_assignments=(Assignment("character-red", "assigned"),),
         ))
         selection = review_ui.SelectionState()
+        before = repr(view)
+        self.assertTrue(selection.select_observation(view, "unassigned"))
+        self.assertEqual(selection.character_id, "")
+        self.assertFalse(selection.can_assign(view))
+        self.assertEqual(repr(view), before)
         self.assertTrue(selection.select_character(view, "character-black"))
         self.assertTrue(selection.select_observation(view, "assigned"))
         self.assertEqual(selection.character_id, "character-red")

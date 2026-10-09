@@ -434,7 +434,10 @@ def user_message(error: BaseException) -> str:
     if code in ERROR_MESSAGES:
         return ERROR_MESSAGES[code]
     if isinstance(error, VtaReviewUiError):
-        return str(error)
+        return (str(error).replace('Motion is Untrusted here', 'Animation needs Cleanup here')
+                .replace('Untrusted Motion Interval', 'Cleanup Range')
+                .replace('Untrusted interval', 'Cleanup Range')
+                .replace('Motion Trust', 'Cleanup'))
     return f"VTA review failed: {error}"
 
 
@@ -546,16 +549,24 @@ class PrivateCoreBackend:
 
     def set_motion_trust(self, location: ReviewLocation, character_id: str,
                          start_visible: int, end_visible: int, *, action: str):
+        return self.set_motion_trust_for_characters(
+            location, (character_id,), start_visible, end_visible, action=action)[0]
+
+    def set_motion_trust_for_characters(self, location: ReviewLocation, character_ids,
+                                       start_visible: int, end_visible: int, *, action: str):
         """Convert existing VSE frame coordinates, delegate all motion truth to core."""
         project, source = self._load_project_source(location)
-        if character_id not in {c.character_id for c in project.characters}:
-            raise VtaReviewUiError("Select an existing Character before editing Motion Trust.")
+        if (not isinstance(character_ids, (tuple, list)) or not character_ids
+                or any(not isinstance(cid, str) or not cid for cid in character_ids)
+                or len(set(character_ids)) != len(character_ids)
+                or not set(character_ids) <= {c.character_id for c in project.characters}):
+            raise VtaReviewUiError("Select existing Character rows before editing Cleanup.")
         start, end = map_visible_analysis_range(location, source["start_frame"], source["end_frame"],
                                                start_visible, end_visible)
         digest = hashlib.sha256(project.to_json().encode("utf-8")).hexdigest()
         try:
-            receipt = self._core.apply_motion_trust_and_persist(
-                location.companion_root, character_id, source["source_id"], start, end,
+            receipt = self._core.apply_motion_trust_many_and_persist(
+                location.companion_root, tuple(sorted(character_ids)), source["source_id"], start, end,
                 action=action, expected_project_sha256=digest)
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):

@@ -1,4 +1,55 @@
-# V1 Untrusted Motion — implementation and QA handoff
+# V1 Cleanup (backend Untrusted Motion) — implementation and QA handoff
+
+## Current Cleanup UX checkpoint — 2026-10-09
+
+Cleanup Range is the user-facing name for a Character-specific interval where
+automated motion is not trusted and requires animator attention. Internal
+`untrusted_motion` and ProjectState 0.6 semantics are unchanged.
+
+Normal channel-row click selects only that Character and activates it. Ctrl-click
+toggles membership; newly selected becomes active. Removing the active member
+chooses the first remaining displayed Character, or none. Channel-region drag
+selects Character rows (Shift/Ctrl adds); timeline-region drag still selects keys.
+Blank channel click/box clears the set unless additive. The set belongs to that
+Dope Sheet/source session and is never persisted. Only its active member is shared
+with Preview/sidebar. Preview selection does not import bulk targets into a Dope
+Sheet. Source/project changes reset the contextual set; frame refresh preserves it.
+Native list-item theme colors distinguish selected and stronger active rows.
+
+Cleanup alone is bulk-capable: Mark/Clear target exactly the selected rows, with
+no sidebar fallback when empty. The private command locks, validates the expected
+project hash, edits all targets in memory, and publishes once; errors cannot save
+a partial bulk operation. Rename/Delete/Clear Assignment/Update Tracking remain
+single-active-Character operations; existing destructive confirmations remain.
+Review-key commands target their own selected key IDs. Selection does not move
+the playhead; Go to Review Key remains explicit. Cleanup hatching is paint-only.
+
+Cleanup Start / Cleanup End remain editable inclusive Blender-frame fields.
+Start = Current Frame changes only Start; End = Current Frame changes only End.
+Neither authors a range. VTA Commands mirrors both boundary actions, Mark for
+Cleanup, and Clear Cleanup Range using the same operator. No hotkeys added;
+explicit action identifiers allow later bindings. Preview status is
+**Animation: Needs Cleanup**; spans use **NEEDS CLEANUP** where text fits.
+
+Tracking ticks are state-only: brighter cyan-grey = accepted `visible` match;
+dim grey = unresolved derived record (all non-visible states use the dim color).
+They are not confidence, selected-key, or active-row indicators. Two small help
+lines in the N-panel explain this. Candidate selection without a Character still
+works and never invents one; Assign still requires a valid Character.
+
+Verification: 17 new public tests, three new private tests. Public **371 total,
+365 passed, six existing skips**; private **233 passed**. Focused VTA public
+**184 passed**, private Cleanup **21 passed**. Compilation and whitespace checks
+pass; three source and three installed headless lifecycle cycles pass, with five
+runtime files hash-synced after backup. Full-suite shutdown retains Blender's tiny
+baseline unfreed-block diagnostic; tests/process pass and lifecycle exits cleanly.
+Live visual acceptance remains user QA. Backups live
+under `checkpoints/dev-preview/vta_cleanup_selection_20261009/backups/`.
+No native desktop control, inference, tracker tuning, Recovery or push.
+
+Pre-1.0: reversible Suppress/Ignore Candidate (retain raw detector evidence),
+and separately easier overlapping-box selection (cycling/context list).
+Neither is implemented here. Hotkeys also remain future work.
 
 VTA is an animation-assistance system, not a promise of fully automatic
 reconstruction. The user marks a Character's motion **Untrusted** when visual
@@ -28,17 +79,17 @@ local paths; they are not included in Git bundles.
 Authoritative ProjectState **0.6** loads 0.5 read-only with zero intervals.
 Character/source/inclusive source bounds are independent of identity keys;
 keys remain stored, visible and selectable. Overlaps union for the same Character;
-adjacent ranges remain separate. **Clear Range** subtracts inclusive bounds,
+adjacent ranges remain separate. **Clear Cleanup Range** subtracts inclusive bounds,
 possibly shortening/splitting/removing. Clearing changes eligibility only, never
 revives invalidated predictions or runs Update Tracking.
 
-Select Current Character; in the existing VTA Dope Sheet `N` sidebar use
-**Motion Trust → Start Frame / End Frame → Mark Untrusted**. Bounds are visible
-Blender frames, converted using the existing offset path. **Use Current Frame**
-sets a one-frame range. Patterned spans, boundary strokes and UNTRUSTED text
+Select Character rows; in the existing VTA Dope Sheet `N` sidebar use
+**Cleanup → Cleanup Start / Cleanup End → Mark for Cleanup**. Bounds are visible
+Blender frames, converted using the existing offset path. Separate current-frame
+actions set each boundary. Patterned spans, boundary strokes and NEEDS CLEANUP text
 (where it fits) draw on that Character's row. DPI/text size/zoom share existing
 row geometry; paint does not intercept key hit testing. Preview/sidebar shows
-**Motion: Untrusted** separately from assignment/presence state.
+**Animation: Needs Cleanup** separately from assignment/presence state.
 
 Propagation clips to Character-specific barriers. Marking retires inside records
 and dependent paths crossing the interval, retaining evidence/history. Independently
@@ -80,19 +131,13 @@ remains user QA. No native desktop control.
 
 ## Manual QA
 
-1. Restart Blender after extension sync. Open only the disposable file above.
-2. Enable VTA Mode, press `N`; select Yellow then White. Verify independent
-   patterned 67–90 / 70–85 spans and Motion: Untrusted at Blender frame 74.
-3. Click keys through shading: selection must not move time; Go to Review Key
-   remains explicit. Zoom/change text size; spans, rows and keys stay aligned.
-4. Test one-frame, overlapping and adjacent ranges. Clear a Yellow subrange;
-   White stays Untrusted. No inference/tracking starts and retired results do
-   not spontaneously reappear.
-5. Update Tracking inside Untrusted reports a concise refusal. After separation,
-   visually inspect/Assign a valid candidate, then explicitly Update Tracking.
-   Geometry acceptance alone is not semantic proof; inspect the result.
-6. Save/reopen/restart: intervals and identity keys persist. Normal Analyze and
-   review retain their behavior. No Recovery controls should appear.
+After restarting Blender, use the disposable fixture above in VTA Mode (`N`).
+
+1. Select one Character, Ctrl-select a second; confirm one is visibly active.
+2. Use current-frame Start and End at two playhead positions.
+3. Mark for Cleanup; confirm both selected rows receive the range.
+4. Deselect one Character; confirm subsequent Cleanup affects only the remaining row.
+5. Glance at the tracking ticks and their small explanation.
 
 Next milestone: user live QA and narrow repairs only. No automatic smoothing,
 manual-box Recovery, threshold tuning or reconstruction without separate approval.

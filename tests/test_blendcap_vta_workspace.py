@@ -404,11 +404,14 @@ class BlenderWorkspaceTests(unittest.TestCase):
         layout = mock.Mock()
         with mock.patch.object(ui, 'refresh', return_value=True), \
              mock.patch.object(ui, '_draw_management_actions') as actions, \
+             mock.patch.object(ui, 'draw_cleanup_commands') as cleanup, \
              mock.patch.object(ui, '_action_availability', return_value={
                  'update-tracking': True}):
+            context = object()
             self.workspace.BLENDCAP_MT_vta_timeline_commands.draw(
-                SimpleNamespace(layout=layout), object())
-        actions.assert_called_once_with(layout)
+                SimpleNamespace(layout=layout), context)
+            actions.assert_called_once_with(layout, availability={'update-tracking': True})
+            cleanup.assert_called_once_with(layout, context, menu=True)
         self.assertIn(('blendcap.vta_update_tracking',),
                       [call.args for call in layout.row.return_value.operator.call_args_list])
         self.assertEqual(self.workspace.BLENDCAP_PT_vta_timeline.bl_region_type, 'UI')

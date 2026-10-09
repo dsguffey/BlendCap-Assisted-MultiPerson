@@ -33,8 +33,8 @@ from ..blendcap_vta_analysis_runtime import (
     AnalysisRuntimeUnavailable, resolve_analysis_runtime,
 )
 from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
-from ..blendcap_vta_timeline import ReviewKeySelection, key_at
-from ..blendcap_vta_area_mode import ROLE_PREVIEW, role_for
+from ..blendcap_vta_timeline import ReviewKeySelection, TimelineCharacterSelection, key_at
+from ..blendcap_vta_area_mode import ROLE_PREVIEW, ROLE_TIMELINE, role_for
 from . import vta_invalidation, vta_overlay, vta_timeline_overlay
 from .helpers import (
     _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
@@ -54,6 +54,7 @@ _cache_signature = None
 _timeline = None
 _timeline_identity = None
 _review_key_selection = ReviewKeySelection()
+_character_selections = {}
 _analysis_process = None
 _analysis_progress_started = False
 _analysis_root = None
@@ -160,10 +161,48 @@ def _owning_vse_scene(context, location: ReviewLocation):
         raise VtaReviewUiError(str(exc)) from exc
 
 
+def _is_timeline_context(context) -> bool:
+    area = getattr(context, 'area', None)
+    return (getattr(area, 'type', None) == 'DOPESHEET_EDITOR' and
+            role_for(getattr(context, 'workspace', None),
+                     getattr(context, 'screen', None), area) == ROLE_TIMELINE)
+
+
+def timeline_character_selection(context):
+    """Transient selection owned by one Dope Sheet and source, never ProjectState."""
+    if not _is_timeline_context(context) or _timeline is None or _location is None:
+        return None
+    pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
+    key = (pointer(context.screen), pointer(context.area))
+    identity = (str(_location.companion_root), _timeline.source_id,
+                str(_location.source_path))
+    previous = _character_selections.get(key)
+    if previous is None or previous[0] != identity:
+        previous = (identity, TimelineCharacterSelection())
+        _character_selections[key] = previous
+    previous[1].reconcile(_timeline)
+    return previous[1]
+
+
+def current_character_id(context=None):
+    if context is not None and _is_timeline_context(context):
+        selection = timeline_character_selection(context)
+        return selection.active_id if selection is not None else None
+    return _selection.character_id
+
+
+def _use_timeline_active(context):
+    if _is_timeline_context(context):
+        _selection.character_id = current_character_id(context) or ''
+        _sync_properties(context)
+
+
 def _sync_properties(context) -> None:
     global _syncing_properties
     if _syncing_properties:
         return
+    if _is_timeline_context(context):
+        _selection.character_id = current_character_id(context) or ''
     wm = context.window_manager
     _syncing_properties = True
     try:
@@ -179,18 +218,19 @@ def overlay_state():
     return _view, _selection.observation_id
 
 
-def timeline_state():
+def timeline_state(context=None):
     offset = 0 if _location is None else _location.blender_frame - _location.source_frame
     return (_timeline, _review_key_selection.keyframe_ids,
-            _review_key_selection.active_keyframe_id, offset, _lane_scroll())
+            _review_key_selection.active_keyframe_id, offset, _lane_scroll(context))
 
 
-def _lane_scroll() -> int:
+def _lane_scroll(context=None) -> int:
     """Focus the selected Character automatically; no exposed pagination knob."""
-    if _timeline is None or not _selection.character_id:
+    active = current_character_id(context)
+    if _timeline is None or not active:
         return 0
     return next((index for index, item in enumerate(_timeline.characters)
-                 if item.character_id == _selection.character_id), 0)
+                 if item.character_id == active), 0)
 
 
 def next_generic_character_name(view) -> str:
@@ -539,6 +579,7 @@ def refresh(context, *, force: bool = False) -> bool:
         _timeline = None
         _timeline_identity = None
         _review_key_selection.clear()
+        _character_selections.clear()
         _selection.review_key = None
         _selection.observation_id = ""
         _rebuild_enum_items()
@@ -1014,13 +1055,28 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def select_timeline_character(context, character_id: str) -> bool:
+def select_timeline_character(context, character_id: str, *, extend=False) -> bool:
     """Share Current Character across Preview, sidebar, VSE, and VTA timeline."""
     if _timeline is None or character_id not in {
         item.character_id for item in _timeline.characters
     }:
         return False
-    _selection.character_id = character_id
+    selection = timeline_character_selection(context)
+    if selection is not None:
+        if not selection.click(_timeline, character_id, extend=extend):
+            return False
+        _selection.character_id = selection.active_id or ''
+    else:
+        _selection.character_id = character_id
+    _sync_properties(context)
+    return True
+
+
+def select_timeline_characters(context, character_ids, *, extend=False) -> bool:
+    selection = timeline_character_selection(context)
+    if selection is None or not selection.select_box(_timeline, character_ids, extend=extend):
+        return False
+    _selection.character_id = selection.active_id or ''
     _sync_properties(context)
     return True
 
@@ -1038,6 +1094,10 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
     if key is None:
         _sync_properties(context)
         return True
+    selection = timeline_character_selection(context)
+    if selection is not None:
+        selection.select_box(_timeline, (key.character_id,), extend=extend or activate,
+                             active_id=key.character_id)
     _selection.character_id = key.character_id
     _sync_properties(context)
     return True
@@ -1050,6 +1110,12 @@ def select_timeline_keys(context, key_ids, *, extend: bool = False) -> bool:
     if not _review_key_selection.select_box(_timeline, key_ids, extend=extend):
         return False
     key = key_at(_timeline, _review_key_selection.active_keyframe_id)
+    selection = timeline_character_selection(context)
+    if selection is not None:
+        characters = tuple(item.character_id for item in _timeline.keys
+                           if item.keyframe_id in _review_key_selection.keyframe_ids)
+        selection.select_box(_timeline, characters, extend=extend,
+                             active_id=key.character_id if key else None)
     if key is not None:
         _selection.character_id = key.character_id
     _sync_properties(context)
@@ -1221,6 +1287,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         try:
+            _use_timeline_active(context)
             if self.action == "rename-character":
                 row = next((item for item in _view.characters
                             if item.character_id == _selection.character_id), None)
@@ -1287,6 +1354,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                 request = updated
             if _location != self._pending_location:
                 raise VtaReviewUiError("The VTA review location changed during confirmation.")
+            _use_timeline_active(context)
             if self.action in {"clear-assignment", "rename-character", "delete-character"}:
                 if _selection.character_id != request.character_id:
                     raise VtaReviewUiError("The selected Character changed during confirmation.")
@@ -1307,10 +1375,10 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             return {'CANCELLED'}
 
 
-def _action_availability():
+def _action_availability(context=None):
     """Sequencer review availability shared by panel, header, and context."""
     character = next((item for item in _view.characters
-                      if item.character_id == _selection.character_id), None) if _view else None
+                      if item.character_id == current_character_id(context)), None) if _view else None
     selected_keys = _review_key_selection.keyframe_ids
     frame_has_key = bool(_view and _timeline and any(
         key.source_frame == _view.source_frame for key in _timeline.keys
@@ -1424,35 +1492,49 @@ def _remove_legacy_vta_menu_hook(menu):
 
 class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
     bl_idname = "blendcap.vta_motion_trust"
-    bl_label = "Edit Motion Trust"
-    bl_description = "Edit this Character's human-authored motion barrier; never run tracking automatically"
+    bl_label = "Edit Cleanup Range"
+    bl_description = "Edit selected Dope Sheet Characters' Cleanup ranges; never run tracking automatically"
     action: bpy.props.EnumProperty(items=(
-        ('MARK', 'Mark Untrusted', ''), ('CLEAR', 'Clear Range', ''),
-        ('CURRENT', 'Use Current Frame', '')), default='MARK')
+        ('MARK', 'Mark for Cleanup', ''), ('CLEAR', 'Clear Cleanup Range', ''),
+        ('START_CURRENT', 'Set Cleanup Start to Current Frame', ''),
+        ('END_CURRENT', 'Set Cleanup End to Current Frame', '')), default='MARK')
 
     def execute(self, context):
         global _status, _status_is_error
         if not _edit_available(self):
             return {'CANCELLED'}
         try:
+            if not _is_timeline_context(context):
+                raise VtaReviewUiError("Use Cleanup in the VTA Dope Sheet.")
             location = _location_from_context(context)
             wm = context.window_manager
-            if self.action == 'CURRENT':
-                wm.blendcap_vta_motion_start = location.blender_frame
-                wm.blendcap_vta_motion_end = location.blender_frame
+            if self.action in {'START_CURRENT', 'END_CURRENT'}:
+                field = ('blendcap_vta_motion_start' if self.action == 'START_CURRENT'
+                         else 'blendcap_vta_motion_end')
+                setattr(wm, field, location.blender_frame)
                 return {'FINISHED'}
-            if not _selection.character_id:
-                raise VtaReviewUiError("Select a Character before editing Motion Trust.")
-            _get_backend(context).set_motion_trust(
-                location, _selection.character_id,
+            if self.action not in {'MARK', 'CLEAR'}:
+                raise VtaReviewUiError("Unknown Cleanup action.")
+            selection = timeline_character_selection(context)
+            if selection is None or not selection.character_ids:
+                raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before editing Cleanup.")
+            targets = selection.character_ids
+            if not refresh(context, force=True):
+                raise VtaReviewUiError(_status)
+            selection = timeline_character_selection(context)
+            if selection is None or selection.character_ids != targets or _location != location:
+                raise VtaReviewUiError("The Cleanup selection or source changed; select the rows again.")
+            _get_backend(context).set_motion_trust_for_characters(
+                location, targets,
                 wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end,
                 action='mark' if self.action == 'MARK' else 'clear')
             if not refresh(context, force=True):
-                self.report({'WARNING'}, "Motion Trust saved; refresh review to display it.")
+                self.report({'WARNING'}, "Cleanup saved; refresh review to display it.")
                 return {'FINISHED'}
             vta_invalidation.request_redraw()
-            _status = ("Motion marked Untrusted. Identity keys retained." if self.action == 'MARK'
-                       else "Untrusted range cleared. Use Update Tracking explicitly when ready.")
+            _status = (f"Marked {len(targets)} Character(s) for Cleanup. Identity keys retained."
+                       if self.action == 'MARK' else
+                       "Cleanup range cleared. Use Update Tracking explicitly when ready.")
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -1462,27 +1544,39 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             return {'CANCELLED'}
 
 
+def draw_cleanup_commands(layout, context, *, menu=False):
+    """The menu and N-panel share operators and target availability."""
+    selection = timeline_character_selection(context)
+    available = _is_timeline_context(context) and _location is not None and not _analysis_locked()
+    for action, label in (
+            ('START_CURRENT', 'Set Cleanup Start to Current Frame' if menu else 'Start = Current Frame'),
+            ('END_CURRENT', 'Set Cleanup End to Current Frame' if menu else 'End = Current Frame'),
+            ('MARK', 'Mark for Cleanup'), ('CLEAR', 'Clear Cleanup Range')):
+        row = layout.row()
+        row.enabled = available and (action.endswith('CURRENT') or
+                                    bool(selection and selection.character_ids))
+        row.operator('blendcap.vta_motion_trust', text=label).action = action
+
+
 def draw_motion_trust(layout, context):
-    """Small addition confined to the existing VTA timeline N-panel."""
-    layout.label(text='Motion Trust')
+    """Cleanup is UI vocabulary; the authoritative backend name is unchanged."""
+    layout.label(text='Cleanup')
     wm = context.window_manager
     controls = layout.column()
-    controls.enabled = bool(_view and _selection.character_id) and not _analysis_locked()
+    controls.enabled = _location is not None and not _analysis_locked()
     row = controls.row(align=True)
-    row.prop(wm, 'blendcap_vta_motion_start', text='Start Frame')
-    row.prop(wm, 'blendcap_vta_motion_end', text='End Frame')
-    controls.operator('blendcap.vta_motion_trust', text='Use Current Frame').action = 'CURRENT'
-    row = controls.row(align=True)
-    row.operator('blendcap.vta_motion_trust', text='Mark Untrusted').action = 'MARK'
-    row.operator('blendcap.vta_motion_trust', text='Clear Range').action = 'CLEAR'
+    row.prop(wm, 'blendcap_vta_motion_start', text='Cleanup Start')
+    row.prop(wm, 'blendcap_vta_motion_end', text='Cleanup End')
+    draw_cleanup_commands(layout, context)
     layout.label(text='Clear subtracts the inclusive range; tracking stays explicit')
-    selected = next((c for c in _view.characters if c.character_id == _selection.character_id), None) if _view else None
+    active = current_character_id(context)
+    selected = next((c for c in _view.characters if c.character_id == active), None) if _view else None
     if selected is not None and selected.motion_untrusted:
-        layout.label(text='Motion: Untrusted', icon='INFO')
+        layout.label(text='Animation: Needs Cleanup', icon='INFO')
     if _timeline and _location:
         for interval in _timeline.untrusted_motion_intervals:
-            if interval.character_id == _selection.character_id:
-                layout.label(text=f'Untrusted: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+            if interval.character_id == active:
+                layout.label(text=f'Cleanup: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
 
 
 class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
@@ -1498,6 +1592,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             return {'CANCELLED'}
         try:
             location = _location_from_context(context)
+            _use_timeline_active(context)
             if not _selection.character_id:
                 raise VtaReviewUiError("Select a Character before Update Tracking.")
             result, _review, _timeline_result = _get_backend(context).update_tracking(
@@ -1699,7 +1794,7 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         layout.label(text=(f"Active Character: {selected_character.display_name}"
                            if selected_character else "Select a Character above"), icon='USER')
         if selected_character is not None and selected_character.motion_untrusted:
-            layout.label(text="Motion: Untrusted", icon='INFO')
+            layout.label(text="Animation: Needs Cleanup", icon='INFO')
         assignment_box = layout.box()
         assignment_box.label(text="Candidate Assignment")
         for candidate in _view.candidates:
@@ -1835,9 +1930,9 @@ classes = (
 
 def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_motion_start = bpy.props.IntProperty(
-        name="Start Frame", default=1)
+        name="Cleanup Start", description="Inclusive Blender frame", default=1)
     bpy.types.WindowManager.blendcap_vta_motion_end = bpy.props.IntProperty(
-        name="End Frame", default=1)
+        name="Cleanup End", description="Inclusive Blender frame", default=1)
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
         name="Show VTA Candidate Overlay", default=True,
         description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
@@ -1884,6 +1979,7 @@ def register_properties() -> None:
 
 def unregister_properties() -> None:
     global _analysis_progress_started
+    _character_selections.clear()
     del bpy.types.WindowManager.blendcap_vta_motion_start
     del bpy.types.WindowManager.blendcap_vta_motion_end
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)

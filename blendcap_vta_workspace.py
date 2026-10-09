@@ -85,6 +85,18 @@ def hit_character(view, height, y, first=0, *, metrics=TimelineMetrics()):
                  if abs(center - y) <= metrics.row_height / 2), None)
 
 
+def characters_in_box(view, height, start, end, first=0, *, metrics=TimelineMetrics()):
+    """Channel-region marquee selects displayed row centers, never timeline keys."""
+    low, high = sorted((start[1], end[1]))
+    return tuple(cid for cid, center in character_lanes(view, height, first, metrics=metrics)
+                 if low <= center <= high)
+
+
+def derived_mark_color(state):
+    """Categorical match/unresolved convention, not confidence or selection."""
+    return (.55, .68, .72, .55) if state == 'visible' else (.48, .5, .52, .4)
+
+
 def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
                           *, metrics=TimelineMetrics()):
     """Paint-only inclusive frame cells; shares scaled Character row geometry."""

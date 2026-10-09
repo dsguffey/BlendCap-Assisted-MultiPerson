@@ -73,19 +73,19 @@ class MotionPresentationTests(unittest.TestCase):
         self.assertEqual(motion_interval_rects(timeline(), view2d, 100, 100, first=1), ())
 
     def test_backend_routes_existing_frame_conversion_and_expected_hash(self):
-        core = SimpleNamespace(apply_motion_trust_and_persist=mock.Mock(return_value='receipt'))
+        core = SimpleNamespace(apply_motion_trust_many_and_persist=mock.Mock(return_value=('receipt',)))
         backend = PrivateCoreBackend(core)
         project = SimpleNamespace(characters=(SimpleNamespace(character_id='yellow'),), to_json=lambda: 'state')
         location = ReviewLocation(Path('companion'), Path('video'), 46, 147)
         with mock.patch.object(backend, '_load_project_source', return_value=(project, dict(source_id='s', start_frame=0, end_frame=162))):
             self.assertEqual(backend.set_motion_trust(location, 'yellow', 168, 191, action='mark'), 'receipt')
-        call = core.apply_motion_trust_and_persist.call_args
-        self.assertEqual(call.args, (Path('companion'), 'yellow', 's', 67, 90))
+        call = core.apply_motion_trust_many_and_persist.call_args
+        self.assertEqual(call.args, (Path('companion'), ('yellow',), 's', 67, 90))
         self.assertEqual(call.kwargs['action'], 'mark')
         self.assertEqual(len(call.kwargs['expected_project_sha256']), 64)
 
     def test_backend_rejects_bad_range_or_missing_character_before_core(self):
-        core = SimpleNamespace(apply_motion_trust_and_persist=mock.Mock())
+        core = SimpleNamespace(apply_motion_trust_many_and_persist=mock.Mock())
         backend = PrivateCoreBackend(core)
         project = SimpleNamespace(characters=(SimpleNamespace(character_id='yellow'),), to_json=lambda: 'state')
         location = ReviewLocation(Path('companion'), Path('video'), 0, 1)
@@ -93,7 +93,7 @@ class MotionPresentationTests(unittest.TestCase):
             for char, start, end in (('missing', 2, 3), ('yellow', 5, 4), ('yellow', 0, 3)):
                 with self.assertRaises(VtaReviewUiError):
                     backend.set_motion_trust(location, char, start, end, action='mark')
-        core.apply_motion_trust_and_persist.assert_not_called()
+        core.apply_motion_trust_many_and_persist.assert_not_called()
 
 
 @unittest.skipUnless(bpy is not None, 'requires Blender background runtime')
@@ -116,21 +116,24 @@ class MotionBlenderTests(unittest.TestCase):
     def test_mark_and_clear_preserve_character_playhead_and_request_redraw(self):
         ui = self.ui
         context = self.context()
-        backend = SimpleNamespace(set_motion_trust=mock.Mock(), update_tracking=mock.Mock())
+        backend = SimpleNamespace(set_motion_trust_for_characters=mock.Mock(), update_tracking=mock.Mock())
         for action in ('MARK', 'CLEAR'):
             operator = SimpleNamespace(action=action, report=mock.Mock())
             with mock.patch.object(ui, '_edit_available', return_value=True), \
                  mock.patch.object(ui, '_location_from_context', return_value='location'), \
                  mock.patch.object(ui._selection, 'character_id', 'yellow'), \
+                 mock.patch.object(ui, '_is_timeline_context', return_value=True), \
+                 mock.patch.object(ui, '_location', 'location'), \
+                 mock.patch.object(ui, 'timeline_character_selection', return_value=SimpleNamespace(character_ids=('yellow',))), \
                  mock.patch.object(ui, '_get_backend', return_value=backend), \
                  mock.patch.object(ui, 'refresh', return_value=True) as refresh, \
                  mock.patch.object(ui.vta_invalidation, 'request_redraw') as redraw:
                 result = ui.BLENDCAP_OT_vta_motion_trust.execute(operator, context)
                 self.assertEqual(result, {'FINISHED'})
                 self.assertEqual(ui._selection.character_id, 'yellow')
-                backend.set_motion_trust.assert_called_with('location', 'yellow', 67, 90,
+                backend.set_motion_trust_for_characters.assert_called_with('location', ('yellow',), 67, 90,
                     action='mark' if action == 'MARK' else 'clear')
-                refresh.assert_called_once_with(context, force=True)
+                self.assertEqual(refresh.call_args_list, [mock.call(context, force=True)] * 2)
                 redraw.assert_called_once()
             context.scene.frame_set.assert_not_called()
             backend.update_tracking.assert_not_called()
@@ -146,12 +149,13 @@ class MotionBlenderTests(unittest.TestCase):
     def test_use_current_changes_controls_only(self):
         ui = self.ui
         context = self.context()
-        operator = SimpleNamespace(action='CURRENT', report=mock.Mock())
+        operator = SimpleNamespace(action='START_CURRENT', report=mock.Mock())
         with mock.patch.object(ui, '_edit_available', return_value=True), \
              mock.patch.object(ui, '_location_from_context', return_value=SimpleNamespace(blender_frame=81)), \
+             mock.patch.object(ui, '_is_timeline_context', return_value=True), \
              mock.patch.object(ui, '_get_backend') as backend:
             self.assertEqual(ui.BLENDCAP_OT_vta_motion_trust.execute(operator, context), {'FINISHED'})
-            self.assertEqual((context.window_manager.blendcap_vta_motion_start, context.window_manager.blendcap_vta_motion_end), (81, 81))
+            self.assertEqual((context.window_manager.blendcap_vta_motion_start, context.window_manager.blendcap_vta_motion_end), (81, 90))
             backend.assert_not_called()
 
     def test_panel_controls_status_and_current_character_only(self):
@@ -172,8 +176,8 @@ class MotionBlenderTests(unittest.TestCase):
              mock.patch.object(ui, '_analysis_locked', return_value=False), \
              mock.patch.object(ui, '_timeline', timeline()), mock.patch.object(ui, '_location', location):
             ui.draw_motion_trust(Layout(), context)
-        self.assertIn(('prop', 'Start Frame'), calls)
-        self.assertIn(('prop', 'End Frame'), calls)
-        self.assertIn(('label', 'Motion: Untrusted'), calls)
-        self.assertIn(('label', 'Untrusted: 6–10'), calls)
-        self.assertIn(('operator', 'Clear Range'), calls)
+        self.assertIn(('prop', 'Cleanup Start'), calls)
+        self.assertIn(('prop', 'Cleanup End'), calls)
+        self.assertIn(('label', 'Animation: Needs Cleanup'), calls)
+        self.assertIn(('label', 'Cleanup: 6–10'), calls)
+        self.assertIn(('operator', 'Clear Cleanup Range'), calls)

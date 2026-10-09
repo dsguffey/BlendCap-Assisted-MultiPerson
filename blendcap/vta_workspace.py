@@ -14,7 +14,7 @@ import bpy
 from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
-    motion_interval_rects,
+    motion_interval_rects, characters_in_box, derived_mark_color,
 )
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
@@ -44,8 +44,34 @@ def _scope(context):
 
 def _state(context):
     ui = _ui()
-    view, selected, active, offset, first = ui.timeline_state()
-    return view, selected, active, offset, first, ui._selection.character_id
+    view, selected, active, offset, first = ui.timeline_state(context)
+    return view, selected, active, offset, first, ui.current_character_id(context)
+
+
+def _row_style(context, character_id, active):
+    """Use the native list-item theme, with a stronger active highlight."""
+    selection = _ui().timeline_character_selection(context)
+    selected = bool(selection and character_id in selection.character_ids)
+    theme = context.preferences.themes[0]
+    item = theme.user_interface.wcol_list_item
+    normal = tuple(item.inner)
+    highlight = tuple(item.inner_sel)
+    if character_id == active and selected:
+        return highlight, tuple(item.text_sel) + (1,), tuple(item.outline_sel)
+    if selected:
+        muted = tuple(normal[i] * .35 + highlight[i] * .65 for i in range(3)) + (1,)
+        return muted, tuple(item.text_sel) + (1,), None
+    return normal, tuple(item.text) + (1,), None
+
+
+def _draw_gesture(context, shader, batch):
+    gesture = _box_gesture
+    if (gesture is not None and gesture['dragged'] and
+            gesture['area'] == context.area and gesture['region'] == context.region):
+        x0, y0 = gesture['start']
+        x1, y1 = gesture['end']
+        _line(shader, batch, ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)),
+              (.7, .85, 1, 1))
 
 
 def _draw_header(self, context):
@@ -144,16 +170,17 @@ def _draw_channels():
         blf.color(0, .75, .75, .75, 1)
         blf.draw(0, 'Characters')
         for character_id, y in character_lanes(view, region.height, first, metrics=metrics):
-            active = character_id == current
+            background, text, border = _row_style(context, character_id, current)
             _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
-                  (.17, .24, .30, 1) if active else (.16, .16, .16, 1))
-            if active:
+                  background)
+            if border is not None:
                 _fill(shader, batch_for_shader, 0, y - half_row, 4 * scale, y + half_row,
-                      (.95, .9, .45, 1))
+                      border)
             blf.position(0, 10 * scale, y - metrics.font_size * .35, 0)
             blf.size(0, metrics.font_size)
-            blf.color(0, 1, 1, 1, 1)
+            blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
+        _draw_gesture(context, shader, batch_for_shader)
     except Exception:
         # A presentation callback must never break stock Blender drawing.
         return
@@ -197,9 +224,9 @@ def _draw_window():
             blf.color(0, .72, .72, .72, 1)
             blf.draw(0, str(frame))
         for character_id, y in lanes.items():
+            background, _text, _border = _row_style(context, character_id, current)
             _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
-                  (.17, .24, .30, 1) if character_id == current
-                  else (.15, .15, .15, 1))
+                  background)
         playhead = region.view2d.view_to_region(context.scene.frame_current, 0,
                                                clip=False)[0]
         frame_x = lambda frame: region.view2d.view_to_region(
@@ -216,12 +243,12 @@ def _draw_window():
                 x = x0 + index * spacing
                 _line(shader, batch_for_shader,
                       ((x, y0), (min(x1, x + 7 * scale), y1)), (.65, .48, .26, .65))
-            if x1 - x0 > metrics.font_size * 8:
+            if x1 - x0 > metrics.font_size * 13:
                 import blf
                 blf.position(0, x0 + 5 * scale, y0 + 3 * scale, 0)
                 blf.size(0, metrics.font_size)
                 blf.color(0, 1, .83, .55, 1)
-                blf.draw(0, 'UNTRUSTED')
+                blf.draw(0, 'NEEDS CLEANUP')
         if 0 <= playhead < region.width:
             _line(shader, batch_for_shader,
                   ((playhead, 0), (playhead, region.height)), (.38, .63, .95, 1))
@@ -232,8 +259,7 @@ def _draw_window():
             x = frame_x(mark.source_frame)
             if 0 <= x < region.width:
                 _line(shader, batch_for_shader, ((x, y - 3 * scale), (x, y + 3 * scale)),
-                      (.55, .68, .72, .55) if mark.state == 'visible'
-                      else (.48, .5, .52, .4))
+                      derived_mark_color(mark.state))
         for key in view.keys:
             y = lanes.get(key.character_id)
             if y is None:
@@ -277,14 +303,7 @@ def _draw_window():
                           (x + radius, y + radius)), color)
                     _line(shader, batch_for_shader, ((x - radius, y + radius),
                           (x + radius, y - radius)), color)
-        gesture = _box_gesture
-        if (gesture is not None and gesture['dragged'] and
-                gesture['area'] == context.area and gesture['region'] == region):
-            x0, y0 = gesture['start']
-            x1, y1 = gesture['end']
-            _line(shader, batch_for_shader,
-                  ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)),
-                  (.7, .85, 1, 1))
+        _draw_gesture(context, shader, batch_for_shader)
     except Exception:
         return
 
@@ -336,14 +355,14 @@ class BLENDCAP_MT_vta_timeline_context(bpy.types.Menu):
     bl_idname = 'BLENDCAP_MT_vta_timeline_context'
     bl_label = 'VTA Review Key'
 
-    def draw(self, _context):
+    def draw(self, context):
         ui = _ui()
         row = self.layout.row()
         row.enabled = ui._review_key_selection.active_keyframe_id is not None
         row.operator('blendcap.vta_goto_review_key', text='Go to Review Key')
         ui._draw_management_actions(
             self.layout, actions={'clear-review-key', 'clear-selected-review-keys'},
-            availability=ui._action_availability(),
+            availability=ui._action_availability(context),
         )
         self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
 
@@ -359,13 +378,15 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         if not ui.refresh(context):
             layout.label(text='VTA review unavailable', icon='INFO')
             return
-        ui._draw_management_actions(layout)
+        ui._draw_management_actions(layout, availability=ui._action_availability(context))
         row = layout.row()
         row.enabled = ui._review_key_selection.active_keyframe_id is not None
         row.operator('blendcap.vta_goto_review_key', text='Go to Review Key')
         row = layout.row()
-        row.enabled = ui._action_availability()['update-tracking']
+        row.enabled = ui._action_availability(context)['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+        layout.separator()
+        ui.draw_cleanup_commands(layout, context, menu=True)
 
 
 class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
@@ -385,17 +406,21 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
     def draw(self, context):
         ui = _ui()
         ui.refresh(context)
-        availability = ui._action_availability()
+        availability = ui._action_availability(context)
         layout = self.layout
         layout.label(text='Display')
         layout.prop(context.scene, 'blendcap_vta_timeline_text_size',
                     text='Timeline Text Size')
         layout.label(text=f'Selected keys: {len(ui._review_key_selection.keyframe_ids)}')
-        if ui._selection.character_id and ui._timeline:
+        selection = ui.timeline_character_selection(context)
+        layout.label(text=f'Selected Characters: {len(selection.character_ids) if selection else 0}')
+        if ui.current_character_id(context) and ui._timeline:
             character = next((item for item in ui._timeline.characters
-                              if item.character_id == ui._selection.character_id), None)
+                              if item.character_id == ui.current_character_id(context)), None)
             if character is not None:
-                layout.label(text=f'Current Character: {character.display_name}')
+                layout.label(text=f'Active Character: {character.display_name}')
+        layout.label(text='Tracking ticks: bright = matched')
+        layout.label(text='Grey = unresolved; not confidence')
         layout.separator()
         layout.label(text='Review Keys')
         row = layout.row()
@@ -474,7 +499,7 @@ class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
 class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
     bl_idname = 'blendcap.vta_timeline_select'
     bl_label = 'Select VTA Timeline Item'
-    bl_description = 'Click a key or drag empty canvas to select a group; Shift/Ctrl adds keys'
+    bl_description = 'Select Character rows or review keys; drag within their own region to box-select'
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -490,14 +515,12 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         point = (event.mouse_region_x, event.mouse_region_y)
         metrics = _metrics(context)
         if context.region.type == 'CHANNELS':
-            if event.type == 'LEFTMOUSE':
-                character_id = hit_character(view, context.region.height, point[1], first,
-                                              metrics=metrics)
-                if character_id and ui.select_timeline_character(context, character_id):
-                    return {'FINISHED'}
-            return {'PASS_THROUGH'}
-        key_id = hit_review_key(view, context.region.view2d,
+            if (event.type != 'LEFTMOUSE' or _box_gesture is not None or
+                    point[1] >= context.region.height - 24 * metrics.ui_scale):
+                return {'PASS_THROUGH'}
+        key_id = (None if context.region.type == 'CHANNELS' else hit_review_key(view, context.region.view2d,
                                 context.region.height, point, offset, first, metrics=metrics)
+                  )
         if key_id is None:
             # Leave Blender's frame ruler and non-left-click tools native.
             if (event.type == 'LEFTMOUSE' and
@@ -508,6 +531,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                 self._gesture_offset = offset
                 self._gesture_first = first
                 self._gesture_extend = bool(event.ctrl or getattr(event, 'shift', False))
+                self._gesture_characters = context.region.type == 'CHANNELS'
                 self._gesture = dict(area=context.area, region=context.region,
                                      start=point, end=point, dragged=False)
                 _box_gesture = self._gesture
@@ -554,11 +578,24 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
             vta_invalidation.request_redraw()
         if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
             if gesture['dragged']:
-                ids = review_keys_in_box(
-                    self._gesture_view, region.view2d, region.width, region.height,
-                    gesture['start'], gesture['end'], self._gesture_offset,
-                    self._gesture_first, metrics=self._gesture_metrics)
-                _ui().select_timeline_keys(context, ids, extend=self._gesture_extend)
+                if self._gesture_characters:
+                    ids = characters_in_box(self._gesture_view, region.height,
+                        gesture['start'], gesture['end'], self._gesture_first,
+                        metrics=self._gesture_metrics)
+                    _ui().select_timeline_characters(context, ids, extend=self._gesture_extend)
+                else:
+                    ids = review_keys_in_box(
+                        self._gesture_view, region.view2d, region.width, region.height,
+                        gesture['start'], gesture['end'], self._gesture_offset,
+                        self._gesture_first, metrics=self._gesture_metrics)
+                    _ui().select_timeline_keys(context, ids, extend=self._gesture_extend)
+            elif self._gesture_characters:
+                cid = hit_character(self._gesture_view, region.height, gesture['start'][1],
+                                    self._gesture_first, metrics=self._gesture_metrics)
+                if cid is not None:
+                    _ui().select_timeline_character(context, cid, extend=self._gesture_extend)
+                else:
+                    _ui().select_timeline_characters(context, (), extend=self._gesture_extend)
             return self._finish_box('FINISHED')
         return {'RUNNING_MODAL'}
 
