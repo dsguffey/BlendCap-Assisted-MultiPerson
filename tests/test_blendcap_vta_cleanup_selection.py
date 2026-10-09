@@ -122,6 +122,7 @@ class CleanupBlenderTests(unittest.TestCase):
             window_manager=NS(blendcap_vta_motion_start=110, blendcap_vta_motion_end=120,
                               modal_handler_add=mock.Mock()))
         ui = self.ui
+        self.real_timeline_context = ui._is_timeline_context
         review = NS(characters=tuple(NS(character_id=cid, occupied_observation_id=None,
                            motion_untrusted=False) for cid in ('a', 'b', 'c')), source_frame=7)
         for name, value in (('_timeline', self.timeline), ('_location', self.location),
@@ -133,6 +134,45 @@ class CleanupBlenderTests(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(ui.vta_invalidation, 'request_redraw'))
         self.stack.enter_context(mock.patch.object(ui._review_key_selection, '_ids', set()))
         self.stack.enter_context(mock.patch.object(ui._review_key_selection, '_active_id', None))
+
+    def test_loaded_legacy_wrestling_rows_work_from_empty_session_with_real_scope(self):
+        # Structural equivalent of the saved QA file: tagged legacy workspace,
+        # four persisted rows including old test Characters, existing keys and
+        # Cleanup, but no new transient selection stored in the .blend.
+        from blendcap_vta_area_mode import WORKSPACE_TAG
+        from blendcap_vta_timeline import TimelineMotionInterval
+        ui, workspace, context = self.ui, self.workspace, self.context
+        loaded = TimelineView('s', tuple(TimelineCharacter(cid, cid) for cid in
+            ('a', 'QA independence only', 'white', 'yellow')),
+            (TimelineKey('white-key', 'white', 0, 'visible', 'white-obs'),), (),
+            (TimelineMotionInterval('white', 70, 85), TimelineMotionInterval('yellow', 67, 90)))
+        ui._timeline = loaded
+        ui._character_selections.clear()
+        context.area.ui_type = 'DOPESHEET'
+        class Screen(dict):
+            areas = (context.area,)
+        context.screen = Screen()
+        context.workspace = {WORKSPACE_TAG: 1}
+        context.region = NS(type='CHANNELS', height=701, width=401, x=0, y=0)
+        cls = workspace.BLENDCAP_OT_vta_timeline_select
+        snapshot = repr(loaded)
+        with mock.patch.object(ui, '_is_timeline_context', side_effect=self.real_timeline_context):
+            self.assertTrue(cls.poll(context))
+            self.assertEqual(ui.timeline_character_selection(context).character_ids, ())
+            lanes = dict(character_lanes(loaded, context.region.height, metrics=workspace._metrics(context)))
+            for cid, ctrl, expected in (('white', False, ('white',)),
+                    ('yellow', True, ('white', 'yellow')), ('yellow', True, ('white',))):
+                operator = NS()
+                operator._finish_box = MethodType(cls._finish_box, operator)
+                event = NS(type='LEFTMOUSE', value='PRESS', ctrl=ctrl, shift=False,
+                    mouse_region_x=20, mouse_region_y=lanes[cid], mouse_x=20, mouse_y=lanes[cid])
+                self.assertEqual(cls.invoke(operator, context, event), {'RUNNING_MODAL'})
+                event.value = 'RELEASE'
+                self.assertEqual(cls.modal(operator, context, event), {'FINISHED'})
+                self.assertEqual(ui.timeline_character_selection(context).character_ids, expected)
+                self.assertEqual(ui._selection.character_id, cid if len(expected) > 1 else 'white')
+        self.assertEqual(repr(loaded), snapshot)
+        context.scene.frame_set.assert_not_called()
 
     def test_rows_sync_active_globally_but_sets_are_editor_local(self):
         ui, context = self.ui, self.context
@@ -251,6 +291,20 @@ class CleanupBlenderTests(unittest.TestCase):
         self.assertIsNone(colors[1][2])
         self.assertEqual(len({c[0] for c in colors}), 3)
         self.assertTrue(all(len(c[1]) == 4 for c in colors))
+
+    def test_transparent_theme_row_is_composited_not_opaque_white(self):
+        theme = NS(user_interface=NS(wcol_list_item=NS(
+            inner=(1, 1, 1, 0), inner_sel=(.2, .4, .7, 1),
+            text=(.8, .8, .8), text_sel=(1, 1, 1), outline_sel=(.1, .1, .1, 1))),
+            dopesheet_editor=NS(space=NS(back=(.1, .12, .15))))
+        self.context.preferences = NS(themes=[theme])
+        self.assertEqual(self.workspace._row_style(self.context, 'a', None)[0], (.1, .12, .15, 1))
+        self.ui.select_timeline_characters(self.context, ('a', 'b'))
+        active = self.workspace._row_style(self.context, 'a', 'a')[0]
+        selected = self.workspace._row_style(self.context, 'b', 'a')[0]
+        self.assertEqual(active, (.2, .4, .7, 1))
+        self.assertNotEqual(selected, active)
+        self.assertNotEqual(selected, (1, 1, 1, 1))
 
     def test_channel_click_drag_cancel_do_not_select_keys_or_move_time(self):
         ui, workspace, context = self.ui, self.workspace, self.context

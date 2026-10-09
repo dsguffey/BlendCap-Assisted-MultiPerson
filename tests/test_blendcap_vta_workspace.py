@@ -471,6 +471,24 @@ class BlenderWorkspaceTests(unittest.TestCase):
         self.assertIsNone(workspace._channel_handler)
         self.assertEqual(len(bpy.data.actions), pre_actions)
 
+    def test_channel_binding_matches_blender_dispatched_keymap_and_stays_scoped(self):
+        workspace = self.workspace
+        workspace.register()
+        try:
+            bindings = {(keymap.name, keymap.space_type, keymap.region_type)
+                        for keymap, _ in workspace._keymaps}
+            self.assertEqual(bindings, {('Dopesheet', 'DOPESHEET_EDITOR', 'WINDOW'),
+                                       ('Animation Channels', 'EMPTY', 'WINDOW')})
+            native = bpy.context.window_manager.keyconfigs.default.keymaps['Animation Channels']
+            self.assertIn((native.name, native.space_type, native.region_type), bindings)
+            # The generic map is shared with other animation editors; the VTA
+            # poll must reject stock/out-of-scope channels instead of swallowing clicks.
+            self.assertFalse(workspace.BLENDCAP_OT_vta_timeline_select.poll(SimpleNamespace(
+                workspace={}, screen=None, area=SimpleNamespace(type='GRAPH_EDITOR'),
+                region=SimpleNamespace(type='CHANNELS'))))
+        finally:
+            workspace.unregister()
+
     def test_open_is_idempotent_and_stock_dopesheet_poll_is_false(self):
         pre_actions = len(bpy.data.actions)
         self.addon.register()

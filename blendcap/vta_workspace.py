@@ -54,8 +54,13 @@ def _row_style(context, character_id, active):
     selected = bool(selection and character_id in selection.character_ids)
     theme = context.preferences.themes[0]
     item = theme.user_interface.wcol_list_item
-    normal = tuple(item.inner)
-    highlight = tuple(item.inner_sel)
+    # List-item inner is transparent in Blender's default theme. Our custom
+    # opaque canvas cannot discard its alpha (transparent white becomes white).
+    background = tuple(theme.dopesheet_editor.space.back)
+    composite = lambda color: tuple(color[i] * color[3] + background[i] * (1 - color[3])
+                                    for i in range(3)) + (1,)
+    normal = composite(item.inner)
+    highlight = composite(item.inner_sel)
     if character_id == active and selected:
         return highlight, tuple(item.text_sel) + (1,), tuple(item.outline_sel)
     if selected:
@@ -619,9 +624,10 @@ def register():
         _preview_header_registered = True
     config = getattr(bpy.context.window_manager.keyconfigs, 'addon', None)
     if config is not None and not _keymaps:
-        for region in ('WINDOW', 'CHANNELS'):
-            keymap = config.keymaps.new(name='Dopesheet', space_type='DOPESHEET_EDITOR',
-                                        region_type=region)
+        # CHANNELS dispatches Animation Channels (EMPTY/WINDOW), not a
+        # Dopesheet/CHANNELS map. Operator poll still limits it to VTA rows.
+        for name, space in (('Dopesheet', 'DOPESHEET_EDITOR'), ('Animation Channels', 'EMPTY')):
+            keymap = config.keymaps.new(name=name, space_type=space, region_type='WINDOW')
             items = [keymap.keymap_items.new(
                 BLENDCAP_OT_vta_timeline_select.bl_idname, button, 'PRESS', **modifiers,
             ) for button, modifiers in (("LEFTMOUSE", {}),

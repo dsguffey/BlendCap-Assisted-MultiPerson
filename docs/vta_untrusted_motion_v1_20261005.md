@@ -1,5 +1,45 @@
 # V1 Cleanup (backend Untrusted Motion) — implementation and QA handoff
 
+## Corrective fixture/runtime checkpoint — 2026-10-09
+
+Manual QA exposed two public presentation defects, not stale installation or
+lost authority. Blender dispatches CHANNELS events through **Animation Channels
+(EMPTY/WINDOW)**, not Dopesheet/CHANNELS. The existing mouse actions now register
+in that native map; operator polling still confines handling to opted-in VTA
+Dope Sheet CHANNELS/WINDOW regions. Timeline handling stays Dopesheet/WINDOW;
+no hotkeys or selection semantics changed. The opaque custom row canvas now
+composites native list-item alpha against the Dope Sheet background. Default
+transparent white is no longer painted as an opaque white row.
+
+The actual user-prefs-loaded extension was already hash-synced before repair;
+no duplicate copy took precedence. Installed runtime:
+`C:/Users/dsguf/AppData/Roaming/Blender Foundation/Blender/5.2/extensions/user_default/blendcap`.
+The changed runtime file was backed up and refreshed; all five relevant files
+match source afterward. Three source and three installed lifecycle cycles pass.
+
+Current canonical human-QA fixture:
+`C:/Design/AI/Projects/Video to Animation/BlendCap-Assisted-MultiPerson/checkpoints/dev-preview/vta_cleanup_selection_20261009/fixture/VTA_Overlay_Wrestling.blend`.
+Only **white/yellow** remain. Standard confirmed Character-deletion commands
+removed **a** and **QA independence only** from this new companion copy only.
+Exact state comparison proves only the Character list changed: both frame-0
+identity keys, all tracking revisions/records (68 effective ticks), both Cleanup
+ranges, source, analysis revision/linkage and all cache/scoring files are retained.
+The .blend/layout itself is byte-identical to the original, whose entire fixture
+tree remains unchanged. Historical semantic files are copied, not relabeled.
+
+Selection mechanics passed on the original uncleaned fixture before cleanup,
+then on the reopened new copy with blank initial selection. Tests cover the
+loaded legacy row/session configuration, native dispatched keymap/scoping and
+transparent theme colors. Public **374 total / 368 passed / six existing skips**;
+focused VTA **187 passed**; private unchanged **233 passed**. Compilation and
+whitespace checks pass. The full-public shutdown retains its tiny baseline
+unfreed-block diagnostic; lifecycle exits cleanly. Overlay candidates and draw
+callback are validated with mocked GPU drawing, not live rendered acceptance.
+Live native click/visual acceptance remains user QA; no desktop automation.
+Checks and pre-repair backups live under the same checkpoint (`repair_backups/`,
+`repair_verification.json`). Candidate suppression and overlap cycling remain
+deferred; schema, tracker, Cleanup, Recovery and provider behavior are unchanged.
+
 ## Current Cleanup UX checkpoint — 2026-10-09
 
 Cleanup Range is the user-facing name for a Character-specific interval where
@@ -119,7 +159,7 @@ under the archive's `installed-v3-runtime/`. Full public-suite shutdown prints
 Blender's small unfreed-block diagnostic; tests and process exit pass, and focused
 and lifecycle runs exit cleanly. No live visual acceptance is claimed.
 
-QA fixture:
+Historical October 5 QA fixture (preserved, no longer canonical):
 `checkpoints/dev-preview/vta_untrusted_motion_20261005/fixture/VTA_Overlay_Wrestling.blend`.
 Yellow Blender 67–90 and White 70–85 are mechanical QA ranges, NOT new semantic
 truth. All original files/caches/scoring artifacts and identity keys are unchanged.
@@ -131,13 +171,13 @@ remains user QA. No native desktop control.
 
 ## Manual QA
 
-After restarting Blender, use the disposable fixture above in VTA Mode (`N`).
+After restarting Blender, use the new canonical fixture in VTA Mode.
 
-1. Select one Character, Ctrl-select a second; confirm one is visibly active.
-2. Use current-frame Start and End at two playhead positions.
-3. Mark for Cleanup; confirm both selected rows receive the range.
-4. Deselect one Character; confirm subsequent Cleanup affects only the remaining row.
-5. Glance at the tracking ticks and their small explanation.
+1. Open the new canonical .blend.
+2. Click white.
+3. Ctrl-click yellow.
+4. Confirm one is active and both can be selected.
+5. Confirm the old test Characters are gone.
 
 Next milestone: user live QA and narrow repairs only. No automatic smoothing,
 manual-box Recovery, threshold tuning or reconstruction without separate approval.
