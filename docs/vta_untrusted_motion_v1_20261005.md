@@ -1,4 +1,49 @@
-# V1 Cleanup (backend Untrusted Motion) — implementation and QA handoff
+# V1 Hold Animation (backend Untrusted Motion) — implementation and QA handoff
+
+## Reviewed skeletal output checkpoint — 2026-10-09
+
+Current terminology is **Hold Animation / Hold Range / Hold Start / Hold End**.
+The following older checkpoints are historical. Current normative policy lives
+in the amended Project Documentation DESIGN_BIBLE / ARCHITECTURE / STORAGE_CACHE.
+
+- ProjectState 0.7 adds reversible revision/observation-scoped suppression;
+  0.5/0.6 load without suppression. Raw detector caches are never edited.
+- Assigned suppression requires confirmation, atomically clears the exact
+  conflicting current key and retains that key in audit history. Only consumed
+  observation tracking dependencies retire; restore requires explicit updates.
+- Normal Preview hides suppression; Show Suppressed reveals subdued labelled
+  boxes and Restore. Repeated clicks cycle containing boxes, resetting on
+  source/frame/pointer/transform changes. No Character is required to inspect.
+- Generate / Update Animation explicitly calls the installed existing
+  Fast-SAM-3D-Body estimator with reviewed boxes, exporting Character NPZ/BVH
+  and durable-ID-owned Blender armatures. No legacy person selection, detector
+  inference, new review keys, automatic tracking or smoothing across Hold.
+- Final evaluated pose AND root are constant through inclusive Hold and until
+  a new post-Hold user candidate key. No prior successful pose is unavailable,
+  never a fabricated rest pose. Other Characters are independent.
+- Review changes retain older output and mark it stale. Generate explicitly to
+  publish a new immutable run. Only owned projections in the target Scene are
+  replaced; unrelated objects and other Scene projections survive.
+
+Real installed CUDA/FP32 body output was verified: two distinct 54-bone rigs,
+18 total reconstructed samples, 241 exact held Character-frame evaluations.
+Current source review supports 17 white samples but only one yellow sample;
+no unsupported moving output was fabricated. Model pose quality/visual
+acceptance still requires human QA. Public suite: 386 total, 380 passed, six
+existing skips; private: 249 passed. No scoring/threshold/keymap/theme changes.
+
+Original canonical fixture is unchanged against the task-start copy. The older
+repair report's project hash predates a user edit; it is not the task baseline.
+Current output QA derivative (with matching companion):
+`checkpoints/dev-preview/vta_output_20261009/final_fixture/VTA_Overlay_Wrestling.blend`.
+Verification/backups: `checkpoints/dev-preview/vta_output_20261009/`.
+Previous runs and model warnings remain there; no generated files are committed.
+
+Restart Blender before QA. Only four checks: suppress/show/restore a bad
+candidate; generate distinct Character rigs; mark a short Hold and regenerate
+to inspect pose/root while the other Character continues where supported;
+confirm that ending Hold alone does not resume, while explicit post-Hold
+assignment/Update Tracking/regeneration does. No native desktop automation used.
 
 ## Corrective fixture/runtime checkpoint — 2026-10-09
 

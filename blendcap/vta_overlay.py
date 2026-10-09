@@ -16,6 +16,7 @@ class OverlayCandidate:
     box_xyxy: tuple[float, float, float, float]
     assigned_character_name: str | None
     selected: bool
+    suppressed: bool = False
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class OverlayRegionCandidate:
     region_box: tuple[float, float, float, float]
     assigned_character_name: str | None
     selected: bool
+    suppressed: bool = False
 
 
 @dataclass(frozen=True)
@@ -72,10 +74,12 @@ def build_overlay_candidates(view, selected_observation_id: str) -> tuple[Overla
     return tuple(
         OverlayCandidate(
             row.observation_id,
-            row.assigned_character_name or f"Candidate {row.position or index}",
+            (row.assigned_character_name or f"Candidate {row.position or index}")
+                + (" — suppressed" if row.suppressed else ""),
             row.box_xyxy,
             row.assigned_character_name,
             row.observation_id == selected_observation_id,
+            row.suppressed,
         ) for index, row in enumerate(view.candidates, start=1)
     )
 
@@ -107,6 +111,7 @@ def build_overlay_region_candidates(view, selected_observation_id: str, view2d):
             ),
             item.assigned_character_name,
             item.selected,
+            item.suppressed,
         )
         for item in build_overlay_candidates(view, selected_observation_id)
     )
@@ -119,8 +124,12 @@ def hit_test_overlay_candidates(candidates, point, *, enabled: bool = True):
     observation ID.  This is interaction policy only and never changes the
     candidate inventory or its identity.
     """
-    if not enabled:
-        return None
+    hits = overlay_candidate_hits(candidates, point) if enabled else ()
+    return hits[0] if hits else None
+
+
+def overlay_candidate_hits(candidates, point):
+    """Deterministic containing inventory, shared by click and repeated-click cycling."""
     px, py = point
     hits = []
     for candidate in candidates:
@@ -130,7 +139,23 @@ def hit_test_overlay_candidates(candidates, point, *, enabled: bool = True):
         if left <= px <= right and bottom <= py <= top:
             area = (right - left) * (top - bottom)
             hits.append((area, candidate.observation_id))
-    return min(hits)[1] if hits else None
+    return tuple(item[1] for item in sorted(hits))
+
+
+class OverlapCycle:
+    def __init__(self):
+        self.key = None
+        self.point = None
+        self.index = -1
+
+    def select(self, candidates, point, identity):
+        hits = overlay_candidate_hits(candidates, point)
+        # Include display transform/inventory: zoom, source and frame changes reset.
+        key = (identity, tuple((c.observation_id, c.region_box) for c in candidates), hits)
+        nearby = self.point is not None and sum((a-b)**2 for a,b in zip(point,self.point)) <= 16
+        self.index = (self.index + 1) % len(hits) if hits and nearby and key == self.key else 0
+        self.key, self.point = key, tuple(point)
+        return hits[self.index] if hits else None
 
 
 def hit_test_review_candidate(
@@ -265,6 +290,8 @@ def _draw() -> None:
         for item, placement in zip(candidates, label_rects):
             x1, y1, x2, y2 = item.region_box
             color = (1.0, .75, .1, 1.0) if item.selected else (.1, .85, 1.0, 1.0)
+            if item.suppressed and not item.selected:
+                color = (.45, .45, .45, .65)
             batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ((x1,y1),(x2,y1),(x2,y2),(x1,y2),(x1,y1))})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)
             left, bottom, right, top = placement.rect

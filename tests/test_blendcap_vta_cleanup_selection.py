@@ -74,7 +74,7 @@ class CharacterSelectionTests(unittest.TestCase):
         self.assertEqual(derived_mark_color('visible'), (.55, .68, .72, .55))
         self.assertEqual(derived_mark_color('unresolved'), (.48, .5, .52, .4))
         message = tracking_update_error(VtaReviewUiError('Motion is Untrusted here; clear Motion Trust first'))
-        self.assertIn('Cleanup', message)
+        self.assertIn('Hold', message)
         self.assertNotIn('Untrusted', message)
         self.assertNotIn('Motion Trust', message)
 
@@ -359,7 +359,7 @@ class CleanupBlenderTests(unittest.TestCase):
         calls.clear()
         ui.draw_cleanup_commands(Layout(), self.context)
         self.assertTrue(all(c[2].enabled for c in calls))
-        self.assertEqual([c[1] for c in calls][-2:], ['Mark for Cleanup', 'Clear Cleanup Range'])
+        self.assertEqual([c[1] for c in calls][-2:], ['Hold Animation', 'Clear Hold Range'])
 
 
 if __name__ == '__main__':

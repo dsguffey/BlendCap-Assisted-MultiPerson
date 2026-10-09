@@ -129,7 +129,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
             self.assertEqual({call[0] for call in menu.calls}, {
             "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
-            "blendcap.vta_analyze"
+            "blendcap.vta_analyze", "blendcap.vta_generate_animation"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()

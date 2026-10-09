@@ -683,13 +683,40 @@ class BlenderAssignOperatorTests(unittest.TestCase):
             ctx.window_manager.blendcap_vta_candidate = self.selection.observation_id
             ctx.window_manager.blendcap_vta_character = self.selection.character_id
 
-        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
-             mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="assigned"), \
+        region_candidate = self.panel_ui.vta_overlay.OverlayRegionCandidate('assigned', 'Candidate 1', (0, 0, 20, 20), 'red', False)
+        self.panel_ui._overlap_cycle = self.panel_ui.vta_overlay.OverlapCycle()
+        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=(region_candidate,)), \
              mock.patch.object(self.panel_ui, "role_for", return_value="preview"), \
              mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
             self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))
         self.assertEqual(self.selection.character_id, "character-red")
         self.assertEqual(wm.blendcap_vta_character, "character-red")
+
+    def test_suppression_assigned_candidate_requires_dialog_before_core_apply(self):
+        backend = SimpleNamespace(prepare_suppression=mock.Mock(return_value=SimpleNamespace(
+            assigned_character_ids=('character-red',))), apply_suppression=mock.Mock())
+        operator = SimpleNamespace(restore=False, report=mock.Mock(),
+            execute=mock.Mock(side_effect=AssertionError('must not apply before confirmation')))
+        self.selection.observation_id = 'assigned'
+        with mock.patch.object(self.panel_ui, '_get_backend', return_value=backend), \
+             mock.patch.object(self.panel_ui, '_edit_available', return_value=True):
+            result = self.panel_ui.BLENDCAP_OT_vta_suppress_candidate.invoke(operator, self.context, None)
+        self.assertEqual(result, {'RUNNING_MODAL'})
+        self.assertEqual(len(self.dialogs), 1)
+        backend.apply_suppression.assert_not_called()
+        operator.execute.assert_not_called()
+
+    def test_suppression_confirmation_rejects_changed_source_without_apply(self):
+        backend = SimpleNamespace(apply_suppression=mock.Mock())
+        operator = SimpleNamespace(restore=False, report=mock.Mock(), _request=object(), _location=self.location)
+        other = review_ui.ReviewLocation(Path('other_vta'), Path('other.mp4'), 12, 13)
+        with mock.patch.object(self.panel_ui, '_get_backend', return_value=backend), \
+             mock.patch.object(self.panel_ui, '_edit_available', return_value=True), \
+             mock.patch.object(self.panel_ui, '_location_from_context', return_value=other):
+            result = self.panel_ui.BLENDCAP_OT_vta_suppress_candidate.execute(operator, self.context)
+        self.assertEqual(result, {'CANCELLED'})
+        backend.apply_suppression.assert_not_called()
+        self.assertIn('source changed', operator.report.call_args.args[1])
 
     def test_sidebar_character_change_updates_shared_timeline_context(self):
         timeline = SimpleNamespace(characters=(
@@ -721,8 +748,9 @@ class BlenderAssignOperatorTests(unittest.TestCase):
             ctx.window_manager.blendcap_vta_candidate = self.selection.observation_id
             ctx.window_manager.blendcap_vta_character = self.selection.character_id
 
-        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=()), \
-             mock.patch.object(self.panel_ui.vta_overlay, "hit_test_overlay_candidates", return_value="observation-a"), \
+        region_candidate = self.panel_ui.vta_overlay.OverlayRegionCandidate('observation-a', 'Candidate 1', (0, 0, 20, 20), None, False)
+        self.panel_ui._overlap_cycle = self.panel_ui.vta_overlay.OverlapCycle()
+        with mock.patch.object(self.panel_ui.vta_overlay, "build_overlay_region_candidates", return_value=(region_candidate,)), \
              mock.patch.object(self.panel_ui, "role_for", return_value="preview"), \
              mock.patch.object(self.panel_ui, "_sync_properties", side_effect=sync):
             self.assertTrue(self.panel_ui.select_overlay_candidate_at(context, (10, 10)))

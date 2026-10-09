@@ -176,8 +176,8 @@ class MotionBlenderTests(unittest.TestCase):
              mock.patch.object(ui, '_analysis_locked', return_value=False), \
              mock.patch.object(ui, '_timeline', timeline()), mock.patch.object(ui, '_location', location):
             ui.draw_motion_trust(Layout(), context)
-        self.assertIn(('prop', 'Cleanup Start'), calls)
-        self.assertIn(('prop', 'Cleanup End'), calls)
-        self.assertIn(('label', 'Animation: Needs Cleanup'), calls)
-        self.assertIn(('label', 'Cleanup: 6–10'), calls)
-        self.assertIn(('operator', 'Clear Cleanup Range'), calls)
+        self.assertIn(('prop', 'Hold Start'), calls)
+        self.assertIn(('prop', 'Hold End'), calls)
+        self.assertIn(('label', 'Animation Held'), calls)
+        self.assertIn(('label', 'Hold: 6–10'), calls)
+        self.assertIn(('operator', 'Clear Hold Range'), calls)

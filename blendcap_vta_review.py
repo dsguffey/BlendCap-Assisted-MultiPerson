@@ -32,10 +32,11 @@ class CandidateRow:
     assigned_character_id: str | None
     assigned_character_name: str | None
     position: int = 0
+    suppressed: bool = False
 
     @property
     def assignable(self) -> bool:
-        return self.assigned_character_id is None
+        return not self.suppressed and self.assigned_character_id is None
 
 
 @dataclass(frozen=True)
@@ -247,9 +248,18 @@ def visible_frame(location: ReviewLocation, source_frame: int) -> int:
     return source_frame + location.blender_frame - location.source_frame
 
 
+def validate_output_mapping(original: ReviewLocation, current: ReviewLocation) -> None:
+    """Navigation is harmless; a new project/source/strip mapping is not."""
+    if (original.companion_root.resolve() != current.companion_root.resolve()
+            or original.source_path.resolve() != current.source_path.resolve()
+            or original.blender_frame-original.source_frame != current.blender_frame-current.source_frame):
+        raise VtaReviewUiError('Project or source-strip mapping changed. Skeletal output is retained on disk, not imported.')
+
+
 def present_review(
     review: object,
     source_dimensions: tuple[int, int] | None = None,
+    *, show_suppressed: bool = False,
 ) -> ReviewView:
     """Convert the private immutable projection into public immutable rows."""
     try:
@@ -285,11 +295,14 @@ def present_review(
                 analysis_revision_id=item.analysis_revision_id,
                 observation_id=item.observation_id,
                 box_xyxy=tuple(item.box_xyxy),
-                label=_candidate_label(index, item.observation_id),
+                label=_candidate_label(index, item.observation_id)
+                    + (' — suppressed' if getattr(item, 'suppressed', False) else ''),
                 assigned_character_id=assignments.get(item.observation_id),
                 assigned_character_name=names.get(assignments.get(item.observation_id)),
+                suppressed=getattr(item, 'suppressed', False),
             )
             for index, item in enumerate(review.candidates, start=1)
+            if show_suppressed or not getattr(item, 'suppressed', False)
         )
         characters = tuple(
             sorted(
@@ -384,7 +397,7 @@ class SelectionState:
             (item for item in view.characters if item.character_id == self.character_id),
             None,
         )
-        if candidate is None or character is None:
+        if candidate is None or candidate.suppressed or character is None:
             return None
         if candidate.assigned_character_id == character.character_id:
             return None
@@ -434,10 +447,10 @@ def user_message(error: BaseException) -> str:
     if code in ERROR_MESSAGES:
         return ERROR_MESSAGES[code]
     if isinstance(error, VtaReviewUiError):
-        return (str(error).replace('Motion is Untrusted here', 'Animation needs Cleanup here')
-                .replace('Untrusted Motion Interval', 'Cleanup Range')
-                .replace('Untrusted interval', 'Cleanup Range')
-                .replace('Motion Trust', 'Cleanup'))
+        return (str(error).replace('Motion is Untrusted here', 'Animation needs Hold here')
+                .replace('Untrusted Motion Interval', 'Hold Range')
+                .replace('Untrusted interval', 'Hold Range')
+                .replace('Motion Trust', 'Hold'))
     return f"VTA review failed: {error}"
 
 
@@ -483,7 +496,7 @@ class PrivateCoreBackend:
         self._core = core
         self._source_digest_cache: dict[Path, tuple[int, int, str]] = {}
 
-    def query(self, location: ReviewLocation) -> ReviewView:
+    def query(self, location: ReviewLocation, *, show_suppressed=False) -> ReviewView:
         project, cache, revision_id = self._load_context(location)
         try:
             review = self._core.build_frame_review(
@@ -499,7 +512,22 @@ class PrivateCoreBackend:
         source = getattr(cache, "source", None)
         require_dimensions = getattr(source, "require_dimensions", None)
         dimensions = require_dimensions() if callable(require_dimensions) else None
-        return present_review(review, dimensions)
+        return present_review(review, dimensions, show_suppressed=show_suppressed)
+
+    def prepare_suppression(self, location, observation_id, *, suppressed):
+        project, cache, _revision = self._load_context(location)
+        try:
+            return self._core.build_candidate_suppression_request(
+                project, cache, observation_id, suppressed=suppressed)
+        except self._core.StateModelError as exc:
+            raise VtaReviewUiError(str(exc)) from exc
+
+    def apply_suppression(self, location, request, *, confirmed=False):
+        try:
+            return self._core.apply_candidate_suppression_and_persist(
+                location.companion_root, request, confirmed=confirmed)
+        except self._core.StateModelError as exc:
+            raise VtaReviewUiError(str(exc)) from exc
 
     def source_coverage(self, location: ReviewLocation) -> tuple[int, int]:
         """Read authoritative project coverage without requiring an analysis cache."""
@@ -560,7 +588,7 @@ class PrivateCoreBackend:
                 or any(not isinstance(cid, str) or not cid for cid in character_ids)
                 or len(set(character_ids)) != len(character_ids)
                 or not set(character_ids) <= {c.character_id for c in project.characters}):
-            raise VtaReviewUiError("Select existing Character rows before editing Cleanup.")
+            raise VtaReviewUiError("Select existing Character rows before editing Hold.")
         start, end = map_visible_analysis_range(location, source["start_frame"], source["end_frame"],
                                                start_visible, end_visible)
         digest = hashlib.sha256(project.to_json().encode("utf-8")).hexdigest()
