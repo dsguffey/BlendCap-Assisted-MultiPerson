@@ -65,7 +65,13 @@ def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height):
     if (rots.ndim != 3 or rots.shape[1:] != (3,3) or joints.shape != (rots.shape[0],3)
             or cam.shape != (3,)):
         raise RuntimeError('Reconstruction returned malformed skeletal channels')
-    return arrays if all(np.isfinite(value).all() for value in arrays.values()) else None
+    if not all(np.isfinite(value).all() for value in arrays.values()):
+        return None
+    focal = np.asarray(person.get('focal_length'))
+    if focal.size != 1 or not np.issubdtype(focal.dtype, np.number) or not np.isfinite(focal).all() or focal.item() <= 0:
+        raise RuntimeError('Reconstruction requires a finite positive source focal_length')
+    arrays['focal_length'] = float(focal.item())
+    return arrays
 
 
 def validate_hold_seed(plan, character, seed, root):
@@ -76,7 +82,7 @@ def validate_hold_seed(plan, character, seed, root):
     if digest(path) != seed['output_sha256']:
         raise RuntimeError('Hold seed output hash changed')
     report = json.loads(path.read_text(encoding='utf-8'))
-    if report.get('schema') != 'vta-reviewed-skeletal-output' or report.get('version') not in (1, 2):
+    if report.get('schema') != 'vta-reviewed-skeletal-output' or report.get('version') not in (1, 2, 3):
         raise RuntimeError('Unsupported Hold seed output schema')
     old_plan = report['plan']
     for field in ('project_id', 'source_id', 'source_video_sha256', 'fps', 'width', 'height'):
@@ -100,6 +106,17 @@ def validate_hold_seed(plan, character, seed, root):
     bvh = (path.parent / record['bvh']).resolve()
     if not bvh.is_relative_to(path.parent) or digest(bvh) != record['bvh_sha256']:
         raise RuntimeError('Hold seed BVH hash changed')
+    if report['version'] == 3:
+        import numpy as np
+        from vta_core.camera_registration import source_camera_sample
+        with np.load(npz, allow_pickle=False) as raw:
+            samples = [source_camera_sample(f, (raw['joint_coords'][i, 1] + raw['cam_t'][i]).tolist(),
+                float(raw['focal_length'][i]), plan['width'], plan['height'])
+                for i, f in enumerate(record['source_frames'])]
+        if record.get('camera_registration') != {'version': 1,
+                'convention': 'camera-centred-metres; world=(cv-x,cv-z,-cv-y); centred-square-pixels',
+                'samples': samples}:
+            raise RuntimeError('Hold seed camera calibration differs from raw reconstruction')
     return npz
 
 
@@ -149,6 +166,7 @@ def run(args):
     from vta_core.source_preflight import preflight_source
     from vta_core.source_decode import decode_source_frame
     from vta_core.provider_contract import ProviderFrameRequest
+    from vta_core.camera_registration import source_camera_sample
     from blendcap_vta_analyze_worker import _source_for_video
     lock = root / 'analysis/vta-analysis.lock'
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +199,7 @@ def run(args):
             'capture_source_sha256': digest(bundle / 'save_mhr_data.py'),
             'export_source_sha256': digest(bundle / 'npz_to_bvh.py'),
             'private_plan_source_sha256': digest(core / 'vta_core/skeletal_output.py'),
+            'registration_source_sha256': digest(core / 'vta_core/camera_registration.py'),
             'private_state_source_sha256': digest(core / 'vta_core/state_model.py'),
             'environment_python': str(Path(sys.executable).resolve()),
             'command': sys.argv, 'plan_sha256': digest(output / 'plan.json')}
@@ -211,6 +230,9 @@ def run(args):
                     index = list(previous['frame_indices']).index(seed['frame'])
                     pose = {key: previous[name][index].copy() for name, key in (
                         ('global_rots', 'pred_global_rots'), ('joint_coords', 'pred_joint_coords'), ('cam_t', 'pred_cam_t'))}
+                    if 'focal_length' not in previous:
+                        raise RuntimeError('Legacy Hold seed has no camera calibration; regenerate its trustworthy pose first')
+                    pose['focal_length'] = float(previous['focal_length'][index])
                     if not all(np.isfinite(value).all() for value in pose.values()):
                         raise RuntimeError('Previously successful Hold seed contains nonfinite channels')
                 records[character['character_id']]['frames'].append(seed['frame'])
@@ -251,16 +273,22 @@ def run(args):
                 arrays = {name: np.asarray([p[key] for p in record['poses']])
                     for name, key in [('global_rots','pred_global_rots'), ('joint_coords','pred_joint_coords'), ('cam_t','pred_cam_t')]}
                 arrays.update(frame_indices=np.asarray(frames), fps=np.asarray(plan['fps']), blendcap_npz_version=np.asarray(1))
+                arrays['focal_length'] = np.asarray([p['focal_length'] for p in record['poses']])
                 with pose_path.open('xb') as handle:
                     np.savez_compressed(handle, **arrays)
                 command = export_command(sys.executable, bundle, pose_path, bvh_path)
                 subprocess.run(command, cwd=bundle, check=True)
                 item.update(bvh=bvh_path.name, bvh_sha256=digest(bvh_path),
                             npz=pose_path.name, npz_sha256=digest(pose_path), export_command=command)
+                item['camera_registration'] = {'version': 1,
+                    'convention': 'camera-centred-metres; world=(cv-x,cv-z,-cv-y); centred-square-pixels',
+                    'samples': [source_camera_sample(f, (p['pred_joint_coords'][1] + p['pred_cam_t']).tolist(),
+                        p['focal_length'], plan['width'], plan['height'])
+                        for f, p in zip(frames, record['poses'])]}
             exported.append(item)
         if not any(s['state'] != 'unavailable' for c in exported for s in c['schedule']):
             raise RuntimeError('Animation range has no successful trustworthy pose or reusable Hold pose; prior output retained')
-        result = {'schema': 'vta-reviewed-skeletal-output', 'version': 2 if options else 1, 'plan': plan,
+        result = {'schema': 'vta-reviewed-skeletal-output', 'version': 3, 'plan': plan,
                   'provenance': provenance, 'characters': exported,
                   'runtime_seconds': time.monotonic()-started}
         # Reject evidence edits even from writers not honoring the common lock.

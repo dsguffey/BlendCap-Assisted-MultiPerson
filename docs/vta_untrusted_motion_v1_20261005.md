@@ -329,3 +329,53 @@ After restarting Blender, use the new canonical fixture in VTA Mode.
 
 Next milestone: user live QA and narrow repairs only. No automatic smoothing,
 manual-box Recovery, threshold tuning or reconstruction without separate approval.
+
+## October 10 — source-camera registration
+
+The fixture used Blender's uncalibrated startup Camera, while body BVH export
+independently grounded each take and detrended camera translation. VTA also
+dropped the reconstruction focal length. Those standalone-mocap operations do
+not preserve source-camera projection; the screenshot was not a calibrated view.
+
+Derived skeletal output v3 retains raw metre-valued camera pelvis positions and
+source focal pixels in the hashed NPZ, plus registration v1 records independently
+validated against that NPZ. Private `camera_registration.py` defines the common
+camera-centred gauge: CV (right, down, forward) maps to Blender (X, Y, Z) as
+`(x, z, -y)`. The existing importer already maps MHR model axes `(x, y, z)` to
+`(x, -z, y)`. Blender corrects only Root translation so Hips equals the raw
+camera-space pelvis in this basis, cancelling export grounding/detrending without
+changing reconstructed rotations, body inference, or tracker settings.
+
+An owned VTA Source Camera at the origin looks along world +Y, with world +Z up.
+Its centred, square-pixel pinhole focal is `lens_mm = focal_px * 36 / width`;
+source dimensions and movie background are applied. The user's Camera is retained
+unchanged. Bounded updates preserve outside rig channels and camera lens samples;
+absent new calibration retains an existing lens. Hold reuses the original final
+registered channels, never a subset-normalized root. Edited object transforms,
+camera extrinsics/intrinsics, NLA/drivers or incompatible skeletons fail safely.
+
+ProjectState stays 0.7 and plans stay v1/v2. Legacy output v1/v2 remains readable
+but is not retroactively calibrated. A legacy Hold seed missing focal metadata
+requires regenerating its trustworthy pose first; calibration is never guessed.
+Unchanged legacy animation outside a bounded update remains exactly as before.
+This is a camera-centred gauge, not recovered real-world camera motion/gravity.
+Fixed-rest skeleton and monocular reconstruction errors remain; exact performer
+surface alignment is not claimed.
+
+Verification: private 262 passed; public 408 total / 402 passed / six existing
+skips. Eight deterministic regression tests were added across the repositories.
+Real two-Character source frames 6–10 (Blender 7–11) project all ten pelvis
+samples inside reviewed boxes with maximum projection mismatch <0.00025 px.
+158 outside frames and save/reload match exactly. Registered Hold source 8–9
+copies source frame 7 exactly for both Characters; 161 outside frames and lens
+remain unchanged. Multi-joint measurement retains existing fixed-skeleton
+residuals (maximum about 8 cm / 36.3 px in the sampled comparison). Public and
+installed add-ons pass three lifecycle cycles; two installed files are backed
+up and hash-synced. Full-suite shutdown retains Blender's existing small unfreed
+block warning; no test failure. An initial native model-load process crash was
+retained diagnostically; retry and subsequent runs passed. No native UI control.
+
+Disposable QA: `checkpoints/dev-preview/vta_camera_registration_20261010/fixture/VTA_Overlay_Wrestling.blend`.
+Restart Blender, open that copy, use a 3D View and Numpad 0, scrub Blender 7–11.
+Frames 9–10 exercise exact Hold. Original fixtures and semantic artifacts remain
+unchanged. User visual acceptance remains a manual gate; no push.

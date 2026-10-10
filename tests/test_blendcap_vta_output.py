@@ -96,7 +96,7 @@ class OutputBoundaryTests(unittest.TestCase):
         import numpy as np
         evidence = {'box_xyxy': [10,20,80,200]}
         pose = {'bbox': np.asarray([10,100,80,280]), 'pred_global_rots': np.tile(np.eye(3), (2,1,1)),
-                'pred_joint_coords': np.zeros((2,3)), 'pred_cam_t': np.ones(3)}
+                'pred_joint_coords': np.zeros((2,3)), 'pred_cam_t': np.ones(3), 'focal_length': 700.0}
         estimator = SimpleNamespace(process_one_image=mock.Mock(return_value=[pose]))
         torch = SimpleNamespace(inference_mode=nullcontext)
         rgb = np.zeros((300,100,3), dtype=np.uint8)
@@ -510,15 +510,18 @@ Frame Time: 0.1
                 self.assertIn(second[0].name, bpy.data.objects)
                 report['plan'] = plan
                 output.write_text(json.dumps(report))
-                before = (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures))
+                before = (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures), set(bpy.data.cameras))
                 real_import = self.output._import_bvh
                 def fail_after_creation(*args, **kwargs):
                     real_import(*args, **kwargs)
+                    # Camera data owns the staged lens Action until removed.
+                    camera = bpy.data.cameras.new('injected staged camera')
+                    camera.keyframe_insert('lens', frame=1)
                     raise RuntimeError('Injected staging failure after real BVH import')
                 with mock.patch.object(self.output, '_import_bvh', side_effect=fail_after_creation):
                     with self.assertRaisesRegex(RuntimeError, 'staging failure'):
                         self.output.import_reviewed_output(output, location, backend)
-                self.assertEqual(before, (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures)))
+                self.assertEqual(before, (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures), set(bpy.data.cameras)))
                 self.assertIn(second[0].name, bpy.data.objects)
                 # No-op/failed importer must never retime the active prior rig.
                 old_action = second[0].animation_data.action
