@@ -20,6 +20,47 @@ except ImportError:
 
 
 class OutputBoundaryTests(unittest.TestCase):
+    def test_stop_path_cannot_target_another_project_or_existing_report(self):
+        from blendcap_vta_reconstruct_worker import run
+        for stop in ('other/generation-job.stop', 'project/reconstruction/output.json'):
+            with self.subTest(stop=stop), self.assertRaisesRegex(RuntimeError, 'stop request'):
+                run(SimpleNamespace(core_root='private', blendcap_root='bundle',
+                    companion_root='project', video='video.mp4', stop_file=stop))
+    def test_hold_seed_reuses_only_immutable_current_evidence_and_never_outside_inference(self):
+        import json
+        import blendcap_vta_reconstruct_worker as worker
+        sample = {'frame': 2, 'mode': 'infer', 'reason': 'user-anchor', 'evidence': {'observation_id': 'exact'}}
+        character = {'character_id': 'c', 'samples': [{'frame': 5, 'mode': 'hold'}], 'hold_context': [sample]}
+        fields = dict(project_id='p', source_id='s', source_video_sha256='hash', fps=24, width=100, height=50)
+        plan = {**fields, 'source_range': [5, 6]}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root/'reconstruction/run-old'
+            run.mkdir(parents=True)
+            pose = run/'pose.npz'
+            pose.write_bytes(b'immutable pose artifact')
+            bvh = run/'pose.bvh'
+            bvh.write_bytes(b'immutable final BVH channels')
+            report = {'schema': 'vta-reviewed-skeletal-output', 'version': 1,
+                'plan': {**fields, 'characters': [{'character_id': 'c', 'samples': [sample]}]},
+                'characters': [{'character_id': 'c', 'source_frames': [2], 'npz': pose.name,
+                    'npz_sha256': worker.digest(pose), 'schedule': [
+                        {'frame': 2, 'state': 'reconstructed', 'pose_source_frame': 2}],
+                    'bvh': bvh.name, 'bvh_sha256': worker.digest(bvh)}]}
+            worker.write_new_json(run/'output.json', report)
+            seed = worker.find_hold_seed(plan, character, root)
+            self.assertEqual(seed['frame'], 2)
+            self.assertEqual(worker.validate_hold_seed(plan, character, seed, root), pose)
+            altered = {**character, 'hold_context': [{**sample, 'evidence': {'observation_id': 'other'}}]}
+            self.assertIsNone(worker.find_hold_seed(plan, altered, root))
+            with self.assertRaisesRegex(RuntimeError, 'current reviewed evidence'):
+                worker.validate_hold_seed(plan, altered, seed, root)
+            self.assertIsNone(worker.find_hold_seed(plan, {**character, 'samples': [
+                {'frame': 5, 'mode': 'infer'}, {'frame': 6, 'mode': 'hold'}]}, root))
+            pose.write_bytes(b'tampered')
+            with self.assertRaisesRegex(RuntimeError, 'pose hash changed'):
+                worker.validate_hold_seed(plan, character, seed, root)
+
     def test_async_output_accepts_navigation_but_rejects_new_project_source_and_offset(self):
         location = ReviewLocation(Path('a_vta'), Path('video.mp4'), 0, 10)
         validate_output_mapping(location, replace(location, source_frame=5, blender_frame=15))
@@ -102,6 +143,207 @@ class OutputBoundaryTests(unittest.TestCase):
 
 @unittest.skipUnless(bpy is not None, 'Blender runtime required')
 class BlenderOutputTests(unittest.TestCase):
+    def test_cooperative_cancel_preserves_review_and_stabilizes_status(self):
+        import sys
+        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
+        view = object()
+        process = SimpleNamespace(poll=lambda: None)
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(ui, '_reconstruction_stop', Path(directory)/'generation-unique.stop'), \
+             mock.patch.object(ui, '_reconstruction_process', process), \
+             mock.patch.object(ui, '_view', view):
+            operator = SimpleNamespace(action='CANCEL', report=mock.Mock())
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, bpy.context), {'FINISHED'})
+            self.assertTrue(ui._reconstruction_stop.is_file())
+            ui._reconstruction_process = SimpleNamespace(poll=lambda: 1, returncode=1)
+            ui._reconstruction_timer()
+            self.assertIn('cancelled', ui._generation_status)
+            self.assertFalse(ui._status_is_error)
+            self.assertIs(ui._view, view)
+    def test_hold_seed_copies_original_final_channels_not_span_renormalized_values(self):
+        import json
+        seed_rig = self.rig('final-seed', [0, 2])
+        target = self.rig('renormalized-segment', [2])
+        # Keep the helper's disposable import separate from fixture cleanup.
+        target['vta_character_id'] = 'c'
+        target.pose.bones['Root'].location.x = 500
+        target.pose.bones['Root'].keyframe_insert('location', frame=1)
+        schedule = [{'frame': f, 'state': 'held', 'pose_source_frame': 2} for f in (5, 6)]
+        self.output.retime_reviewed_action(target, [2], schedule, 1)
+        seed_values = {(fc.data_path, fc.array_index): fc.evaluate(2)
+                       for fc in self.output._iter_action_fcurves(seed_rig.animation_data.action)}
+        def imported(*args, **kwargs):
+            seed_copy = seed_rig.copy()
+            seed_copy.data = seed_rig.data.copy()
+            seed_copy.animation_data.action = seed_rig.animation_data.action.copy()
+            bpy.context.collection.objects.link(seed_copy)
+            bpy.context.view_layer.objects.active = seed_copy
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'source.bvh').write_bytes(b'hash-validated source')
+            (root/'output.json').write_text(json.dumps({'characters': [{'character_id': 'c',
+                'bvh': 'source.bvh', 'bvh_sha256': self.output._hash(root/'source.bvh'), 'source_frames': [0, 2]}]}))
+            with mock.patch.object(self.output, '_import_bvh', side_effect=imported):
+                self.output._copy_final_hold_seed(target, {'output': 'output.json', 'frame': 2}, schedule, root, 1)
+        for fc in self.output._iter_action_fcurves(target.animation_data.action):
+            if fc.data_path not in ('hide_render', 'hide_viewport'):
+                self.assertEqual(fc.evaluate(6), seed_values[fc.data_path, fc.array_index])
+                self.assertEqual(fc.evaluate(7), seed_values[fc.data_path, fc.array_index])
+
+    def test_generate_range_launches_source_bounds_and_keeps_hold_controls_distinct(self):
+        import sys
+        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
+        wm = SimpleNamespace(blendcap_vta_animation_start=11, blendcap_vta_animation_end=15,
+            blendcap_vta_motion_start=67, blendcap_vta_motion_end=90)
+        context = SimpleNamespace(window_manager=wm, scene=bpy.context.scene)
+        operator = SimpleNamespace(action='RANGE', report=mock.Mock())
+        plan = mock.Mock(return_value={})
+        backend = SimpleNamespace(_load_context=lambda _: ('project', 'cache', 'revision'),
+                                  _core=SimpleNamespace(build_skeletal_plan=plan))
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
+                 Path(directory), Path(directory)/'video.mp4', 0, 1)), \
+             mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, '_edit_available', return_value=True), \
+             mock.patch.object(ui, '_python_exe', return_value='managed-python.exe'), \
+             mock.patch.object(Path, 'is_file', return_value=True), \
+             mock.patch.object(ui.subprocess, 'Popen', return_value=SimpleNamespace(poll=lambda: None)) as launch, \
+             mock.patch.object(ui, '_reconstruction_process', None), \
+             mock.patch.object(ui, '_backend_root', Path('private')), \
+             mock.patch.object(bpy.app.timers, 'register'):
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'FINISHED'})
+            plan.assert_called_once_with('project', 'cache', frame_range=(10, 14))
+            command = launch.call_args.args[0]
+            self.assertEqual(command[command.index('--start-frame')+1], '10')
+            self.assertEqual(command[command.index('--end-frame')+1], '14')
+            self.assertIn('11–15', ui._generation_status)
+            self.assertEqual((wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end), (67, 90))
+            launch.reset_mock()
+            wm.blendcap_vta_animation_start = 20
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'CANCELLED'})
+            launch.assert_not_called()
+            self.assertIn('must not exceed', operator.report.call_args.args[1])
+
+    def test_partial_actions_compose_overlap_hold_independence_and_reload(self):
+        obj = self.rig('range-white', list(range(12)))
+        other = self.rig('range-yellow', list(range(12)))
+        schedule = [{'frame': f, 'state': 'reconstructed', 'pose_source_frame': f} for f in range(12)]
+        for target in (obj, other):
+            self.output.retime_reviewed_action(target, list(range(12)), schedule, 1)
+        def values(target):
+            result = {}
+            for frame in range(0, 15):
+                bpy.context.scene.frame_set(frame)
+                result[frame] = self.matrix(target), target.hide_render
+            return result
+        independent = values(other)
+        def keys(action):
+            return {(fc.data_path, fc.array_index): tuple((tuple(p.co), p.interpolation)
+                    for p in fc.keyframe_points) for fc in self.output._iter_action_fcurves(action)}
+        original_action = obj.animation_data.action
+        for start, end in ((4, 6), (8, 10), (5, 5)):
+            before, before_keys = values(obj), keys(obj.animation_data.action)
+            segment = self.rig('range-segment', [start-1, end-1] if start != end else [start-1])
+            segment.pose.bones['Root'].location.x = 50 + start
+            segment.pose.bones['Root'].keyframe_insert('location', frame=1)
+            frames = [start-1, end-1] if start != end else [start-1]
+            held = [{'frame': f, 'state': 'held' if f > start-1 and f < end-1 else 'reconstructed',
+                     'pose_source_frame': start-1 if f < end-1 else end-1} for f in range(start-1, end)]
+            self.output.retime_reviewed_action(segment, frames, held, 1)
+            new = self.output.merge_reviewed_range(obj, segment.animation_data.action, start, end)
+            # Staging itself cannot touch the previous Action.
+            self.assertEqual(keys(obj.animation_data.action), before_keys)
+            obj.animation_data.action = new
+            obj.animation_data.action_slot = new.slots[0]
+            after = values(obj)
+            for frame in before:
+                if not start <= frame <= end:
+                    self.assertEqual(before[frame], after[frame], frame)
+            after_keys = keys(new)
+            for channel, points in before_keys.items():
+                for point in points:
+                    if not start <= point[0][0] <= end:
+                        self.assertIn(point, after_keys[channel])
+            self.assertNotEqual(before[start][0], after[start][0])
+            if end-start > 1:
+                self.assertEqual(after[start][0], after[start+1][0])
+            self.assertEqual(values(other), independent)
+        self.assertIn(original_action.name, bpy.data.actions)
+        expected = values(obj)
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory)/'ranges.blend')
+            bpy.data.libraries.write(path, {obj})
+            with bpy.data.libraries.load(path) as (source, target):
+                target.objects = source.objects
+            restored = target.objects[0]
+            bpy.context.collection.objects.link(restored)
+            try:
+                self.assertEqual(values(restored), expected)
+            finally:
+                bpy.data.objects.remove(restored, do_unlink=True)
+
+    def test_range_rejects_interpolation_nla_and_channel_changes_without_mutation(self):
+        obj = self.rig('unsafe-range', [1, 2])
+        action = obj.animation_data.action
+        with self.assertRaisesRegex(ValueError, 'edited/interpolated'):
+            self.output.merge_reviewed_range(obj, action, 1, 2)
+        self.assertIs(obj.animation_data.action, action)
+        obj.animation_data.nla_tracks.new()
+        with self.assertRaisesRegex(ValueError, 'NLA'):
+            self.output.merge_reviewed_range(obj, action, 1, 2)
+
+    def test_draw_refresh_scrub_defers_id_writes_completion_and_failure_preserve_review(self):
+        import sys
+        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
+        view = present_review(Review(), source_dimensions=(100, 100))
+        process = SimpleNamespace(poll=mock.Mock(return_value=None), returncode=0)
+        with tempfile.TemporaryDirectory() as directory:
+            location = ReviewLocation(Path(directory), Path(directory)/'video.mp4', 0, 1)
+            log = Path(directory)/'generation.log'
+            log.write_text('VTA_OUTPUT=' + str(Path(directory)/'output.json'))
+            backend = SimpleNamespace(query=mock.Mock(return_value=view), query_timeline=mock.Mock(return_value=object()))
+            writes = []
+            in_draw = [True]
+            def guarded_write(*args):
+                if in_draw[0]:
+                    raise RuntimeError('Writing to ID classes in this context is not allowed')
+                writes.append('safe-main-thread')
+            with mock.patch.object(ui, '_get_backend', return_value=backend), \
+                 mock.patch.object(ui, '_location_from_context', return_value=location), \
+                 mock.patch.object(ui, '_owning_vse_scene', return_value=bpy.context.scene), \
+                 mock.patch.object(ui._review_key_selection, 'reconcile'), \
+                 mock.patch.object(ui, '_sync_properties', side_effect=guarded_write), \
+                 mock.patch.object(ui, 'ensure_vta_preview_context', side_effect=guarded_write), \
+                 mock.patch.object(self.output, 'mark_stale_outputs', side_effect=guarded_write), \
+                 mock.patch.object(ui, '_reconstruction_process', process), \
+                 mock.patch.object(ui, '_reconstruction_location', location), \
+                 mock.patch.object(ui, '_reconstruction_scene', bpy.context.scene), \
+                 mock.patch.object(ui, '_reconstruction_log', log), \
+                 mock.patch.object(self.output, 'import_reviewed_output', return_value=((), {'characters': []})) as commit:
+                try:
+                    for frame in (1, 4, 9, 2):
+                        bpy.context.scene.frame_set(frame)
+                        self.assertTrue(ui.refresh(bpy.context, force=True))
+                        self.assertIs(ui._view, view)
+                        self.assertEqual(ui._reconstruction_timer(), .5)
+                    self.assertFalse(writes)
+                    in_draw[0] = False
+                    ui._presentation_timer()
+                    self.assertEqual(len(writes), 3)
+                    process.poll.return_value = 0
+                    self.assertIsNone(ui._reconstruction_timer())
+                    commit.assert_called_once()
+                    self.assertIs(ui._view, view)
+                    ui._reconstruction_process = SimpleNamespace(poll=lambda: 1, returncode=1)
+                    ui._reconstruction_timer()
+                    self.assertIs(ui._view, view)
+                    self.assertTrue(ui._status_is_error)
+                finally:
+                    if bpy.app.timers.is_registered(ui._presentation_timer):
+                        bpy.app.timers.unregister(ui._presentation_timer)
+                    ui._pending_presentation = None
+                    ui._view = ui._timeline = ui._location = None
+
     @classmethod
     def setUpClass(cls):
         name = 'blendcap_output_test_addon'
@@ -266,6 +508,39 @@ Frame Time: 0.1
                 with self.assertRaisesRegex(ValueError, 'stale'):
                     self.output.import_reviewed_output(output, location, backend)
                 self.assertIn(second[0].name, bpy.data.objects)
+                report['plan'] = plan
+                output.write_text(json.dumps(report))
+                before = (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures))
+                real_import = self.output._import_bvh
+                def fail_after_creation(*args, **kwargs):
+                    real_import(*args, **kwargs)
+                    raise RuntimeError('Injected staging failure after real BVH import')
+                with mock.patch.object(self.output, '_import_bvh', side_effect=fail_after_creation):
+                    with self.assertRaisesRegex(RuntimeError, 'staging failure'):
+                        self.output.import_reviewed_output(output, location, backend)
+                self.assertEqual(before, (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures)))
+                self.assertIn(second[0].name, bpy.data.objects)
+                # No-op/failed importer must never retime the active prior rig.
+                old_action = second[0].animation_data.action
+                bpy.context.view_layer.objects.active = second[0]
+                with mock.patch.object(self.output, '_import_bvh'):
+                    with self.assertRaisesRegex(ValueError, 'did not create'):
+                        self.output.import_reviewed_output(output, location, backend)
+                self.assertIs(second[0].animation_data.action, old_action)
+                # Inject a commit-time metadata failure after action assignment.
+                partial_plan = {**plan, 'source_range': [0, 1]}
+                partial_backend = SimpleNamespace(_load_context=backend._load_context,
+                    _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kwargs: partial_plan,
+                                          resolve_pose_schedule=lambda *_args: schedule))
+                report.update(version=2, plan=partial_plan)
+                output.write_text(json.dumps(report))
+                second[0]['vta_output_history'] = 'invalid history JSON'
+                before = (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures))
+                with self.assertRaises(ValueError):
+                    self.output.import_reviewed_output(output, location, partial_backend)
+                self.assertIs(second[0].animation_data.action, old_action)
+                self.assertEqual(second[0]['vta_output_history'], 'invalid history JSON')
+                self.assertEqual(before, (set(bpy.data.objects), set(bpy.data.actions), set(bpy.data.armatures)))
             finally:
                 for obj in tuple(bpy.data.objects):
                     if obj.get('vta_project_id') == 'p' or obj == user:

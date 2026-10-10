@@ -1,5 +1,54 @@
 # V1 Hold Animation (backend Untrusted Motion) — implementation and QA handoff
 
+## Scrub-safe bounded animation generation — 2026-10-09
+
+Panel `draw → refresh → mark_stale_outputs` previously wrote the armature's
+`vta_output_stale` ID property unconditionally. A draw-context write rejection
+entered refresh's broad query-failure handler and erased valid review state.
+The saved pre-fix helper reproduces that write under a headless draw guard;
+native live QA remains manual. Frame refresh now only queries/presents Python
+state. Enum synchronization, Preview scene binding and stale ID flags are
+queued to a coalesced main-thread timer, only when state changes. Presentation
+failure reports an error without discarding the valid review. Worker completion
+stages imports and commits through its main-thread timer. Navigating beyond the
+movie strip does not invalidate completion's unchanged source/offset mapping.
+
+Animation keeps Generate / Update Animation (whole source), plus independent
+Animation Start/End, Start/End = Current Frame and Generate Animation Range.
+Bounds are inclusive Blender frames, translated once to source indices. All
+reviewed Characters remain targets. Invalid/outside-source or wholly impossible
+ranges fail clearly. Range progress counts only requested inference frames;
+finish/failure status retains the requested visible bounds. Cancel Generation
+requests a cooperative stop between model calls; it releases the common lock,
+publishes no partial output and retains review/prior animation.
+
+Derived plan/output v2 is range-specific; whole-source v1 remains readable.
+The worker does not infer outside the selected range. Imports copy existing
+owned constant Actions, remove only interval keys, and add unsmoothed constant
+guards at Start−1/End+1 only when absent. Existing outside keys remain; evaluated
+integer-frame motion outside is exactly preserved. New rigs are hidden outside
+their generated interval. Disjoint ranges compose; later overlap replaces only
+that interval. Modified/interpolated/NLA/driver or incompatible-skeleton output
+is rejected rather than rewritten unsafely. Staging/commit rollback retains old
+objects/Actions and removes newly created import artifacts, including a failing
+importer's partial objects. Original scene frame/limits and selection return.
+
+A range beginning in Hold reuses a hash-validated earlier successful pose whose
+exact current evidence still matches. With no seed it stays unavailable; a
+wholly unavailable result fails without changing Blender output. The seed's
+original final BVH channels are copied, not trusted from span-dependent NPZ
+re-export normalization. Pose and root remain exact; post-Hold authority rules
+are unchanged. No identity, suppression, tracking/scoring or threshold changes.
+
+Verification: public 403 total / 397 pass / six existing skips; private 259 pass.
+Real offline ranges (Blender 6–10, 11–15, 7–8, 67–70) on a disposable current
+skeletal fixture verify outside matrices, overlapping union, Hold and reload.
+Proof/backups: `checkpoints/dev-preview/vta_animation_range_20261009/`.
+No native desktop control or push. Restart Blender after installed file sync.
+
+Manual QA: generate a short range; scrub during generation; inspect/play it;
+generate a different/overlapping range and check outside animation is intact.
+
 ## Missing-control registration repair — 2026-10-09
 
 Manual QA found Show Suppressed but no Suppress button: the feature-module class

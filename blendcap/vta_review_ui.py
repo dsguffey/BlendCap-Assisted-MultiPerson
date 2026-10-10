@@ -74,6 +74,38 @@ _reconstruction_process = None
 _reconstruction_location = None
 _reconstruction_log = None
 _reconstruction_scene = None
+_reconstruction_range = None
+_generation_status = ''
+_reconstruction_stop = None
+_pending_presentation = None
+
+
+def _presentation_timer():
+    """Blender ID writes belong to a main-thread timer, never panel refresh."""
+    global _pending_presentation, _status, _status_is_error
+    pending, _pending_presentation = _pending_presentation, None
+    if pending is None:
+        return None
+    scene, root = pending
+    if _location is None or _location.companion_root != root:
+        return None
+    try:
+        _sync_properties(bpy.context)
+        if scene is not None and scene.name in bpy.data.scenes:
+            ensure_vta_preview_context(bpy.context, scene)
+        from .vta_skeletal_output import mark_stale_outputs
+        mark_stale_outputs(root)
+    except Exception as exc:
+        # Presentation failure must not erase a successfully queried review.
+        _status, _status_is_error = 'Review display update failed: ' + user_message(exc), True
+    return None
+
+
+def _queue_presentation(context, scene=None):
+    global _pending_presentation
+    _pending_presentation = (scene, _location.companion_root) if _location else None
+    if not bpy.app.timers.is_registered(_presentation_timer):
+        bpy.app.timers.register(_presentation_timer, first_interval=0.0)
 
 
 def _configured_core_location(context) -> str:
@@ -103,7 +135,7 @@ def _get_backend(context, *, force: bool = False):
     return _backend
 
 
-def _location_from_context(context) -> ReviewLocation:
+def _location_from_context(context, *, allow_outside=False) -> ReviewLocation:
     scene = getattr(context, "scene", None)
     if scene is None:
         raise VtaReviewUiError("Open a Blender scene with a selected movie strip.")
@@ -123,11 +155,13 @@ def _location_from_context(context) -> ReviewLocation:
     if mode != 'VSE':
         raise VtaReviewUiError("The active source is not an exact VSE mapping.")
     source_frame = map_vse_frame_to_source(
-        blender_frame=int(scene.frame_current),
+        blender_frame=int(visible_start) if allow_outside else int(scene.frame_current),
         visible_start=int(visible_start),
         visible_end=_strip_visible_end(strip),
         source_offset=int(source_offset),
     )
+    if allow_outside:
+        source_frame += int(scene.frame_current) - int(visible_start)
     return ReviewLocation(
         companion_root=companion_root_for_blend(bpy.data.filepath),
         source_path=Path(source_path).resolve(),
@@ -631,12 +665,9 @@ def refresh(context, *, force: bool = False) -> bool:
             _cache_signature = cache_signature
             _selection.accept_review(_view)
             _rebuild_enum_items()
-            _sync_properties(context)
-            from .vta_skeletal_output import mark_stale_outputs
-            mark_stale_outputs(location.companion_root)
-        # Query validates the source hash against canonical private state before
-        # this selection is allowed to affect the Blender review workspace.
-        ensure_vta_preview_context(context, _owning_vse_scene(context, location))
+            # Query validates the source hash before presentation changes.
+            # Queue only on changes: a timer redraw must not queue itself again.
+            _queue_presentation(context, _owning_vse_scene(context, location))
         if force:
             _status = "Review refreshed from canonical state."
             _status_is_error = False
@@ -654,7 +685,7 @@ def refresh(context, *, force: bool = False) -> bool:
         _selection.review_key = None
         _selection.observation_id = ""
         _rebuild_enum_items()
-        _sync_properties(context)
+        _queue_presentation(context)
         _status = user_message(exc)
         _status_is_error = True
         return False
@@ -789,11 +820,16 @@ def _show_suppressed_changed(self, context):
 
 
 def _reconstruction_timer():
-    global _reconstruction_process, _status, _status_is_error
+    global _reconstruction_process, _status, _status_is_error, _generation_status
     process = _reconstruction_process
     if process is None:
         return None
     if process.poll() is None:
+        if _reconstruction_log is not None and _reconstruction_log.is_file():
+            lines = _reconstruction_log.read_text(encoding='utf-8', errors='replace').splitlines()
+            progress = next((line[13:] for line in reversed(lines) if line.startswith('VTA_PROGRESS=')), None)
+            if progress:
+                _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: {progress}'
         vta_invalidation.request_redraw()
         return 0.5
     _reconstruction_process = None
@@ -809,14 +845,19 @@ def _reconstruction_timer():
             raise VtaReviewUiError('Animation target Scene changed; output remains on disk.')
         scene = _reconstruction_scene
         with bpy.context.temp_override(scene=scene, view_layer=scene.view_layers[0]):
-            validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context))
+            validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context, allow_outside=True))
             rigs, report = import_reviewed_output(output, _reconstruction_location,
                                                  _get_backend(bpy.context))
         unavailable = sum(s['state'] == 'unavailable' for c in report['characters'] for s in c['schedule'])
         _status = f'Generated {len(rigs)} Character armature(s). {unavailable} unavailable Character-frames.'
         _status_is_error = False
+        _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: complete.'
     except Exception as exc:
         _status, _status_is_error = user_message(exc), True
+        cancelled = _reconstruction_stop is not None and _reconstruction_stop.is_file()
+        _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: {"cancelled" if cancelled else "failed"}; prior output retained.'
+        if cancelled:
+            _status, _status_is_error = _generation_status, False
     vta_invalidation.request_redraw()
     return None
 
@@ -826,17 +867,49 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
     bl_label = 'Generate / Update Animation'
     bl_description = 'Explicitly reconstruct reviewed Character boxes; no identity decisions or tracking changes'
 
+    action: bpy.props.EnumProperty(items=(('WHOLE', 'Whole Source', ''),
+        ('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
+        ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='WHOLE')
+
     def execute(self, context):
         global _reconstruction_process, _reconstruction_location, _reconstruction_log
-        global _reconstruction_scene
+        global _reconstruction_scene, _reconstruction_range, _generation_status
+        global _reconstruction_stop
         global _status, _status_is_error
+        if self.action == 'CANCEL':
+            if _reconstruction_process is None or _reconstruction_process.poll() is not None:
+                return {'CANCELLED'}
+            try:
+                if not _reconstruction_stop.exists():
+                    with _reconstruction_stop.open('x', encoding='utf-8') as handle:
+                        handle.write('Stop this generation between model calls.\n')
+                _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: stopping after current work…'
+                return {'FINISHED'}
+            except Exception as exc:
+                self.report({'ERROR'}, user_message(exc))
+                return {'CANCELLED'}
         if not _edit_available(self):
             return {'CANCELLED'}
+        if self.action in ('START_CURRENT', 'END_CURRENT'):
+            name = 'blendcap_vta_animation_' + ('start' if self.action == 'START_CURRENT' else 'end')
+            setattr(context.window_manager, name, context.scene.frame_current)
+            return {'FINISHED'}
         try:
             location = _location_from_context(context)
             backend = _get_backend(context)
             project, cache, _revision = backend._load_context(location)
-            backend._core.build_skeletal_plan(project, cache)
+            source_range = None
+            visible_range = None
+            if self.action == 'RANGE':
+                start = context.window_manager.blendcap_vta_animation_start
+                end = context.window_manager.blendcap_vta_animation_end
+                if start > end:
+                    raise VtaReviewUiError('Animation Start must not exceed Animation End.')
+                offset = location.blender_frame - location.source_frame
+                source_range = (start - offset, end - offset)
+                visible_range = f'{start}–{end}'
+            backend._core.build_skeletal_plan(project, cache, **(
+                {'frame_range': source_range} if source_range is not None else {}))
             bundle = Path(__file__).resolve().parents[1]
             python = Path(_python_exe())
             if not python.is_file() or not (bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt').is_file():
@@ -844,9 +917,13 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             command = [str(python), str(bundle / 'blendcap_vta_reconstruct_worker.py'),
                        '--core-root', str(_backend_root), '--blendcap-root', str(bundle),
                        '--companion-root', str(location.companion_root), '--video', str(location.source_path)]
+            if source_range is not None:
+                command += ['--start-frame', str(source_range[0]), '--end-frame', str(source_range[1])]
             from uuid import uuid4
             _reconstruction_log = location.companion_root / 'reconstruction' / ('generation-' + uuid4().hex + '.log')
             _reconstruction_log.parent.mkdir(parents=True, exist_ok=True)
+            _reconstruction_stop = _reconstruction_log.with_suffix('.stop')
+            command += ['--stop-file', str(_reconstruction_stop)]
             environment = os.environ.copy()
             environment.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', PYTHONNOUSERSITE='1')
             with _reconstruction_log.open('x', encoding='utf-8') as log:
@@ -855,9 +932,11 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             _reconstruction_location = location
             _reconstruction_scene = context.scene
+            _reconstruction_range = visible_range
             if not bpy.app.timers.is_registered(_reconstruction_timer):
                 bpy.app.timers.register(_reconstruction_timer, first_interval=0.5)
-            _status, _status_is_error = 'Generating reviewed skeletal animation…', False
+            _generation_status = f'Generating animation {visible_range or "Whole Source"}…'
+            _status, _status_is_error = _generation_status, False
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'}, user_message(exc))
@@ -2102,11 +2181,22 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         row = self.layout.row()
         row.enabled = _view is not None and not _analysis_locked()
         row.operator('blendcap.vta_generate_animation')
+        controls = self.layout.column()
+        controls.enabled = _view is not None and not _analysis_locked()
+        bounds = controls.row(align=True)
+        bounds.prop(context.window_manager, 'blendcap_vta_animation_start')
+        bounds.prop(context.window_manager, 'blendcap_vta_animation_end')
+        current = controls.row(align=True)
+        current.operator('blendcap.vta_generate_animation', text='Start = Current Frame').action = 'START_CURRENT'
+        current.operator('blendcap.vta_generate_animation', text='End = Current Frame').action = 'END_CURRENT'
+        controls.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
         self.layout.label(text='Reviewed Characters only; Hold freezes pose and root.')
         if any(o.get('vta_output_stale') for o in bpy.data.objects):
             self.layout.label(text='Animation is stale. Generate / Update explicitly.', icon='ERROR')
-        if _reconstruction_process is not None:
-            self.layout.label(text='Generating animation…', icon='TIME')
+        if _generation_status:
+            self.layout.label(text=_generation_status, icon='TIME' if _reconstruction_process is not None else 'INFO')
+        if _reconstruction_process is not None and _reconstruction_process.poll() is None:
+            self.layout.operator('blendcap.vta_generate_animation', text='Cancel Generation').action = 'CANCEL'
 
 
 class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
@@ -2175,6 +2265,10 @@ classes = (
 
 
 def register_properties() -> None:
+    bpy.types.WindowManager.blendcap_vta_animation_start = bpy.props.IntProperty(
+        name='Animation Start', description='Inclusive Blender frame', default=1)
+    bpy.types.WindowManager.blendcap_vta_animation_end = bpy.props.IntProperty(
+        name='Animation End', description='Inclusive Blender frame', default=20)
     bpy.types.WindowManager.blendcap_vta_show_suppressed = bpy.props.BoolProperty(
         name='Show Suppressed Candidates', default=False, update=_show_suppressed_changed)
     bpy.types.WindowManager.blendcap_vta_motion_start = bpy.props.IntProperty(
@@ -2226,6 +2320,12 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    global _pending_presentation
+    _pending_presentation = None
+    if bpy.app.timers.is_registered(_presentation_timer):
+        bpy.app.timers.unregister(_presentation_timer)
+    del bpy.types.WindowManager.blendcap_vta_animation_start
+    del bpy.types.WindowManager.blendcap_vta_animation_end
     del bpy.types.WindowManager.blendcap_vta_show_suppressed
     if bpy.app.timers.is_registered(_reconstruction_timer):
         bpy.app.timers.unregister(_reconstruction_timer)

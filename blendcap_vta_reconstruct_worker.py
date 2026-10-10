@@ -68,6 +68,67 @@ def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height):
     return arrays if all(np.isfinite(value).all() for value in arrays.values()) else None
 
 
+def validate_hold_seed(plan, character, seed, root):
+    """A prior successful immutable pose, never a newly guessed starting pose."""
+    path = (Path(root) / seed['output']).resolve()
+    if not path.is_relative_to((Path(root) / 'reconstruction').resolve()):
+        raise RuntimeError('Hold seed is outside this reconstruction companion')
+    if digest(path) != seed['output_sha256']:
+        raise RuntimeError('Hold seed output hash changed')
+    report = json.loads(path.read_text(encoding='utf-8'))
+    if report.get('schema') != 'vta-reviewed-skeletal-output' or report.get('version') not in (1, 2):
+        raise RuntimeError('Unsupported Hold seed output schema')
+    old_plan = report['plan']
+    for field in ('project_id', 'source_id', 'source_video_sha256', 'fps', 'width', 'height'):
+        if old_plan[field] != plan[field]:
+            raise RuntimeError('Hold seed source provenance differs: ' + field)
+    old = next(c for c in old_plan['characters'] if c['character_id'] == character['character_id'])
+    record = next(c for c in report['characters'] if c['character_id'] == character['character_id'])
+    frame = seed['frame']
+    current_sample = next((s for s in character.get('hold_context', ()) if s['frame'] == frame), None)
+    previous_sample = next((s for s in old['samples'] if s['frame'] == frame), None)
+    if (current_sample is None or current_sample['mode'] != 'infer'
+            or previous_sample != current_sample or frame not in record['source_frames']
+            or not any(s['frame'] == frame and s['state'] == 'reconstructed'
+                       and s['pose_source_frame'] == frame for s in record['schedule'])):
+        raise RuntimeError('Hold seed no longer references trustworthy current reviewed evidence')
+    npz = (path.parent / record['npz']).resolve()
+    if not npz.is_relative_to(path.parent) or digest(npz) != record['npz_sha256']:
+        raise RuntimeError('Hold seed pose hash changed')
+    if seed['npz_sha256'] != record['npz_sha256']:
+        raise RuntimeError('Hold seed pose provenance differs')
+    bvh = (path.parent / record['bvh']).resolve()
+    if not bvh.is_relative_to(path.parent) or digest(bvh) != record['bvh_sha256']:
+        raise RuntimeError('Hold seed BVH hash changed')
+    return npz
+
+
+def find_hold_seed(plan, character, root):
+    """Reuse the latest successful earlier pose; perform no out-of-range inference."""
+    prefix = []
+    for sample in character['samples']:
+        if sample['mode'] == 'infer':
+            break
+        prefix.append(sample)
+    if not character.get('hold_context') or not any(s['mode'] == 'hold' for s in prefix):
+        return None
+    candidates = []
+    for path in sorted((Path(root) / 'reconstruction').glob('run-*/output.json')):
+        try:
+            report = json.loads(path.read_text(encoding='utf-8'))
+            record = next(c for c in report['characters'] if c['character_id'] == character['character_id'])
+            for frame in record['source_frames']:
+                if frame >= plan['source_range'][0]:
+                    continue
+                seed = {'frame': frame, 'output': str(path.relative_to(root)),
+                        'output_sha256': digest(path), 'npz_sha256': record['npz_sha256']}
+                validate_hold_seed(plan, character, seed, root)
+                candidates.append((frame, path.stat().st_mtime_ns, str(path), seed))
+        except (KeyError, StopIteration, ValueError, OSError, RuntimeError):
+            continue  # obsolete output is retained, never used as authority
+    return max(candidates, key=lambda item: item[:3])[3] if candidates else None
+
+
 def run(args):
     os.environ.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', YOLO_OFFLINE='true',
                       HF_HUB_DISABLE_TELEMETRY='1', LAYER_DTYPE='fp32', USE_COMPILE='0',
@@ -76,6 +137,13 @@ def run(args):
     bundle = Path(args.blendcap_root).resolve()
     root = Path(args.companion_root).resolve()
     video = Path(args.video).resolve()
+    stop = Path(args.stop_file).resolve() if getattr(args, 'stop_file', None) else None
+    if stop is not None and (stop.parent != (root/'reconstruction').resolve()
+            or not stop.name.startswith('generation-') or stop.suffix != '.stop'):
+        raise RuntimeError('Animation stop request must belong to this generation directory')
+    def check_stop():
+        if stop is not None and stop.exists():
+            raise RuntimeError('Animation generation cancelled; prior output retained')
     sys.path.insert(0, str(core))
     from vta_core import load_project_state, load_analysis_cache, build_skeletal_plan, resolve_pose_schedule
     from vta_core.source_preflight import preflight_source
@@ -92,7 +160,12 @@ def run(args):
         preflight_source(source, video)
         revision = project.to_dict()['active_analysis_revision_by_source'].get(source.source_id)
         cache = load_analysis_cache(root, revision)
-        plan = build_skeletal_plan(project, cache)
+        start, end = getattr(args, 'start_frame', None), getattr(args, 'end_frame', None)
+        if (start is None) != (end is None):
+            raise RuntimeError('Animation range requires both start and end frames')
+        options = {'frame_range': (start, end)} if start is not None else {}
+        plan = build_skeletal_plan(project, cache, **options)
+        check_stop()
         checkpoint = bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt'
         mhr = bundle / 'checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt'
         config = bundle / 'checkpoints/sam-3d-body-dinov3/model_config.yaml'
@@ -129,12 +202,26 @@ def run(args):
                                   ['MoGe unavailable; existing backend default FOV used'])
         records = {c['character_id']: {'frames': [], 'poses': [], 'failures': []}
                    for c in plan['characters']}
+        seeds = {}
+        for character in plan['characters']:
+            seed = find_hold_seed(plan, character, root)
+            seeds[character['character_id']] = seed
+            if seed is not None:
+                with np.load(validate_hold_seed(plan, character, seed, root), allow_pickle=False) as previous:
+                    index = list(previous['frame_indices']).index(seed['frame'])
+                    pose = {key: previous[name][index].copy() for name, key in (
+                        ('global_rots', 'pred_global_rots'), ('joint_coords', 'pred_joint_coords'), ('cam_t', 'pred_cam_t'))}
+                    if not all(np.isfinite(value).all() for value in pose.values()):
+                        raise RuntimeError('Previously successful Hold seed contains nonfinite channels')
+                records[character['character_id']]['frames'].append(seed['frame'])
+                records[character['character_id']]['poses'].append(pose)
         by_frame = {}
         for character in plan['characters']:
             for sample in character['samples']:
                 if sample['mode'] == 'infer':
                     by_frame.setdefault(sample['frame'], []).append((character['character_id'], sample))
-        for frame, requests in sorted(by_frame.items()):
+        for completed, (frame, requests) in enumerate(sorted(by_frame.items()), 1):
+            check_stop()  # Cooperative stop; never kill an in-flight model call.
             decoded = decode_source_frame(video, ProviderFrameRequest(source, frame))
             rgb = cv2.cvtColor(decoded.pixels_bgr, cv2.COLOR_BGR2RGB)
             for character_id, sample in requests:
@@ -145,13 +232,20 @@ def run(args):
                 records[character_id]['frames'].append(frame)
                 records[character_id]['poses'].append(arrays)
             print(f'VTA reconstruction source frame {frame} complete', flush=True)
+            print(f'VTA_PROGRESS={completed}/{len(by_frame)} requested inference frames complete', flush=True)
         exported = []
         for index, character in enumerate(plan['characters']):
+            check_stop()
             record = records[character['character_id']]
             frames = record['frames']
+            seed = seeds[character['character_id']]
+            inferred = [f for f in frames if seed is None or f != seed['frame']]
             item = {'character_id': character['character_id'], 'display_name': character['display_name'],
-                    'source_frames': frames, 'schedule': resolve_pose_schedule(character['samples'], frames),
+                    'source_frames': frames, 'schedule': resolve_pose_schedule(character['samples'], inferred,
+                        **({'initial_pose_frame': seed['frame']} if seed else {})),
                     'failures': record['failures'], 'bvh': None}
+            if options:
+                item['hold_seed'] = seed
             if frames:
                 pose_path, bvh_path = output / f'character-{index}.npz', output / f'character-{index}.bvh'
                 arrays = {name: np.asarray([p[key] for p in record['poses']])
@@ -164,13 +258,16 @@ def run(args):
                 item.update(bvh=bvh_path.name, bvh_sha256=digest(bvh_path),
                             npz=pose_path.name, npz_sha256=digest(pose_path), export_command=command)
             exported.append(item)
-        result = {'schema': 'vta-reviewed-skeletal-output', 'version': 1, 'plan': plan,
+        if not any(s['state'] != 'unavailable' for c in exported for s in c['schedule']):
+            raise RuntimeError('Animation range has no successful trustworthy pose or reusable Hold pose; prior output retained')
+        result = {'schema': 'vta-reviewed-skeletal-output', 'version': 2 if options else 1, 'plan': plan,
                   'provenance': provenance, 'characters': exported,
                   'runtime_seconds': time.monotonic()-started}
         # Reject evidence edits even from writers not honoring the common lock.
-        current = build_skeletal_plan(load_project_state(root), load_analysis_cache(root, revision))
+        current = build_skeletal_plan(load_project_state(root), load_analysis_cache(root, revision), **options)
         if current != plan:
             raise RuntimeError('Review/evidence changed during reconstruction; output was not published')
+        check_stop()
         write_new_json(output / 'output.json', result)
         print('VTA_OUTPUT=' + str(output / 'output.json'), flush=True)
         return output / 'output.json'
@@ -183,6 +280,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('core-root', 'blendcap-root', 'companion-root', 'video'):
         parser.add_argument('--' + name, required=True)
+    parser.add_argument('--start-frame', type=int)
+    parser.add_argument('--end-frame', type=int)
+    parser.add_argument('--stop-file')
     run(parser.parse_args())
 
 

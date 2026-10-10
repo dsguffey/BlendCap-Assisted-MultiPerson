@@ -112,6 +112,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             def row(self, **kwargs):
                 return Layout(self.calls)
 
+            def column(self, **kwargs):
+                return Layout(self.calls)
+
             def box(self):
                 return Layout(self.calls)
 
@@ -128,6 +131,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 self.calls.append(("operator", identifier, kwargs.get("text"), self.enabled, props))
                 if identifier == "blendcap.vta_suppress_candidate":
                     assert "restore" in rna.properties, "Registered suppression lacks restore property"
+                if identifier == "blendcap.vta_generate_animation":
+                    assert "action" in rna.properties, "Registered generation lacks range action property"
                 return props
 
         registered = False
@@ -162,6 +167,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                     self.assertEqual(button[4].restore, selected and suppressed)
                     self.assertIn(("label", "Review Keys"), calls, "Current-frame panel draw stopped early")
                     self.assertTrue(any(c[:2] == ("operator", "blendcap.vta_generate_animation") for c in calls))
+                    range_button = next(c for c in calls if c[0] == 'operator' and c[2] == 'Generate Animation Range')
+                    self.assertEqual(range_button[4].action, 'RANGE')
+                    self.assertTrue(hasattr(bpy.types.WindowManager, 'blendcap_vta_animation_start'))
                 self.addon.unregister()
                 registered = False
                 for name in ("vta_suppress_candidate", "vta_generate_animation"):
