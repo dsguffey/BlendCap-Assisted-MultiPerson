@@ -175,6 +175,44 @@ can repair observations but not genuinely missing pose information. Same-provide
 Redetect did not improve merged 67/73/81. Ignored artifacts remain at recorded
 local paths; they are not included in Git bundles.
 
+## October 9 tracking visibility and Hold inspection
+
+Current UI wording is **Hold Animation**, superseding historical Cleanup text
+below. Update Tracking uses the exact selected Character row set in the current
+VTA Dope Sheet: zero disables/guards the command, one updates one, many update
+each independently. The active member is inspection context, not a bulk fallback.
+Preview/3D-panel commands resolve that same opted-in Dope Sheet selection.
+The private command holds the common operation lock, checks the expected project
+hash, derives in stable durable-ID order and publishes successful targets once.
+A blocked target retains its state and reports its reason; unrelated targets,
+human keys, Hold ranges, suppression history and raw cache remain unchanged.
+
+Tracking ticks render for all Character rows regardless of selection. Accepted
+ticks are blue-grey; unresolved ticks dim grey, never a confidence scale. Preview
+uses the Character name for human assignments (existing green assignment palette)
+and accepted derived matches (existing blue-grey tracking palette), with no
+authority promotion. Unassigned boxes remain Candidate N in neutral cyan. A
+separate gold selection outline does not change provenance color. The shared
+palette reuses existing VTA colors; selected Hold outlines use native theme text.
+Injective candidate ownership remains enforced; merged/shared evidence unresolved.
+
+Clicking a visible Hold selects one exact interval, adds/activates its Character
+without deselecting unrelated rows, and loads inclusive visible-frame bounds into
+the sidebar. Review keys and playhead stay unchanged. The range has a small theme
+outline; local review-key symbols take hit priority. Fields are not live authority:
+only explicit Mark/Clear changes persisted ranges. Selection is transient and
+cleared when its range/source disappears; no multi-range selection.
+
+Verification: public 395 total / 389 passing / six existing skips; private 256
+passing, no skips. Both source and installed add-ons pass three lifecycle cycles
+and a cache-only disposable real-fixture check: white/yellow each 14 accepted
+ticks; 4 human, 28 derived and 1,951 neutral candidate-frame labels; exact Hold
+67–90 fields. No inference or native desktop control. Existing skeletal-output
+policy, tracker scoring/constants, suppression/cycling and original QA files
+are preserved. Installed six runtime files hash-match. Evidence/backups:
+`checkpoints/dev-preview/vta_tracking_visibility_20261009/`.
+Live visual acceptance remains manual; no push.
+
 ## Storage and user workflow
 
 Authoritative ProjectState **0.6** loads 0.5 read-only with zero intervals.

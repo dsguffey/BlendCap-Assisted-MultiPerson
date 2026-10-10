@@ -33,6 +33,8 @@ class CandidateRow:
     assigned_character_name: str | None
     position: int = 0
     suppressed: bool = False
+    tracked_character_id: str | None = None
+    tracked_character_name: str | None = None
 
     @property
     def assignable(self) -> bool:
@@ -289,6 +291,22 @@ def present_review(
             item.character_id: item
             for item in getattr(review, "derived_tracking", ())
         }
+        # Refuse ambiguous ownership instead of displaying two identities on one box.
+        ownership = {}
+        for item in (*review.character_assignments, *getattr(review, 'character_decisions', ())):
+            if item.observation_id is None:
+                continue
+            if item.observation_id in ownership and ownership[item.observation_id] != item.character_id:
+                raise VtaReviewUiError("Candidate ownership is not injective")
+            ownership[item.observation_id] = item.character_id
+        tracked = {}
+        for item in getattr(review, "derived_tracking", ()):
+            if item.state.value not in ('visible', 'partially-visible') or item.observation_id is None:
+                continue
+            if (item.observation_id in ownership and ownership[item.observation_id] != item.character_id
+                    or item.observation_id in tracked and tracked[item.observation_id] != item.character_id):
+                raise VtaReviewUiError("Candidate ownership is not injective")
+            tracked[item.observation_id] = item.character_id
         candidates = tuple(
             CandidateRow(
                 position=index,
@@ -300,6 +318,8 @@ def present_review(
                 assigned_character_id=assignments.get(item.observation_id),
                 assigned_character_name=names.get(assignments.get(item.observation_id)),
                 suppressed=getattr(item, 'suppressed', False),
+                tracked_character_id=tracked.get(item.observation_id),
+                tracked_character_name=names.get(tracked.get(item.observation_id)),
             )
             for index, item in enumerate(review.candidates, start=1)
             if show_suppressed or not getattr(item, 'suppressed', False)
@@ -564,6 +584,25 @@ class PrivateCoreBackend:
                 raise VtaReviewUiError(str(exc)) from exc
             raise
         return result, self.query(location), self.query_timeline(location)
+
+    def update_tracking_for_characters(self, location, character_ids):
+        project, cache, revision_id = self._load_context(location)
+        if (not isinstance(character_ids, (tuple, list)) or not character_ids
+                or any(not isinstance(cid, str) or not cid for cid in character_ids)
+                or len(set(character_ids)) != len(character_ids)
+                or not set(character_ids) <= {c.character_id for c in project.characters}):
+            raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before Update Tracking.")
+        try:
+            self._core.validate_analysis_cache_registration(project, cache, revision_id)
+            outcomes = self._core.update_tracking_many_and_persist(
+                location.companion_root, tuple(sorted(character_ids)), cache.source.source_id,
+                location.source_frame,
+                expected_project_sha256=hashlib.sha256(project.to_json().encode()).hexdigest())
+        except Exception as exc:
+            if exc.__class__.__module__.startswith('vta_core'):
+                raise VtaReviewUiError(str(exc)) from exc
+            raise
+        return outcomes, self.query(location), self.query_timeline(location)
 
     def prepare_management(self, location: ReviewLocation, action: str, **kwargs):
         project, cache, revision_id = self._load_context(location)

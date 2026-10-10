@@ -6,9 +6,11 @@ import math
 from dataclasses import dataclass
 
 if __package__:
+    from .blendcap_vta_visuals import TRACKING_COLOR, UNRESOLVED_COLOR
     from .blendcap_vta_timeline import hit_test_keys, lane_layout
     from .blendcap_vta_area_mode import ROLE_TIMELINE, WORKSPACE_TAG, role_for
 else:
+    from blendcap_vta_visuals import TRACKING_COLOR, UNRESOLVED_COLOR
     from blendcap_vta_timeline import hit_test_keys, lane_layout
     from blendcap_vta_area_mode import ROLE_TIMELINE, WORKSPACE_TAG, role_for
 
@@ -94,12 +96,12 @@ def characters_in_box(view, height, start, end, first=0, *, metrics=TimelineMetr
 
 def derived_mark_color(state):
     """Categorical match/unresolved convention, not confidence or selection."""
-    return (.55, .68, .72, .55) if state == 'visible' else (.48, .5, .52, .4)
+    return TRACKING_COLOR if state in ('visible', 'partially-visible') else UNRESOLVED_COLOR
 
 
 def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
-                          *, metrics=TimelineMetrics()):
-    """Paint-only inclusive frame cells; shares scaled Character row geometry."""
+                          *, metrics=TimelineMetrics(), include_interval=False):
+    """Inclusive frame cells shared by painting and exact interval hit-testing."""
     lanes = dict(character_lanes(view, height, first, metrics=metrics))
     rectangles = []
     for interval in getattr(view, 'untrusted_motion_intervals', ()):
@@ -111,10 +113,20 @@ def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
         low, high = sorted((x0, x1))
         if high < 0 or low > width:
             continue
-        rectangles.append((interval.character_id, max(0, low), min(width, high),
+        rectangles.append((interval if include_interval else interval.character_id, max(0, low), min(width, high),
                            y - metrics.row_height / 2 + metrics.ui_scale,
                            y + metrics.row_height / 2 - metrics.ui_scale))
     return tuple(rectangles)
+
+
+def hit_motion_interval(view, view2d, width, height, point, offset=0, first=0,
+                        *, metrics=TimelineMetrics()):
+    # Keys take precedence at their local symbol hit area, even inside Hold.
+    if hit_review_key(view, view2d, height, point, offset, first, metrics=metrics) is not None:
+        return None
+    return next((interval for interval, x0, x1, y0, y1 in motion_interval_rects(
+        view, view2d, width, height, offset, first, metrics=metrics, include_interval=True)
+        if x0 <= point[0] <= x1 and y0 <= point[1] <= y1), None)
 
 
 def hit_review_key(view, view2d, height, point, offset=0, first=0,

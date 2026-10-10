@@ -201,6 +201,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
              mock.patch.object(ui, "_location", object()), \
              mock.patch.object(ui, "_selection", SimpleNamespace(character_id="red")), \
              mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=("key",))), \
+             mock.patch.object(ui, "tracking_character_ids", return_value=('red',)), \
              mock.patch.object(ui, "refresh", return_value=True):
             enabled = ui._action_availability()
             self.assertTrue(all(enabled.values()))
@@ -229,7 +230,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 missing = ui._action_availability()
                 self.assertFalse(missing["rename-character"])
                 self.assertFalse(missing["delete-character"])
-                self.assertFalse(missing["update-tracking"])
+                self.assertTrue(missing["update-tracking"])  # Bulk set, not sidebar active.
+            with mock.patch.object(ui, 'tracking_character_ids', return_value=()):
+                self.assertFalse(ui._action_availability()['update-tracking'])
 
     def test_header_and_context_use_native_menu_in_vta_mode(self):
         ui = self.ui

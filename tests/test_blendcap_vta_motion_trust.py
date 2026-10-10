@@ -67,6 +67,23 @@ class MotionPresentationTests(unittest.TestCase):
         self.assertEqual(hit_review_key(view, view2d, 300, (35, y)), 'key')
         self.assertEqual(repr(view), before)
 
+    def test_hold_hit_uses_exact_inclusive_rectangle_and_keys_take_priority(self):
+        from blendcap_vta_workspace import hit_motion_interval
+        for scale in (1, 2, 3):
+            metrics = TimelineMetrics(scale, 13)
+            view = timeline()
+            view2d = SimpleNamespace(view_to_region=lambda x, y, clip=False: (x * 30, y))
+            spans = motion_interval_rects(view, view2d, 5000, 300*scale, 100,
+                                         metrics=metrics, include_interval=True)
+            interval, x0, x1, y0, y1 = spans[0]
+            for point in ((x0, y0), (x1, y1), (105*30, (y0+y1)/2)):
+                self.assertEqual(hit_motion_interval(view, view2d, 5000, 300*scale, point, 100,
+                                                    metrics=metrics), interval)
+            self.assertIsNone(hit_motion_interval(view, view2d, 5000, 300*scale,
+                                                 (107*30, (y0+y1)/2), 100, metrics=metrics))
+            self.assertIsNone(hit_motion_interval(view, view2d, 100, 300*scale,
+                                                 (105*30, (y0+y1)/2), 100, metrics=metrics))
+
     def test_offscreen_and_hidden_character_spans_not_painted(self):
         view2d = SimpleNamespace(view_to_region=lambda x, y, clip=False: (x * 5, y))
         self.assertEqual(motion_interval_rects(timeline(), view2d, 20, 300, 100), ())

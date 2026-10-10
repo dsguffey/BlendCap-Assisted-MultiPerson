@@ -8,6 +8,7 @@ import os
 import subprocess
 import textwrap
 import traceback
+from types import SimpleNamespace
 
 import bpy
 
@@ -56,6 +57,7 @@ _timeline = None
 _timeline_identity = None
 _review_key_selection = ReviewKeySelection()
 _character_selections = {}
+_hold_selections = {}
 _analysis_process = None
 _analysis_progress_started = False
 _analysis_root = None
@@ -201,6 +203,63 @@ def _use_timeline_active(context):
     if _is_timeline_context(context):
         _selection.character_id = current_character_id(context) or ''
         _sync_properties(context)
+
+
+def tracking_character_ids(context=None):
+    """Use the opted-in Dope Sheet's actual set, never the sidebar active value."""
+    context = context or bpy.context
+    if not _is_timeline_context(context):
+        from ..blendcap_vta_workspace import review_area
+        area = review_area(getattr(context, 'workspace', None), getattr(context, 'screen', None))
+        if area is None:
+            return ()
+        context = SimpleNamespace(area=area, screen=context.screen,
+                                  workspace=getattr(context, 'workspace', None))
+    selection = timeline_character_selection(context)
+    return selection.character_ids if selection is not None else ()
+
+
+def selected_hold_interval(context):
+    if not _is_timeline_context(context) or _timeline is None or _location is None:
+        return None
+    pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
+    key = (pointer(context.screen), pointer(context.area))
+    identity = (str(_location.companion_root), _timeline.source_id, str(_location.source_path),
+                _location.blender_frame - _location.source_frame)
+    saved = _hold_selections.get(key)
+    if saved is None:
+        return None
+    if saved[0] != identity or saved[1] not in _timeline.untrusted_motion_intervals:
+        _hold_selections.pop(key, None)
+        return None
+    return saved[1]
+
+
+def clear_hold_selection(context):
+    if getattr(context, 'screen', None) is None or getattr(context, 'area', None) is None:
+        return
+    pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
+    _hold_selections.pop((pointer(context.screen), pointer(context.area)), None)
+
+
+def select_hold_interval(context, interval):
+    """Inspect one exact existing range; preserve other rows, keys and time."""
+    selection = timeline_character_selection(context)
+    if selection is None or interval not in _timeline.untrusted_motion_intervals:
+        return False
+    selection.select_box(_timeline, (interval.character_id,), extend=True,
+                         active_id=interval.character_id)
+    _selection.character_id = interval.character_id
+    pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
+    key = (pointer(context.screen), pointer(context.area))
+    identity = (str(_location.companion_root), _timeline.source_id, str(_location.source_path),
+                _location.blender_frame - _location.source_frame)
+    _hold_selections[key] = (identity, interval)
+    context.window_manager.blendcap_vta_motion_start = visible_frame(_location, interval.start_frame)
+    context.window_manager.blendcap_vta_motion_end = visible_frame(_location, interval.end_frame)
+    _sync_properties(context)
+    vta_invalidation.request_redraw()
+    return True
 
 
 def _sync_properties(context) -> None:
@@ -591,6 +650,7 @@ def refresh(context, *, force: bool = False) -> bool:
         _timeline_identity = None
         _review_key_selection.clear()
         _character_selections.clear()
+        _hold_selections.clear()
         _selection.review_key = None
         _selection.observation_id = ""
         _rebuild_enum_items()
@@ -1206,6 +1266,7 @@ def select_timeline_character(context, character_id: str, *, extend=False) -> bo
         _selection.character_id = selection.active_id or ''
     else:
         _selection.character_id = character_id
+    clear_hold_selection(context)
     _sync_properties(context)
     return True
 
@@ -1215,6 +1276,7 @@ def select_timeline_characters(context, character_ids, *, extend=False) -> bool:
     if selection is None or not selection.select_box(_timeline, character_ids, extend=extend):
         return False
     _selection.character_id = selection.active_id or ''
+    clear_hold_selection(context)
     _sync_properties(context)
     return True
 
@@ -1228,6 +1290,7 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
                 else _review_key_selection.click(_timeline, key_id, extend=extend))
     if not selected:
         return False
+    clear_hold_selection(context)
     key = key_at(_timeline, _review_key_selection.active_keyframe_id)
     if key is None:
         _sync_properties(context)
@@ -1247,6 +1310,7 @@ def select_timeline_keys(context, key_ids, *, extend: bool = False) -> bool:
         return False
     if not _review_key_selection.select_box(_timeline, key_ids, extend=extend):
         return False
+    clear_hold_selection(context)
     key = key_at(_timeline, _review_key_selection.active_keyframe_id)
     selection = timeline_character_selection(context)
     if selection is not None:
@@ -1532,7 +1596,7 @@ def _action_availability(context=None):
         "clear-all-review-keys-on-frame": frame_has_key,
         "rename-character": character is not None,
         "delete-character": character is not None,
-        "update-tracking": character is not None and _location is not None,
+        "update-tracking": bool(tracking_character_ids(context)) and _view is not None and _location is not None,
     }
 
 
@@ -1702,6 +1766,9 @@ def draw_cleanup_commands(layout, context, *, menu=False):
 def draw_motion_trust(layout, context):
     """Hold is UI vocabulary; the authoritative backend name is unchanged."""
     layout.label(text='Hold Animation')
+    interval = selected_hold_interval(context)
+    if interval is not None:
+        layout.label(text=f'Selected Hold: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
     wm = context.window_manager
     controls = layout.column()
     controls.enabled = _location is not None and not _analysis_locked()
@@ -1725,7 +1792,12 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
     bl_idname = "blendcap.vta_update_tracking"
     bl_label = "Update Tracking"
-    bl_description = "Recompute non-authoritative tracking near this frame from existing analysis"
+    bl_description = "Update independent tracking for every selected Character near this frame"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(_view is not None and _location is not None and
+                    not _analysis_locked() and tracking_character_ids(context))
 
     def execute(self, context):
         global _status, _status_is_error
@@ -1733,23 +1805,29 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             return {'CANCELLED'}
         try:
             location = _location_from_context(context)
-            _use_timeline_active(context)
-            if not _selection.character_id:
-                raise VtaReviewUiError("Select a Character before Update Tracking.")
-            result, _review, _timeline_result = _get_backend(context).update_tracking(
-                location, _selection.character_id
+            targets = tracking_character_ids(context)
+            if not targets:
+                raise VtaReviewUiError("Select Character rows before Update Tracking.")
+            if not refresh(context, force=True):
+                raise VtaReviewUiError("Refresh VTA Review before Update Tracking.")
+            if tracking_character_ids(context) != targets or _location != location:
+                raise VtaReviewUiError("Review selection changed; retry Update Tracking.")
+            outcomes, _review, _timeline_result = _get_backend(context).update_tracking_for_characters(
+                location, targets
             )
             if not refresh(context, force=True):
                 _status = f"Tracking saved, but review refresh failed: {_status}"
                 _status_is_error = True
                 self.report({'WARNING'}, _status)
                 return {'FINISHED'}
-            _status = tracking_update_success(
-                result, frame_offset=location.blender_frame - location.source_frame,
-            )
-            _status_is_error = False
-            self.report({'INFO'}, _status)
-            return {'FINISHED'}
+            names = {c.character_id: c.display_name for c in _view.characters}
+            _status = '\n'.join(f'{names.get(item.character_id, item.character_id)}: ' +
+                              (tracking_update_success(item.update, frame_offset=location.blender_frame - location.source_frame)
+                               if item.update is not None else 'Not updated — ' + tracking_update_error(VtaReviewUiError(item.error)))
+                              for item in outcomes)
+            _status_is_error = any(item.update is None for item in outcomes)
+            self.report({'WARNING'} if _status_is_error else {'INFO'}, _status)
+            return {'FINISHED'} if any(item.update is not None for item in outcomes) else {'CANCELLED'}
         except Exception as exc:
             if not isinstance(exc, VtaReviewUiError):
                 traceback.print_exc()
@@ -2006,7 +2084,7 @@ class VIEW3D_PT_blendcap_vta_tracking(_VtaReviewSubpanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.enabled = _action_availability()["update-tracking"]
+        row.enabled = _action_availability(context)["update-tracking"]
         row.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
         layout.label(text="Nearest hard keys bound the interval")
         layout.label(text="Otherwise: about 5 seconds each way")
@@ -2153,6 +2231,7 @@ def unregister_properties() -> None:
         bpy.app.timers.unregister(_reconstruction_timer)
     global _analysis_progress_started
     _character_selections.clear()
+    _hold_selections.clear()
     del bpy.types.WindowManager.blendcap_vta_motion_start
     del bpy.types.WindowManager.blendcap_vta_motion_end
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)

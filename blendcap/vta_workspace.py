@@ -14,8 +14,9 @@ import bpy
 from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
-    motion_interval_rects, characters_in_box, derived_mark_color,
+    motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color,
 )
+from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
 )
@@ -236,9 +237,11 @@ def _draw_window():
                                                clip=False)[0]
         frame_x = lambda frame: region.view2d.view_to_region(
             frame + offset, 0, clip=False)[0]
-        # Independent motion truth is paint-only, beneath selectable identity keys.
-        for _, x0, x1, y0, y1 in motion_interval_rects(
-                view, region.view2d, region.width, region.height, offset, first, metrics=metrics):
+        # Exact range inspection is transient; identity keys retain hit priority.
+        selected_hold = _ui().selected_hold_interval(context)
+        for interval, x0, x1, y0, y1 in motion_interval_rects(
+                view, region.view2d, region.width, region.height, offset, first,
+                metrics=metrics, include_interval=True):
             _fill(shader, batch_for_shader, x0, y0, x1, y1, (.34, .23, .10, 1))
             _line(shader, batch_for_shader, ((x0, y0), (x0, y1), (x1, y1), (x1, y0)),
                   (.95, .70, .30, .85))
@@ -253,7 +256,14 @@ def _draw_window():
                 blf.position(0, x0 + 5 * scale, y0 + 3 * scale, 0)
                 blf.size(0, metrics.font_size)
                 blf.color(0, 1, .83, .55, 1)
-                blf.draw(0, 'NEEDS CLEANUP')
+                blf.draw(0, 'ANIMATION HELD')
+            if interval == selected_hold:
+                inset = min(2 * scale, (x1 - x0) / 4, (y1 - y0) / 4)
+                highlight = (*context.preferences.themes[0].user_interface.wcol_list_item.text_sel, 1)
+                _line(shader, batch_for_shader,
+                      ((x0 + inset, y0 + inset), (x0 + inset, y1 - inset),
+                       (x1 - inset, y1 - inset), (x1 - inset, y0 + inset),
+                       (x0 + inset, y0 + inset)), highlight)
         if 0 <= playhead < region.width:
             _line(shader, batch_for_shader,
                   ((playhead, 0), (playhead, region.height)), (.38, .63, .95, 1))
@@ -273,8 +283,8 @@ def _draw_window():
             if not 8 * scale <= x <= region.width - 8 * scale:
                 continue
             color = {
-                'visible': (.45, .95, .48, 1),
-                'partially-visible': (.45, .95, .48, 1),
+                'visible': ASSIGNMENT_COLOR,
+                'partially-visible': ASSIGNMENT_COLOR,
                 'occluded': (1, .75, .25, 1),
                 'no-valid-candidate': (.3, .8, 1, 1),
                 'not-visible': (1, .48, .48, 1),
@@ -527,6 +537,12 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                                 context.region.height, point, offset, first, metrics=metrics)
                   )
         if key_id is None:
+            if context.region.type == 'WINDOW' and event.type == 'LEFTMOUSE' and _box_gesture is None:
+                interval = hit_motion_interval(view, context.region.view2d,
+                                               context.region.width, context.region.height,
+                                               point, offset, first, metrics=metrics)
+                if interval is not None and ui.select_hold_interval(context, interval):
+                    return {'FINISHED'}
             # Leave Blender's frame ruler and non-left-click tools native.
             if (event.type == 'LEFTMOUSE' and
                     point[1] < context.region.height - 24 * metrics.ui_scale and

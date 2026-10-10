@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+if __package__ == 'blendcap':
+    from blendcap_vta_visuals import provenance_color
+else:
+    from ..blendcap_vta_visuals import provenance_color
 
 if __package__ == 'blendcap':
     from blendcap_vta_area_mode import ROLE_PREVIEW, role_for
@@ -17,6 +21,7 @@ class OverlayCandidate:
     assigned_character_name: str | None
     selected: bool
     suppressed: bool = False
+    provenance: str = 'neutral'
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,7 @@ class OverlayRegionCandidate:
     assigned_character_name: str | None
     selected: bool
     suppressed: bool = False
+    provenance: str = 'neutral'
 
 
 @dataclass(frozen=True)
@@ -74,12 +80,15 @@ def build_overlay_candidates(view, selected_observation_id: str) -> tuple[Overla
     return tuple(
         OverlayCandidate(
             row.observation_id,
-            (row.assigned_character_name or f"Candidate {row.position or index}")
+            (row.assigned_character_name or getattr(row, 'tracked_character_name', None)
+             or f"Candidate {row.position or index}")
                 + (" — suppressed" if row.suppressed else ""),
             row.box_xyxy,
             row.assigned_character_name,
             row.observation_id == selected_observation_id,
             row.suppressed,
+            ('suppressed' if row.suppressed else 'human' if row.assigned_character_name
+             else 'derived' if getattr(row, 'tracked_character_name', None) else 'neutral'),
         ) for index, row in enumerate(view.candidates, start=1)
     )
 
@@ -112,6 +121,7 @@ def build_overlay_region_candidates(view, selected_observation_id: str, view2d):
             item.assigned_character_name,
             item.selected,
             item.suppressed,
+            item.provenance,
         )
         for item in build_overlay_candidates(view, selected_observation_id)
     )
@@ -289,11 +299,13 @@ def _draw() -> None:
         )
         for item, placement in zip(candidates, label_rects):
             x1, y1, x2, y2 = item.region_box
-            color = (1.0, .75, .1, 1.0) if item.selected else (.1, .85, 1.0, 1.0)
-            if item.suppressed and not item.selected:
-                color = (.45, .45, .45, .65)
+            color = provenance_color(item.provenance, label=True)
             batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ((x1,y1),(x2,y1),(x2,y2),(x1,y2),(x1,y1))})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)
+            if item.selected:
+                outline = batch_for_shader(shader, 'LINE_STRIP', {"pos": (
+                    (x1-2,y1-2),(x2+2,y1-2),(x2+2,y2+2),(x1-2,y2+2),(x1-2,y1-2))})
+                shader.uniform_float('color', (1.0, .75, .1, 1.0)); outline.draw(shader)
             left, bottom, right, top = placement.rect
             plate = batch_for_shader(shader, 'TRIS', {"pos": (
                 (left,bottom),(right,bottom),(right,top),
@@ -301,7 +313,7 @@ def _draw() -> None:
             )})
             shader.bind(); shader.uniform_float("color", (0.025, 0.035, 0.05, 0.86)); plate.draw(shader)
             blf.position(0, left + 5, bottom + 4, 0)
-            blf.color(0, 1.0, 0.95 if item.selected else 1.0, 0.72 if item.selected else 1.0, 1.0)
+            blf.color(0, *provenance_color(item.provenance, label=True))
             blf.draw(0, item.label)
     except Exception:
         return

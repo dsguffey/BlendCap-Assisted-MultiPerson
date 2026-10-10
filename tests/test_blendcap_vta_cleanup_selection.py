@@ -124,9 +124,10 @@ class CleanupBlenderTests(unittest.TestCase):
         ui = self.ui
         self.real_timeline_context = ui._is_timeline_context
         review = NS(characters=tuple(NS(character_id=cid, occupied_observation_id=None,
-                           motion_untrusted=False) for cid in ('a', 'b', 'c')), source_frame=7)
+                           display_name=cid.title(), motion_untrusted=False) for cid in ('a', 'b', 'c')), source_frame=7)
         for name, value in (('_timeline', self.timeline), ('_location', self.location),
-                ('_view', review), ('_selection', SelectionState()), ('_character_selections', {})):
+                ('_view', review), ('_selection', SelectionState()), ('_character_selections', {}),
+                ('_hold_selections', {})):
             self.stack.enter_context(mock.patch.object(ui, name, value))
         self.stack.enter_context(mock.patch.object(ui, '_is_timeline_context', side_effect=lambda c:
             getattr(getattr(c, 'area', None), 'type', None) == 'DOPESHEET_EDITOR'))
@@ -251,25 +252,141 @@ class CleanupBlenderTests(unittest.TestCase):
                               self.context.window_manager.blendcap_vta_motion_end), (100, 108))
             backend.assert_not_called()
 
-    def test_single_target_tracking_uses_active_not_sidebar_or_all_selected(self):
+    def test_tracking_uses_all_selected_not_sidebar_active(self):
         ui = self.ui
         ui.select_timeline_characters(self.context, ('a', 'b'))
         ui._selection.character_id = 'c'
-        backend = NS(update_tracking=mock.Mock(return_value=('result', None, None)))
+        outcomes = tuple(NS(character_id=cid, update='result', error=None) for cid in ('a', 'b'))
+        backend = NS(update_tracking_for_characters=mock.Mock(return_value=(outcomes, None, None)))
         with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
              mock.patch.object(ui, '_get_backend', return_value=backend), \
              mock.patch.object(ui, 'refresh', return_value=True), \
              mock.patch.object(ui, 'tracking_update_success', return_value='done'):
             operator = NS(report=mock.Mock())
             self.assertEqual(ui.BLENDCAP_OT_vta_update_tracking.execute(operator, self.context), {'FINISHED'})
-        backend.update_tracking.assert_called_once_with(self.location, 'a')
+        backend.update_tracking_for_characters.assert_called_once_with(self.location, ('a', 'b'))
         ui.select_timeline_characters(self.context, ())
         ui._selection.character_id = 'c'
-        backend.update_tracking.reset_mock()
+        backend.update_tracking_for_characters.reset_mock()
         with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
              mock.patch.object(ui, '_get_backend', return_value=backend):
             self.assertEqual(ui.BLENDCAP_OT_vta_update_tracking.execute(operator, self.context), {'CANCELLED'})
-        backend.update_tracking.assert_not_called()
+        backend.update_tracking_for_characters.assert_not_called()
+
+    def test_tracking_poll_zero_single_and_stale_refresh_are_guarded(self):
+        ui, context = self.ui, self.context
+        operator = NS(report=mock.Mock())
+        ui._selection.character_id = 'c'
+        self.assertFalse(ui.BLENDCAP_OT_vta_update_tracking.poll(context))
+        self.assertFalse(ui._action_availability(context)['update-tracking'])
+        ui.select_timeline_character(context, 'b')
+        self.assertTrue(ui.BLENDCAP_OT_vta_update_tracking.poll(context))
+        backend = NS(update_tracking_for_characters=mock.Mock(return_value=(
+            (NS(character_id='b', update='result', error=None),), None, None)))
+        with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
+             mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, 'refresh', return_value=True), \
+             mock.patch.object(ui, 'tracking_update_success', return_value='done'):
+            self.assertEqual(ui.BLENDCAP_OT_vta_update_tracking.execute(operator, context), {'FINISHED'})
+        backend.update_tracking_for_characters.assert_called_once_with(self.location, ('b',))
+        backend.update_tracking_for_characters.reset_mock()
+        def refresh(*args, **kwargs):
+            ui._timeline = TimelineView('s', (TimelineCharacter('a', 'A'),), ())
+            return True
+        with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
+             mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, 'refresh', side_effect=refresh):
+            self.assertEqual(ui.BLENDCAP_OT_vta_update_tracking.execute(operator, context), {'CANCELLED'})
+        backend.update_tracking_for_characters.assert_not_called()
+
+    def test_preview_update_uses_opted_in_timeline_set_never_global_active(self):
+        import sys
+        helper = sys.modules[self.ui.__package__.rsplit('.', 1)[0] + '.blendcap_vta_workspace']
+        self.ui.select_timeline_characters(self.context, ('a', 'b'))
+        preview = NS(area=NS(type='SEQUENCE_EDITOR'), screen=self.context.screen, workspace={})
+        self.ui._selection.character_id = 'c'
+        with mock.patch.object(helper, 'review_area', return_value=self.context.area):
+            self.assertEqual(self.ui.tracking_character_ids(preview), ('a', 'b'))
+        with mock.patch.object(helper, 'review_area', return_value=None):
+            self.assertEqual(self.ui.tracking_character_ids(preview), ())
+
+    def test_hold_click_exact_selection_fields_and_no_authoring_or_navigation(self):
+        from blendcap_vta_timeline import TimelineMotionInterval
+        ui, workspace, context = self.ui, self.workspace, self.context
+        interval = TimelineMotionInterval('b', 9, 19)
+        other = TimelineMotionInterval('c', 20, 22)
+        ui._timeline = TimelineView('s', self.timeline.characters, self.timeline.keys, (), (interval, other))
+        ui.select_timeline_key(context, 'ka')
+        keys_before = ui._review_key_selection.keyframe_ids
+        snapshot = repr(ui._timeline)
+        context.region = NS(type='WINDOW', width=2000, height=300,
+                            view2d=NS(view_to_region=lambda x, y, clip=False: (x*10, y)))
+        metrics = workspace._metrics(context)
+        y = dict(character_lanes(ui._timeline, 300, metrics=metrics))['b']
+        event = NS(type='LEFTMOUSE', ctrl=False, shift=False, mouse_region_x=1150, mouse_region_y=y)
+        with mock.patch.object(workspace, '_box_gesture', None), \
+             mock.patch.object(ui, '_get_backend') as backend:
+            result = workspace.BLENDCAP_OT_vta_timeline_select.invoke(NS(), context, event)
+            self.assertEqual(result, {'FINISHED'})
+            backend.assert_not_called()
+        self.assertEqual(ui.selected_hold_interval(context), interval)
+        self.assertEqual(ui.timeline_character_selection(context).character_ids, ('a', 'b'))
+        self.assertEqual(ui.current_character_id(context), 'b')
+        self.assertEqual(ui._selection.character_id, 'b')
+        self.assertEqual((context.window_manager.blendcap_vta_motion_start,
+                          context.window_manager.blendcap_vta_motion_end), (110, 120))
+        self.assertEqual(ui._review_key_selection.keyframe_ids, keys_before)
+        self.assertEqual(repr(ui._timeline), snapshot)
+        context.scene.frame_set.assert_not_called()
+        context.window_manager.modal_handler_add.assert_not_called()
+        context.window_manager.blendcap_vta_motion_start = 113
+        self.assertEqual(repr(ui._timeline), snapshot)  # Controls aren't live authority.
+        ui.select_hold_interval(context, other)
+        self.assertEqual(ui.selected_hold_interval(context), other)
+        self.assertEqual(ui.timeline_character_selection(context).character_ids, ('a', 'b', 'c'))
+        self.assertEqual((context.window_manager.blendcap_vta_motion_start,
+                          context.window_manager.blendcap_vta_motion_end), (121, 123))
+        ui._location = ReviewLocation(Path('companion'), Path('video'), 8, 109)
+        self.assertEqual(ui.selected_hold_interval(context), other)  # Ordinary scrub.
+        ui._location = ReviewLocation(Path('companion'), Path('video'), 8, 110)
+        self.assertIsNone(ui.selected_hold_interval(context))  # Changed strip mapping.
+        ui.select_hold_interval(context, other)
+        ui._timeline = self.timeline  # Explicit clear/merge invalidates transient range.
+        self.assertIsNone(ui.selected_hold_interval(context))
+
+    def test_window_draw_all_tracking_rows_and_only_selected_hold_outline(self):
+        from blendcap_vta_timeline import TimelineDerived, TimelineMotionInterval
+        from blendcap_vta_visuals import TRACKING_COLOR, UNRESOLVED_COLOR
+        ui, workspace, context = self.ui, self.workspace, self.context
+        interval = TimelineMotionInterval('b', 9, 19)
+        derived = tuple(TimelineDerived(cid, 12, state) for cid, state in
+                        (('a', 'visible'), ('b', 'partially-visible'), ('c', 'unresolved')))
+        ui._timeline = TimelineView('s', self.timeline.characters, (), derived, (interval,))
+        context.region = NS(type='WINDOW', width=2000, height=300,
+            view2d=NS(view_to_region=lambda x, y, clip=False: (x*10, y),
+                      region_to_view=lambda x, y: (x/10, y)))
+        lines = []
+        fake_gpu = NS(shader=NS(from_builtin=mock.Mock(return_value=NS())))
+        fake_batch = NS(batch_for_shader=mock.Mock())
+        # Mock GPU/font sinks, not the renderer's all-row logic or selection state.
+        with mock.patch.object(workspace, 'bpy', NS(context=context)), \
+             mock.patch.object(workspace, '_scope', return_value=True), \
+             mock.patch.object(workspace, '_line', side_effect=lambda s,b,p,c: lines.append((p,c))), \
+             mock.patch.object(workspace, '_fill'), \
+             mock.patch.dict(sys.modules, {'gpu': fake_gpu, 'gpu_extras.batch': fake_batch,
+                                          'blf': NS(position=mock.Mock(), size=mock.Mock(), color=mock.Mock(), draw=mock.Mock())}):
+            for selected in ((), ('a',), ('a', 'b')):
+                lines.clear()
+                ui.select_timeline_characters(context, selected)
+                workspace._draw_window()
+                ticks = [(p,c) for p,c in lines if c in (TRACKING_COLOR, UNRESOLVED_COLOR)]
+                self.assertEqual(len(ticks), 3)
+                self.assertEqual([c for p,c in ticks], [TRACKING_COLOR, TRACKING_COLOR, UNRESOLVED_COLOR])
+            lines.clear()
+            ui.select_hold_interval(context, interval)
+            workspace._draw_window()
+            color = (*context.preferences.themes[0].user_interface.wcol_list_item.text_sel, 1)
+            self.assertEqual(len([p for p,c in lines if c == color and len(p) == 5]), 1)
 
     def test_review_key_selection_keeps_time_and_activates_its_character(self):
         ui = self.ui
