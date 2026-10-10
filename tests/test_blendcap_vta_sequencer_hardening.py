@@ -28,6 +28,19 @@ except ImportError:
 
 
 class SequencerHardeningTests(unittest.TestCase):
+    def test_every_declared_review_class_is_in_the_actual_registration_list(self):
+        def names_in_classes(path):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            values = next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == "classes"
+                                  for target in node.targets))
+            return [node.id for node in values.elts]
+
+        declared = names_in_classes(ROOT / "blendcap" / "vta_review_ui.py")
+        registered = names_in_classes(ROOT / "blendcap" / "registration.py")
+        self.assertFalse(set(declared) - set(registered), "Review UI classes omitted from live registration")
+        self.assertEqual(len(registered), len(set(registered)), "Duplicate live registrations")
+
     def test_live_registration_list_contains_manage_and_key_selection(self):
         tree = ast.parse((ROOT / "blendcap" / "registration.py").read_text(encoding="utf-8"))
         registered = next(node.value for node in tree.body if isinstance(node, ast.Assign)
@@ -87,6 +100,77 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
         spec.loader.exec_module(addon)
         cls.addon = addon
         cls.ui = sys.modules[name + ".blendcap.vta_review_ui"]
+
+    def test_suppression_and_animation_are_live_and_panels_draw_after_reregister(self):
+        ui = self.ui
+
+        class Layout:
+            def __init__(self, calls):
+                self.calls = calls
+                self.enabled = True
+
+            def row(self, **kwargs):
+                return Layout(self.calls)
+
+            def box(self):
+                return Layout(self.calls)
+
+            def label(self, **kwargs):
+                self.calls.append(("label", kwargs.get("text")))
+
+            def prop(self, *args, **kwargs):
+                pass
+
+            def operator(self, identifier, **kwargs):
+                namespace, name = identifier.split(".")
+                rna = getattr(getattr(bpy.ops, namespace), name).get_rna_type()
+                props = SimpleNamespace()
+                self.calls.append(("operator", identifier, kwargs.get("text"), self.enabled, props))
+                if identifier == "blendcap.vta_suppress_candidate":
+                    assert "restore" in rna.properties, "Registered suppression lacks restore property"
+                return props
+
+        registered = False
+        try:
+            for _ in range(2):
+                self.addon.register()
+                registered = True
+                self.assertEqual(bpy.ops.blendcap.vta_suppress_candidate.get_rna_type().identifier,
+                                 "BLENDCAP_OT_vta_suppress_candidate")
+                self.assertEqual(bpy.ops.blendcap.vta_generate_animation.get_rna_type().identifier,
+                                 "BLENDCAP_OT_vta_generate_animation")
+                self.assertIs(bpy.types.Panel.bl_rna_get_subclass_py("VIEW3D_PT_blendcap_vta_animation"),
+                              ui.VIEW3D_PT_blendcap_vta_animation)
+                for selected, suppressed in ((True, False), (True, True), (False, False)):
+                    candidate = SimpleNamespace(observation_id="box", suppressed=suppressed,
+                                                assigned_character_name=None)
+                    view = SimpleNamespace(candidates=(candidate,), characters=())
+                    selection = SimpleNamespace(character_id="", observation_id="box" if selected else "",
+                                                can_assign=lambda value: False,
+                                                hard_state_intent=lambda *args: None)
+                    calls = []
+                    with mock.patch.object(ui, "_view", view), mock.patch.object(ui, "_selection", selection), \
+                         mock.patch.object(ui, "_analysis_locked", return_value=False), \
+                         mock.patch.object(ui, "_draw_management_actions"):
+                        ui.VIEW3D_PT_blendcap_vta_current_frame.draw(
+                            SimpleNamespace(layout=Layout(calls)), bpy.context)
+                        ui.VIEW3D_PT_blendcap_vta_animation.draw(
+                            SimpleNamespace(layout=Layout(calls)), bpy.context)
+                    button = next(c for c in calls if c[:2] == ("operator", "blendcap.vta_suppress_candidate"))
+                    self.assertEqual(button[2], "Restore Candidate" if selected and suppressed else "Suppress Candidate")
+                    self.assertEqual(button[3], selected)
+                    self.assertEqual(button[4].restore, selected and suppressed)
+                    self.assertIn(("label", "Review Keys"), calls, "Current-frame panel draw stopped early")
+                    self.assertTrue(any(c[:2] == ("operator", "blendcap.vta_generate_animation") for c in calls))
+                self.addon.unregister()
+                registered = False
+                for name in ("vta_suppress_candidate", "vta_generate_animation"):
+                    with self.assertRaises(KeyError):
+                        getattr(bpy.ops.blendcap, name).get_rna_type()
+                self.assertIsNone(bpy.types.Panel.bl_rna_get_subclass_py("VIEW3D_PT_blendcap_vta_animation"))
+        finally:
+            if registered:
+                self.addon.unregister()
 
     def test_shared_action_availability_and_menu_operator_paths(self):
         ui = self.ui

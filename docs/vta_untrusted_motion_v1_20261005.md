@@ -1,5 +1,21 @@
 # V1 Hold Animation (backend Untrusted Motion) — implementation and QA handoff
 
+## Missing-control registration repair — 2026-10-09
+
+Manual QA found Show Suppressed but no Suppress button: the feature-module class
+tuple was not the live registration tuple. The central `blendcap/registration.py`
+now imports/registers Suppress Candidate, Generate Animation, its Animation panel,
+and the existing Copy Analysis Error operator. No schema, private core, thresholds,
+inference, identity or output semantics changed. The original lifecycle gate did
+not assert these operators existed; the new tests fail on that original omission.
+Two regressions verify complete declared-class coverage and actual Blender RNA,
+restore properties, panel draw continuation, and unregister/re-register cleanup.
+Public: 388 total / 382 passed / six existing skips. Source and installed each
+pass three explicit RNA lifecycle cycles. Installed registration is backed up and
+hash-synced; restart Blender. Candidate Assignment now exposes Suppress/Restore
+beneath Show Suppressed Candidates, enabled when a current candidate is selected.
+Evidence: `checkpoints/dev-preview/vta_registration_repair_20261009/`.
+
 ## Reviewed skeletal output checkpoint — 2026-10-09
 
 Current terminology is **Hold Animation / Hold Range / Hold Start / Hold End**.
