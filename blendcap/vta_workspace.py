@@ -36,6 +36,33 @@ def _ui():
     return vta_review_ui
 
 
+def configure_source_camera_views(scene, workspaces=None):
+    """Only the opt-in VTA workspace's 3D views present the owned source camera.
+
+    The video Preview remains a video/review surface, not a 3D compositor.
+    Keep the user's sidebar visibility and all ordinary workspaces unchanged.
+    """
+    camera = scene.camera
+    if camera is None or not camera.get('vta_source_id') or not camera.get('vta_project_id'):
+        return 0
+    count = 0
+    for workspace in bpy.data.workspaces if workspaces is None else workspaces:
+        if workspace.get(WORKSPACE_TAG) != 1:
+            continue
+        for screen in workspace.screens:
+            for area in screen.areas:
+                if area.type != 'VIEW_3D':
+                    continue
+                space = area.spaces.active
+                space.use_local_camera = True
+                space.camera = camera
+                space.region_3d.view_perspective = 'CAMERA'
+                space.region_3d.view_camera_offset = (0, 0)
+                space.region_3d.view_camera_zoom = 0
+                count += 1
+    return count
+
+
 def _scope(context):
     return is_review_region(
         getattr(context, "workspace", None), getattr(context, "screen", None),
@@ -356,6 +383,7 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
                 self.report({'ERROR'}, 'Bundled workspace is missing its VTA scope tag.')
                 return {'CANCELLED'}
         context.window.workspace = workspace
+        configure_source_camera_views(context.scene, [workspace])
         for screen in workspace.screens:
             initialize_workspace_preset(workspace, screen)
             for area in screen.areas:

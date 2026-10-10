@@ -16,6 +16,105 @@ except ImportError:
 
 @unittest.skipUnless(bpy is not None, 'Blender runtime required')
 class CameraRegistrationTests(unittest.TestCase):
+    def test_scene_rebase_projects_origin_to_bottom_centre_and_survives_reload(self):
+        from mathutils import Vector
+        from bpy_extras.object_utils import world_to_camera_view
+        ref = {'reference': {'translation_m': [0, -5, 1.5], 'version': 1}}
+        plan = {'project_id': 'scene-reference-test', 'source_id': 's', 'width': 1000,
+                'height': 600, 'source_range': [0, 1]}
+        scene = bpy.context.scene
+        before_render = scene.render.resolution_x, scene.render.resolution_y
+        with tempfile.TemporaryDirectory() as directory:
+            image = bpy.data.images.new('reference-source', width=10, height=10)
+            image.filepath_raw = str(Path(directory)/'source.png')
+            image.file_format = 'PNG'
+            image.save()
+            location = SimpleNamespace(source_path=Path(image.filepath_raw), blender_frame=1, source_frame=0)
+            _, camera = self.output.stage_source_camera(plan, [{'camera_registration': {
+                'samples': [{'frame': 0, 'focal_px': 1000}]}}], location, False, None, ref)
+            rigs = [self.helper.rig('reference-left', [0]), self.helper.rig('reference-right', [0])]
+            try:
+                scene.render.resolution_x, scene.render.resolution_y = 1000, 600
+                scene.frame_set(1)
+                uv = world_to_camera_view(scene, camera, Vector((0, 0, 0)))
+                self.assertAlmostEqual(uv.x, .5, places=6)
+                self.assertAlmostEqual(uv.y, 0, places=6)
+                points = [Vector((-1, 4, .5)), Vector((1, 6, .5))]
+                for rig, point in zip(rigs, points):
+                    self.output.register_camera_root(rig, [{'pelvis_world_m': list(point)}])
+                    rig.matrix_world = self.output.scene_translation(ref)
+                bpy.context.view_layer.update()
+                worlds = [o.matrix_world @ o.pose.bones['Hips'].head for o in rigs]
+                self.assertLess(((worlds[1]-worlds[0])-(points[1]-points[0])).length, 1e-5)
+                for point, world in zip(points, worlds):
+                    uv = world_to_camera_view(scene, camera, world)
+                    self.assertAlmostEqual(uv.x*1000, 500+1000*point.x/point.y, places=3)
+                    self.assertAlmostEqual((1-uv.y)*600, 300-1000*point.z/point.y, places=3)
+                saved = Path(directory)/'reference.blend'
+                bpy.data.libraries.write(str(saved), {camera, *rigs})
+                with bpy.data.libraries.load(str(saved)) as (_, target):
+                    target.objects = [camera.name]
+                restored = target.objects[0]
+                try:
+                    bpy.context.collection.objects.link(restored)
+                    bpy.context.view_layer.update()
+                    self.assertEqual(restored.matrix_world, camera.matrix_world)
+                    self.assertEqual(json.loads(restored.data['vta_scene_reference']), ref)
+                finally:
+                    bpy.data.objects.remove(restored, do_unlink=True)
+            finally:
+                data = camera.data
+                bpy.data.objects.remove(camera, do_unlink=True)
+                bpy.data.cameras.remove(data)
+                bpy.data.images.remove(image)
+                scene.render.resolution_x, scene.render.resolution_y = before_render
+
+    def test_frame_zero_is_hidden_without_a_legacy_pose_guard(self):
+        rig = self.helper.rig('source-limited', [0, 1, 2, 3])
+        schedule = [{'frame': f, 'state': 'reconstructed', 'pose_source_frame': f} for f in range(4)]
+        self.output.retime_reviewed_action(rig, list(range(4)), schedule, 1)
+        segment = self.helper.rig('source-limited-update', [0])
+        self.output.retime_reviewed_action(segment, [0], schedule[:1], 1)
+        old = rig.animation_data.action
+        outside = {(fc.data_path, fc.array_index): fc.evaluate(3)
+                   for fc in self.output._iter_action_fcurves(old)}
+        new = self.output.merge_reviewed_range(rig, segment.animation_data.action, 1, 1, source_bounds=(1, 4))
+        self.output.limit_source_visibility(new, 1, 4)
+        for fc in self.output._iter_action_fcurves(new):
+            self.assertEqual(fc.evaluate(3), outside[fc.data_path, fc.array_index])
+            if fc.data_path in ('hide_viewport', 'hide_render'):
+                self.assertEqual(fc.evaluate(0), 1)
+                self.assertEqual(fc.evaluate(1), 0)
+                self.assertEqual(fc.evaluate(5), 1)
+            else:
+                self.assertTrue(all(1 <= p.co.x <= 4 for p in fc.keyframe_points))
+        self.assertIs(rig.animation_data.action, old)
+
+    def test_fixed_reference_reused_despite_new_depth_and_detects_provenance_change(self):
+        sample = {'frame': 0, 'pelvis_world_m': [0, 5, 0], 'focal_px': 1000}
+        reference = {'reference_samples': [{'character_id': 'a', 'samples': [sample]}],
+                     'translation_m': [0, -5, 1.5]}
+        core = SimpleNamespace(scene_reference_from_samples=mock.Mock(return_value=reference))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'output.json'
+            path.write_text(json.dumps({'plan': {'source_video_sha256': 'video'},
+                'characters': [{'character_id': 'a', 'camera_registration': {'samples': [sample]}}]}))
+            saved = {'reference': reference, 'source_video_sha256': 'video',
+                     'output_file': str(path), 'output_sha256': self.output._hash(path)}
+            camera = SimpleNamespace(data={'vta_scene_reference': json.dumps(saved)})
+            plan = {'width': 1000, 'height': 600, 'source_video_sha256': 'video'}
+            self.assertEqual(self.output.resolve_scene_reference(plan, [], camera, core, 'new-output'), saved)
+            core.scene_reference_from_samples.assert_called_once_with(reference['reference_samples'], 1000, 600)
+            altered = json.loads(camera.data['vta_scene_reference'])
+            altered['reference']['translation_m'][1] = -8
+            camera.data['vta_scene_reference'] = json.dumps(altered)
+            with self.assertRaisesRegex(ValueError, 'incompatible or was edited'):
+                self.output.resolve_scene_reference(plan, [], camera, core, 'new-output')
+            camera.data['vta_scene_reference'] = json.dumps(saved)
+            path.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'reconstruction changed'):
+                self.output.resolve_scene_reference(plan, [], camera, core, 'new-output')
+
     @classmethod
     def setUpClass(cls):
         from tests.test_blendcap_vta_output import BlenderOutputTests

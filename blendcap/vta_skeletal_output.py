@@ -72,7 +72,7 @@ def retime_reviewed_action(obj, source_frames, schedule, offset):
             point.interpolation = 'CONSTANT'
 
 
-def merge_reviewed_range(previous, segment, start, end):
+def merge_reviewed_range(previous, segment, start, end, source_bounds=None):
     """Stage a copied Action. Integer-frame boundaries are guarded, not blended.
 
     Owned generated Actions are constant, single-slot, modifier-free channels.
@@ -110,6 +110,8 @@ def merge_reviewed_range(previous, segment, start, end):
             elif fc.data_path in ('hide_viewport', 'hide_render'):
                 fc.keyframe_points.insert(start, 1, options={'FAST'}).interpolation = 'CONSTANT'
             for frame, value in ((start - 1, before), (end + 1, after)):
+                if source_bounds is not None and not source_bounds[0] <= frame <= source_bounds[1]:
+                    continue  # no legacy-pose preservation guard outside the video
                 if frame not in outside:
                     fc.keyframe_points.insert(frame, value, options={'FAST'}).interpolation = 'CONSTANT'
             fc.update()
@@ -117,6 +119,48 @@ def merge_reviewed_range(previous, segment, start, end):
     except Exception:
         bpy.data.actions.remove(result)
         raise
+
+
+def limit_source_visibility(action, first, last):
+    """No pose samples outside footage; visibility guards are not body poses."""
+    for fc in _iter_action_fcurves(action):
+        for index in range(len(fc.keyframe_points) - 1, -1, -1):
+            if not first <= fc.keyframe_points[index].co.x <= last:
+                fc.keyframe_points.remove(fc.keyframe_points[index], fast=True)
+        if fc.data_path in ('hide_viewport', 'hide_render'):
+            for frame in (first - 1, last + 1):
+                fc.keyframe_points.insert(frame, 1, options={'FAST'}).interpolation = 'CONSTANT'
+        fc.update()
+
+
+def resolve_scene_reference(plan, records, previous, core, output_path):
+    """Reuse the fixed derived reference; bounded updates never recenter it."""
+    saved = previous.data.get('vta_scene_reference') if previous is not None else None
+    if saved is not None:
+        reference = json.loads(saved)
+        evidence = reference['reference']
+        origin_report = Path(reference['output_file'])
+        if not origin_report.is_file() or _hash(origin_report) != reference['output_sha256']:
+            raise ValueError('VTA scene-reference reconstruction changed or is unavailable')
+        origin = json.loads(origin_report.read_text(encoding='utf-8'))
+        original_samples = [{'character_id': r['character_id'],
+            'samples': r['camera_registration']['samples']} for r in origin['characters']
+            if r.get('camera_registration', {}).get('samples')]
+        expected = core.scene_reference_from_samples(original_samples, plan['width'], plan['height'])
+        if (evidence != expected or reference['source_video_sha256'] != plan['source_video_sha256']
+                or origin['plan']['source_video_sha256'] != plan['source_video_sha256']):
+            raise ValueError('VTA scene reference is incompatible or was edited')
+        return reference
+    participants = [{'character_id': r['character_id'],
+                     'samples': r['camera_registration']['samples']}
+                    for r in records if r.get('camera_registration', {}).get('samples')]
+    return {'reference': core.scene_reference_from_samples(participants, plan['width'], plan['height']),
+            'source_video_sha256': plan['source_video_sha256'],
+            'output_file': str(Path(output_path).resolve()), 'output_sha256': _hash(output_path)}
+
+
+def scene_translation(reference):
+    return Matrix.Translation(reference['reference']['translation_m']) if reference else Matrix.Identity(4)
 
 
 def _same_skeleton(previous, fresh):
@@ -187,16 +231,21 @@ def register_camera_root(obj, samples):
         root.keyframe_insert('location', frame=index)
 
 
-def stage_source_camera(plan, records, location, bounded, bounds):
+def stage_source_camera(plan, records, location, bounded, bounds, reference=None):
     """Stage an owned calibrated camera; never alter the user's scene Camera."""
     owned = [o for o in bpy.context.scene.objects if o.type == 'CAMERA'
         and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
     if len(owned) > 1:
         raise ValueError('Multiple VTA source cameras own this source')
     previous = owned[0] if owned else None
-    matrix = Matrix.Rotation(math.pi / 2, 4, 'X')
+    rotation = Matrix.Rotation(math.pi / 2, 4, 'X')
+    saved = json.loads(previous.data['vta_scene_reference']) if previous is not None and previous.data.get('vta_scene_reference') else None
+    if saved is not None and reference != saved:
+        raise ValueError('Established VTA scene reference must not be replaced by a range update')
+    previous_matrix = scene_translation(saved) @ rotation
+    matrix = scene_translation(reference) @ rotation
     if previous is not None and (previous.parent is not None or previous.constraints or previous.animation_data is not None
-            or previous.matrix_world != matrix or previous.data.type != 'PERSP'
+            or previous.matrix_world != previous_matrix or previous.data.type != 'PERSP'
             or previous.data.sensor_fit != 'HORIZONTAL' or previous.data.sensor_width != 36
             or previous.data.shift_x != 0 or previous.data.shift_y != 0):
         raise ValueError('VTA source camera was edited; preserve it and use a separate scene')
@@ -218,6 +267,8 @@ def stage_source_camera(plan, records, location, bounded, bounds):
     bpy.context.scene.collection.objects.link(camera)
     camera.matrix_world = matrix
     camera['vta_project_id'], camera['vta_source_id'] = plan['project_id'], plan['source_id']
+    if reference is not None:
+        data['vta_scene_reference'] = json.dumps(reference, sort_keys=True)
     data.type, data.sensor_fit, data.sensor_width = 'PERSP', 'HORIZONTAL', 36
     data.clip_start, data.clip_end = .01, 10000
     offset = location.blender_frame - location.source_frame
@@ -332,6 +383,20 @@ def import_reviewed_output(path, location, backend):
         raise ValueError('Animation has no successful trustworthy pose or reusable Hold; prior output retained')
     prior = [o for o in bpy.context.scene.objects if o.get('vta_project_id') == plan['project_id']
              and o.get('vta_source_id') == plan['source_id'] and o.type == 'ARMATURE']
+    reference = None
+    source_bounds = None
+    if report['version'] == 3:
+        cameras = [o for o in bpy.context.scene.objects if o.type == 'CAMERA'
+            and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
+        if len(cameras) > 1:
+            raise ValueError('Multiple VTA source cameras own this source')
+        reference = resolve_scene_reference(plan, records, cameras[0] if cameras else None, backend._core, path)
+        offset = location.blender_frame - location.source_frame
+        source_bounds = [cache.source.start_frame + offset, cache.source.end_frame + offset]
+        old_reference = (json.loads(cameras[0].data['vta_scene_reference'])
+            if cameras and cameras[0].data.get('vta_scene_reference') else None)
+        if any(o.matrix_world != scene_translation(old_reference) for o in prior):
+            raise ValueError('Prior VTA object transform was edited; cannot register a bounded update')
     created = []
     staged = []
     committed = []
@@ -342,6 +407,10 @@ def import_reviewed_output(path, location, backend):
     before_images = set(bpy.data.images)
     scene = bpy.context.scene
     camera_before = scene.camera
+    prior_matrices = [(o, o.matrix_world.copy(), o.show_in_front) for o in prior]
+    camera_matrix_before = camera_before.matrix_world.copy() if camera_before else None
+    owned_camera_matrices = [(o, o.matrix_world.copy()) for o in scene.objects if o.type == 'CAMERA'
+        and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
     render_before = (scene.render.resolution_x, scene.render.resolution_y,
                      scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)
     camera_stage, camera_previous, camera_data_before = None, None, None
@@ -363,7 +432,7 @@ def import_reviewed_output(path, location, backend):
             previous = owned[0] if owned else None
             if cid not in paths:
                 if bounded and previous is not None:
-                    staged.append((previous, merge_reviewed_range(previous, None, *bounds), None))
+                    staged.append((previous, merge_reviewed_range(previous, None, *bounds, source_bounds=source_bounds), None))
                 continue
             # Fresh unique import: never delete an unrelated/user-named object.
             before_import = set(bpy.data.objects)
@@ -378,8 +447,6 @@ def import_reviewed_output(path, location, backend):
                                   offset)
             if previous is not None:
                 obj.matrix_world = previous.matrix_world.copy()
-                if report['version'] == 3 and previous.matrix_world != Matrix.Identity(4):
-                    raise ValueError('Prior VTA object transform was edited; cannot register a bounded update')
                 if report['version'] == 3 and (previous.parent is not None or previous.constraints
                         or any(b.constraints for b in previous.pose.bones)):
                     raise ValueError('Prior VTA rig has transform constraints; cannot register output safely')
@@ -400,7 +467,7 @@ def import_reviewed_output(path, location, backend):
                 if previous is not None:
                     if not _same_skeleton(previous, obj):
                         raise ValueError('Range update skeleton differs; previous animation retained')
-                    staged.append((previous, merge_reviewed_range(previous, obj.animation_data.action, *bounds), obj))
+                    staged.append((previous, merge_reviewed_range(previous, obj.animation_data.action, *bounds, source_bounds=source_bounds), obj))
                 else:
                     for frame in (bounds[0] - 1, bounds[1] + 1):
                         obj.hide_viewport = obj.hide_render = True
@@ -410,7 +477,12 @@ def import_reviewed_output(path, location, backend):
                         for point in fc.keyframe_points:
                             point.interpolation = 'CONSTANT'
         if report['version'] == 3:
-            camera_previous, camera_stage = stage_source_camera(plan, records, location, bounded, bounds)
+            for obj in created:
+                obj.matrix_world = scene_translation(reference)
+                limit_source_visibility(obj.animation_data.action, *source_bounds)
+            for previous, action, fresh in staged:
+                limit_source_visibility(action, *source_bounds)
+            camera_previous, camera_stage = stage_source_camera(plan, records, location, bounded, bounds, reference)
         # Commit only after all new armatures validate. Old generated output is
         # retained on disk; only owned Blender projections are replaced.
         for previous, action, fresh in staged:
@@ -426,9 +498,13 @@ def import_reviewed_output(path, location, backend):
             history.append({'output': str(Path(path).resolve()), 'blender_range': bounds})
             previous['vta_output_history'] = json.dumps(history)
         if camera_stage is not None:
+            for obj in prior:
+                obj.matrix_world = scene_translation(reference)
+                obj.show_in_front = True
             if camera_previous is not None:
                 camera_data_before = camera_previous.data
                 camera_previous.data = camera_stage.data
+                camera_previous.matrix_world = camera_stage.matrix_world.copy()
                 scene.camera = camera_previous
                 bpy.data.objects.remove(camera_stage, do_unlink=True)
                 camera_stage = None
@@ -451,6 +527,13 @@ def import_reviewed_output(path, location, backend):
             obj.name = 'VTA ' + label + ' [' + obj['vta_character_id'] + ']'
     except Exception:
         scene.camera = camera_before
+        for obj, matrix, in_front in prior_matrices:
+            obj.matrix_world = matrix
+            obj.show_in_front = in_front
+        if camera_before is not None:
+            camera_before.matrix_world = camera_matrix_before
+        for obj, matrix in owned_camera_matrices:
+            obj.matrix_world = matrix
         if camera_data_before is not None:
             camera_previous.data = camera_data_before
         (scene.render.resolution_x, scene.render.resolution_y,
@@ -497,6 +580,9 @@ def import_reviewed_output(path, location, backend):
         if active_obj is not None:
             bpy.context.view_layer.objects.active = active_obj
         bpy.context.scene.frame_set(original_frame)
+    if report['version'] == 3:
+        from .vta_workspace import configure_source_camera_views
+        configure_source_camera_views(scene)
     return tuple(created), report
 
 

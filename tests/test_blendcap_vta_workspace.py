@@ -130,6 +130,23 @@ class ScopeTests(unittest.TestCase):
 
 @unittest.skipUnless(bpy is not None, 'requires Blender background runtime')
 class BlenderWorkspaceTests(unittest.TestCase):
+    def test_source_camera_view_is_confined_to_vta_workspace_and_keeps_sidebar(self):
+        camera = {'vta_project_id': 'p', 'vta_source_id': 's'}
+        def workspace(tag):
+            region = SimpleNamespace(view_perspective='PERSP', view_camera_offset=(1, 1), view_camera_zoom=5)
+            space = SimpleNamespace(use_local_camera=False, camera=None, region_3d=region, show_region_ui=True)
+            area = SimpleNamespace(type='VIEW_3D', spaces=SimpleNamespace(active=space))
+            return SimpleNamespace(get=lambda key: tag, screens=[SimpleNamespace(areas=[area])]), space
+        owned, view = workspace(1)
+        ordinary, other = workspace(None)
+        self.assertEqual(self.workspace.configure_source_camera_views(SimpleNamespace(camera=camera), [owned, ordinary]), 1)
+        self.assertIs(view.camera, camera)
+        self.assertTrue(view.use_local_camera)
+        self.assertEqual(view.region_3d.view_perspective, 'CAMERA')
+        self.assertTrue(view.show_region_ui)
+        self.assertEqual(other.region_3d.view_perspective, 'PERSP')
+        self.assertIsNone(other.camera)
+
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]

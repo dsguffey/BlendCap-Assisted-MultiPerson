@@ -346,7 +346,7 @@ camera-centred gauge: CV (right, down, forward) maps to Blender (X, Y, Z) as
 camera-space pelvis in this basis, cancelling export grounding/detrending without
 changing reconstructed rotations, body inference, or tracker settings.
 
-An owned VTA Source Camera at the origin looks along world +Y, with world +Z up.
+In the initial proof, an owned VTA Source Camera at the origin looks along world +Y, with world +Z up.
 Its centred, square-pixel pinhole focal is `lens_mm = focal_px * 36 / width`;
 source dimensions and movie background are applied. The user's Camera is retained
 unchanged. Bounded updates preserve outside rig channels and camera lens samples;
@@ -379,3 +379,40 @@ Disposable QA: `checkpoints/dev-preview/vta_camera_registration_20261010/fixture
 Restart Blender, open that copy, use a 3D View and Numpad 0, scrub Blender 7–11.
 Frames 9–10 exercise exact Hold. Original fixtures and semantic artifacts remain
 unchanged. User visual acceptance remains a manual gate; no push.
+
+## October 10 — fixed scene origin and pre-source visibility repair
+
+The approved presentation convention now places the scene origin on the source
+image's bottom-centre ray, at the mean pelvis depth of the first common reconstructed
+frame available for the participating Characters. This is an approximate scene
+gauge, not measured gravity/ground. The private core derives one constant translation
+`(0, -depth, depth * height / (2 * focal_px))`; camera and all Characters receive
+the SAME translation. Projection, relative placement and root motion are preserved;
+no independent foot grounding, per-frame recentering or pose algorithm changes.
+
+The owned camera data retains `vta-derived-scene-reference` v1, reference samples,
+source hash and establishing output path/hash. Later bounded updates reuse this
+reference, even if their depths change. Inconsistent or missing provenance and
+edited transforms fail safely. Raw skeletal output stays v3, camera sample v1,
+ProjectState stays 0.7; no Recovery/cache/tracker/identity changes. Existing
+camera-centred output can be uniformly rebased once; old legacy pose samples are
+not retroactively reconstructed. Subsequent bounded edits preserve outside motion.
+
+Previously, a range starting at Blender frame 1 inserted an old visible pose guard
+at frame 0. Source-bound-aware merging now omits pose guards outside the footage,
+removes out-of-source pose keys and inserts ONLY hidden visibility guards there.
+Animation outside the generation range but within footage is preserved. Visibility keys
+at frame 0 are intentional; there is no visible skeleton or body-pose key there.
+
+Successful import/Open VTA Workspace configures only tagged VTA 3D views to use
+the owned source camera/background. Ordinary workspaces and sidebar visibility
+are untouched. The video Preview remains a 2D review surface, not a 3D compositor.
+
+Proof replays the existing real source 0–15 output, without new inference. Both
+Characters: 32 pelvis projection checks, max error <0.00025 px; fixed reference
+through source 6–10 replay; 158 outside frames and save/reload exact. New QA copy:
+`checkpoints/dev-preview/vta_scene_origin_20261010/fixture/VTA_Overlay_Wrestling.blend`.
+It opens in VTA with the left camera viewport unobstructed (N restores its sidebar).
+Scrub 1–16; frame 0 hides both rigs. Original QA fixture/companion remains unchanged.
+Public: 412 total, 406 pass, six existing skips. Private: 264 pass, no skips.
+The existing small Blender shutdown allocation warning remains. Manual QA pending.
