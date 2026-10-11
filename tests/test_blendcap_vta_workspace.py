@@ -134,7 +134,10 @@ class BlenderWorkspaceTests(unittest.TestCase):
         camera = {'vta_project_id': 'p', 'vta_source_id': 's'}
         def workspace(tag):
             region = SimpleNamespace(view_perspective='PERSP', view_camera_offset=(1, 1), view_camera_zoom=5)
-            space = SimpleNamespace(use_local_camera=False, camera=None, region_3d=region, show_region_ui=True)
+            space = SimpleNamespace(use_local_camera=False, camera=None, region_3d=region, show_region_ui=True,
+                                    overlay=SimpleNamespace(show_overlays=False, show_bones=False,
+                                                            show_extras=False, show_floor=False),
+                                    show_object_viewport_armature=False)
             area = SimpleNamespace(type='VIEW_3D', spaces=SimpleNamespace(active=space))
             return SimpleNamespace(get=lambda key: tag, screens=[SimpleNamespace(areas=[area])]), space
         owned, view = workspace(1)
@@ -144,8 +147,69 @@ class BlenderWorkspaceTests(unittest.TestCase):
         self.assertTrue(view.use_local_camera)
         self.assertEqual(view.region_3d.view_perspective, 'CAMERA')
         self.assertTrue(view.show_region_ui)
+        self.assertTrue(view.overlay.show_overlays)
+        self.assertTrue(view.overlay.show_bones)
+        self.assertTrue(view.show_object_viewport_armature)
+        self.assertFalse(view.overlay.show_extras)
+        self.assertFalse(view.overlay.show_floor)
         self.assertEqual(other.region_3d.view_perspective, 'PERSP')
         self.assertIsNone(other.camera)
+        self.assertFalse(other.overlay.show_overlays)
+        self.assertFalse(other.overlay.show_bones)
+        self.assertFalse(other.show_object_viewport_armature)
+
+    def test_missing_or_unowned_source_camera_leaves_views_unchanged(self):
+        for camera in (None, {}, {'vta_project_id': 'p'}, {'vta_source_id': 's'}):
+            with self.subTest(camera=camera):
+                workspace = SimpleNamespace(get=mock.Mock(), screens=mock.Mock())
+                self.assertEqual(self.workspace.configure_source_camera_views(
+                    SimpleNamespace(camera=camera), [workspace]), 0)
+                workspace.get.assert_not_called()
+
+    def test_real_bundled_view_restores_overlay_display_without_changing_camera_or_animation(self):
+        path = Path(__file__).resolve().parents[1] / 'vta_workspace_mode.blend'
+        with bpy.data.libraries.load(str(path), link=False) as (_source, target):
+            target.workspaces = ['Video to Animation']
+        workspace = target.workspaces[0]
+        spaces = [area.spaces.active for screen in workspace.screens for area in screen.areas
+                  if area.type == 'VIEW_3D']
+        self.assertTrue(spaces)
+        camera_data = bpy.data.cameras.new('workspace-overlay-regression')
+        camera = bpy.data.objects.new('workspace-overlay-regression', camera_data)
+        camera['vta_project_id'], camera['vta_source_id'] = 'p', 's'
+        image = bpy.data.images.new('workspace-overlay-background', width=32, height=18)
+        background = camera_data.background_images.new()
+        background.image = image
+        camera_data.show_background_images = True
+        before_matrix = camera.matrix_world.copy()
+        before_counts = tuple(len(getattr(bpy.data, key)) for key in ('objects', 'actions', 'cameras', 'images'))
+        sidebar = [space.show_region_ui for space in spaces]
+        try:
+            for space in spaces:
+                space.overlay.show_overlays = False
+                space.overlay.show_bones = False
+                space.show_object_viewport_armature = False
+            for _ in range(2):
+                self.assertEqual(self.workspace.configure_source_camera_views(
+                    SimpleNamespace(camera=camera), [workspace]), len(spaces))
+                for index, space in enumerate(spaces):
+                    self.assertTrue(space.overlay.show_overlays)
+                    self.assertTrue(space.overlay.show_bones)
+                    self.assertTrue(space.show_object_viewport_armature)
+                    self.assertTrue(space.use_local_camera)
+                    self.assertIs(space.camera, camera)
+                    self.assertEqual(space.region_3d.view_perspective, 'CAMERA')
+                    self.assertEqual(space.show_region_ui, sidebar[index])
+                self.assertTrue(camera_data.show_background_images)
+                self.assertTrue(background.show_background_image)
+                self.assertIs(background.image, image)
+                self.assertEqual(camera.matrix_world, before_matrix)
+                self.assertEqual(tuple(len(getattr(bpy.data, key)) for key in
+                                       ('objects', 'actions', 'cameras', 'images')), before_counts)
+        finally:
+            bpy.data.objects.remove(camera, do_unlink=True)
+            bpy.data.cameras.remove(camera_data)
+            bpy.data.images.remove(image)
 
     @classmethod
     def setUpClass(cls):

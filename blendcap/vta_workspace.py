@@ -56,6 +56,12 @@ def configure_source_camera_views(scene, workspaces=None):
                 space = area.spaces.active
                 space.use_local_camera = True
                 space.camera = camera
+                # The preset hides overlays for its old empty 3D placeholder.
+                # Blender draws both armatures AND camera backgrounds through
+                # the overlay engine; camera selection alone cannot show them.
+                space.overlay.show_overlays = True
+                space.overlay.show_bones = True
+                space.show_object_viewport_armature = True
                 space.region_3d.view_perspective = 'CAMERA'
                 space.region_3d.view_camera_offset = (0, 0)
                 space.region_3d.view_camera_zoom = 0

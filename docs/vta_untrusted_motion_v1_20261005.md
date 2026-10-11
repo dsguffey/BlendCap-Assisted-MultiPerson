@@ -416,3 +416,34 @@ It opens in VTA with the left camera viewport unobstructed (N restores its sideb
 Scrub 1–16; frame 0 hides both rigs. Original QA fixture/companion remains unchanged.
 Public: 412 total, 406 pass, six existing skips. Private: 264 pass, no skips.
 The existing small Blender shutdown allocation warning remains. Manual QA pending.
+
+## October 10 — VTA camera viewport display follow-up
+
+Manual QA confirmed that source-camera registration looks correct in Layout,
+but the VTA workspace's left 3D viewport remained blank. The bundled preset had
+`overlay.show_overlays = False`; selecting the source camera did not restore the
+overlay renderer's armature or camera-background drawing. See Blender's
+[overlay object dispatch](https://github.com/blender/blender/blob/main/source/blender/draw/engines/overlay/overlay_instance.cc).
+
+The existing source-camera view configurator now enables overlays, bones and
+armature-object visibility ONLY in tagged VTA workspace 3D views. Open VTA
+Workspace and successful output imports use this same path. Ordinary workspaces,
+sidebar visibility, camera/rig transforms, registration, pose channels, Hold,
+identity authority and the private core are unchanged. The existing user camera
+is retained; this fix neither creates nor deletes cameras.
+
+Two regression tests were added and the existing scope test strengthened:
+real bundled-preset repair/idempotence without changing animation or camera
+data, missing/unowned camera no-op, and ordinary-workspace/display isolation.
+Full public suite: 414 tests, 408 pass, six existing skips. Background installed
+extension register/unregister/re-register, real QA-copy save/reload, exact pose/key/
+transform preservation and original fixture/companion hash protection pass.
+The installed workspace module is backed up and hash-synced. The existing small
+Blender shutdown allocation warning remains; no new inference or desktop control.
+
+New disposable QA copy (original fixture unchanged):
+`checkpoints/dev-preview/vta_viewport_display_20261010/fixture/VTA_Overlay_Wrestling.blend`.
+Restart Blender, open this copy, select Video to Animation, and scrub frames
+1–16. The left 3D camera view should show both skeletons over the source movie;
+the right Preview remains video/review only. Frame 0 remains hidden. Actual GUI
+rendering/visual acceptance is still a manual gate, not claimed by background tests.
