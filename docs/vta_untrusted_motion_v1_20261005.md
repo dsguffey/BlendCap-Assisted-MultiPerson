@@ -1,4 +1,127 @@
-# V1 Hold Animation (backend Untrusted Motion) — implementation and QA handoff
+# V1 animation repair — implementation and QA handoff
+
+## End-to-end milestone — 2026-10-11
+
+The user accepted Interpolate manual visual QA on the wrestling fixture, including
+the 22–26 check. This milestone includes independent multi-person skeletal output,
+improved source-camera/root registration, J repeat with auto-advance, authoritative
+Assign superseding derived ownership, user Object Mode placement preservation and
+ProjectState 0.8 Freeze/Interpolate. It does not promote SAM/tracking research or
+claim general monocular pose accuracy. Manual Freeze acceptance is a separate gate.
+
+Before committing, both complete working trees (including ignored QA/untracked
+research and .git), shared docs and source media were copied to a verified private
+local milestone backup. Every copied file hash and both all-ref bundles verified.
+Product source/tests and this feature record are committed; generated output,
+temporary fixtures, checkpoints, research prototypes and private core source are
+not added to public Git. Public publication uses the existing development branch,
+without merging main, forcing or rewriting history. No behavior changes in this pass.
+
+## Current contract — ProjectState 0.8, 2026-10-11
+
+The existing filename is retained for discoverability. Typed `repair_ranges`
+replace `untrusted_motion_intervals`: Character/source/inclusive source bounds
+and `mode=freeze|interpolate`. Membership is human pose rejection independent of
+identity. Regeneration never clears it. Same-mode overlaps union, adjacent ranges
+stay separate, different-mode overlap rejects atomically, inclusive clearing splits
+while retaining modes. Old nonempty Hold documents require explicit disposable
+migration; older empty documents load in memory with empty 0.8 ranges.
+
+Ordinary reviewed reconstruction runs on rejected frames. Plan v3 includes evidence
+context for minimal current raw anchors outside bounded requests. Output v4 retains
+raw NPZ/BVH and a private validated schedule; prior repaired output is never an anchor.
+After source-camera registration, Freeze copies the latest successful non-rejected
+pose/root in the same identity-continuity scope. No left anchor is unavailable.
+Interpolate uses nearest non-rejected successful raw endpoints, shortest-path
+quaternion slerp and linear root translation. Endpoints/non-rejected frames are exact.
+Missing either side fails before publication/import; no fallback or extrapolation.
+No extra smoothing or repair outside explicit membership.
+
+Tracking ignores repair ranges completely: no clipping, retirement, inference block
+or post-range reacquisition. Ordinary identity/presence constraints still apply.
+The existing `motion_trust` module/operator names are command seams, not retained
+Hold semantics. User Object Mode transforms/curves/handles remain exact; only generated
+skeletal/root/visibility channels are recomputed. J and normal Assign are unchanged.
+
+UI **Repair Animation** contains **Freeze** (amber), **Interpolate** (violet), inclusive
+Start Frame / End Frame/current setters, selected range mode/change/remove and numeric
+range subtraction. Clicking a span loads one exact range, active Character, bounds
+and mode; key clicks still have local precedence. No sidebar selection fallback.
+
+Evidence bundle: `checkpoints/dev-preview/vta_repair_ranges_20261011/` includes
+baseline backups, regression JSONs, raw replay verification and manual-freeze /
+manual-interpolate QA fixture copies. White Blender 22–26 uses original raw output
+without inference: endpoints, Freeze/slerp/root, unrelated Yellow, outside keys,
+object ownership and save/reload verified. Original 130-file fixture tree unchanged.
+Interpolate manual visual QA passed. Full public regression: 466 passed/six existing skips.
+After explicitly authorized migration of two obsolete private research-test
+expectations, full private: 300 passed/one existing skip, zero failures. Suppression
+still excludes its exact candidate without requiring unrelated frames to remain
+unmatched. No research algorithm/data changes. The additive `test-migration-followup/`
+record supersedes the earlier blocker; original audit and fixture artifacts remain.
+
+No research, Recovery v3, native control or push. Working trees were already dirty
+and remain uncommitted; baseline public `1920839e1caf338c617173cdc2bdc21295b91112`,
+private `a6fb3ebd785be24c4cee7d18232db36dc9a547a7`.
+
+## Historical checkpoints (not current Hold policy)
+
+The dated sections below retain prior evidence and preexisting work, including
+Object Mode ownership and J. Their Hold barriers, prior seed reuse, state/output
+versions and earlier "current" wording are superseded by this 0.8 contract.
+
+## Object Mode placement ownership — 2026-10-11
+
+Ordinary Blender Object Mode transforms on generated VTA Characters are supported
+pre-cleanup placement corrections. Location, rotation (Euler, quaternion or
+axis-angle), scale and rotation mode are user-owned. Their object-level transform
+F-curves retain exact key times/values, interpolation and handles through bounded
+and full-source regeneration, repeated regeneration and save/reload. Keys inside
+the regenerated interval and outside the source footage are not trimmed.
+
+VTA still owns pose-bone skeletal/root-motion channels and generated visibility.
+Compatible existing Character objects and armature data are reused for both update
+paths. A staged Action copy retains user curves verbatim; only generated channels
+are replaced/merged. Bounded updates preserve generated motion outside the interval;
+full updates replace all generated samples. Typed 0.8 repair is applied downstream. Full updates
+now use the same skeletal-edit safety checks as bounded updates instead of replacing
+an object and silently dropping its placement animation.
+
+For newly created calibrated rigs, canonical registration establishes the initial
+object placement. Later regeneration registers fresh temporary bone motion against
+the original fixed source-camera reference, without resetting existing Character
+transforms. User placement intentionally alters the final camera-relative world
+position/projection; it does not change reconstruction, camera calibration or
+authoritative identity. Depth affects perspective size; rotation/scale operate
+around the existing object origin, not a newly introduced pelvis pivot. Nonuniform
+or negative scaling is ordinary Blender behavior, not physical recalibration.
+
+This exception is an explicit allowlist, not general animator-edit support. Edited
+skeletal interpolation, mismatched channel sets/rest skeletons, parents, object or
+bone constraints, drivers, NLA, F-curve modifiers, sampled curves and unsupported
+Action structures remain rejected with prior output retained. Custom/delta-transform
+curves are not allowlisted. Existing uncalibrated rigs without a retained fixed
+registration base cannot be silently rebased: calibrated regeneration fails clearly
+and asks that they be preserved in a separate scene first. Legacy reports remain
+readable; no ProjectState, output schema, tracker or Recovery change is introduced.
+
+This section supersedes earlier checkpoint restrictions on edited object transforms;
+the protections on generated skeletal animation and the source camera remain.
+
+Verification: 27 new deterministic Blender tests; focused output/registration suite
+53 passed, no skips. Full public suite: 465 total, 459 passed, six existing skips.
+Disposable real two-Character NPZ/BVH replay verified four alternating bounded/full
+updates, then save/reload and two further updates, with exact placement keys and
+outside-bounded evaluated motion. No new inference. Original fixture/companion
+hashes remained identical. Public and installed lifecycle checks passed three
+register/unregister cycles each; the single changed installed runtime module is
+backed up and hash-synced. Background Blender's thumbnail-cache write warning and
+the full suite's existing small shutdown memory warning did not affect validation.
+
+Disposable manual QA: `checkpoints/dev-preview/vta_object_placement_20261011/fixture/VTA_Overlay_Wrestling.blend`.
+Restart Blender before opening it. The copy contains intentional small placement
+offsets and object-location keys; scrub 7–11 in the calibrated 3D camera view.
+Manual visual acceptance remains pending. No native UI control or push.
 
 ## Scrub-safe bounded animation generation — 2026-10-09
 
@@ -447,3 +570,65 @@ Restart Blender, open this copy, select Video to Animation, and scrub frames
 1–16. The left 3D camera view should show both skeletons over the source movie;
 the right Preview remains video/review only. Frame 0 remains hidden. Actual GUI
 rendering/visual acceptance is still a manual gate, not claimed by background tests.
+
+## October 11 — Repeat Last Assignment (automated gate passed; manual QA pending)
+
+The Preview and Preview + Sequencer VTA Commands menus now expose **Repeat Last
+Assignment**, disabled until a successful explicit candidate assignment establishes
+a remembered Character in this session. It uses the current frame's selected
+candidate and the last assigned stable Character ID, reusing ordinary Assign
+validation and confirmation. Successful repeat advances exactly one Blender frame;
+at the final source/visible-strip frame it assigns and stays. Blocked/cancelled
+repeat does not advance. No candidate is carried forward or selected automatically.
+
+The shortcut is plain **J**, confined to VTA Preview review contexts, with key-repeat
+disabled. Blender 5.2 default Preview, Sequencer, shared/global and relevant tool
+maps have no conflicting plain-J binding. Other editors retain their native J
+actions. Custom user keymaps still need manual QA. Remembered state is Python-only,
+scoped to the project/source, cleared on file load/add-on reset or Character
+deletion; renaming retains the stable ID. It is never saved into ProjectState/RNA
+or established by tracking, loading, suppression, hard states or Hold Animation.
+
+The real disposable fixture test exposed a pre-existing ordinary Assign defect:
+assigning a candidate used by another Character's derived tracking persists the
+human key, then review refresh fails with `Candidate ownership is not injective`.
+An independent ordinary-Assign reproduction confirms this is not specific to
+Repeat. In the failing reproduction Repeat did not advance, but the assignment
+already existed on disk. The narrowly approved repair lives in private
+`ProjectState._add_identity_keyframe`: after existing authoritative conflict checks,
+retire only another Character's derived record claiming the exact same
+analysis-revision/observation/source/frame. Existing `invalidated_records` markers
+retain the original records and leave unrelated frames/Characters active. This is
+atomic with human-key publication, covers ordinary/confirmed Assign and Repeat,
+and does not change propagation, thresholds or authoritative conflict rules.
+
+Full background-Blender suite: 438 tests, 432 pass, six existing skips, including
+24 focused Repeat tests (three use real private-core persistence and public refresh,
+including failed publication without frame advance or derived-state mutation).
+Full private suite: 298 tests, 297 pass; the one skip requires an external research
+acceptance fixture. Four new private regressions cover exact conflict retirement,
+unrelated-record/evidence preservation, save failure atomicity, authoritative
+conflict rejection and confirmed correction. Original fixture/companion and the new manual-QA copy
+remain hash-identical; all assignment attempts were in separate disposable copies.
+ProjectState stays 0.7; no detector evidence, tracker-policy, new inference, native
+control or push. The two installed add-on modules are backed up and hash-synced;
+the separately discovered private core uses the repaired checkout. Real fixture
+normal Assign, consecutive Repeat, target switch, exact advance, unchanged retained
+tracking records/cache/artifacts, save/reload authority preservation and session
+reset pass. Three register/unregister cycles also pass. Existing small Blender
+shutdown allocation and background thumbnail-write warnings do not affect these
+checks; physical hotkey/menu rendering still requires manual QA.
+
+Original failure evidence is retained in
+`checkpoints/dev-preview/vta_repeat_assignment_20261011/ordinary_assign_repro.json`.
+Successful smoke record: `checkpoints/dev-preview/vta_repeat_assignment_repaired_20261011/smoke_result.json`.
+Disposable QA copy: `checkpoints/dev-preview/vta_repeat_assignment_repaired_20261011/fixture/VTA_Overlay_Wrestling.blend`.
+Restart Blender, open this copy, select the Video to Animation workspace and verify
+Repeat is disabled before assigning. At frame 2, explicitly assign an appropriate
+candidate to White (normal Assign stays on the frame). At frame 3, select the
+current-frame candidate, hover the Preview and press J: assignment targets White
+and advances to frame 4, with no candidate carried forward. Repeat for several
+frames; a later explicit Yellow assignment changes the target. With no candidate
+selected, J must not advance. Both Preview and combined-view menus expose the same
+action; reopening resets history without removing saved human keys. These are
+manual workflow checks, not a new semantic-scoring experiment.

@@ -49,6 +49,7 @@ class TimelineMotionInterval:
     character_id: str
     start_frame: int
     end_frame: int
+    mode: str = 'freeze'
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ class TimelineView:
     characters: tuple[TimelineCharacter, ...]
     keys: tuple[TimelineKey, ...]
     derived: tuple[TimelineDerived, ...] = ()
-    untrusted_motion_intervals: tuple[TimelineMotionInterval, ...] = ()
+    repair_ranges: tuple[TimelineMotionInterval, ...] = ()
 
 
 def present_timeline(private_timeline) -> TimelineView:
@@ -77,8 +78,8 @@ def present_timeline(private_timeline) -> TimelineView:
         TimelineDerived(item.character_id, item.frame, item.state.value)
         for item in getattr(private_timeline, "derived", ())
     )
-    intervals = tuple(TimelineMotionInterval(i.character_id, i.start_frame, i.end_frame)
-                      for i in getattr(private_timeline, "untrusted_motion_intervals", ()))
+    intervals = tuple(TimelineMotionInterval(i.character_id, i.start_frame, i.end_frame, i.mode)
+                      for i in getattr(private_timeline, "repair_ranges", ()))
     return TimelineView(private_timeline.source_id, tuple(characters), keys, derived, intervals)
 
 

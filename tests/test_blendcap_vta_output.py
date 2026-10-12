@@ -1,4 +1,4 @@
-"""Reviewed skeletal boundaries, suppression presentation, and real evaluated Hold."""
+"""Reviewed skeletal boundaries, suppression presentation, and output-stage repair."""
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
@@ -26,40 +26,15 @@ class OutputBoundaryTests(unittest.TestCase):
             with self.subTest(stop=stop), self.assertRaisesRegex(RuntimeError, 'stop request'):
                 run(SimpleNamespace(core_root='private', blendcap_root='bundle',
                     companion_root='project', video='video.mp4', stop_file=stop))
-    def test_hold_seed_reuses_only_immutable_current_evidence_and_never_outside_inference(self):
-        import json
+    def test_repair_worker_has_no_old_hold_seed_or_repaired_output_reuse(self):
         import blendcap_vta_reconstruct_worker as worker
-        sample = {'frame': 2, 'mode': 'infer', 'reason': 'user-anchor', 'evidence': {'observation_id': 'exact'}}
-        character = {'character_id': 'c', 'samples': [{'frame': 5, 'mode': 'hold'}], 'hold_context': [sample]}
-        fields = dict(project_id='p', source_id='s', source_video_sha256='hash', fps=24, width=100, height=50)
-        plan = {**fields, 'source_range': [5, 6]}
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            run = root/'reconstruction/run-old'
-            run.mkdir(parents=True)
-            pose = run/'pose.npz'
-            pose.write_bytes(b'immutable pose artifact')
-            bvh = run/'pose.bvh'
-            bvh.write_bytes(b'immutable final BVH channels')
-            report = {'schema': 'vta-reviewed-skeletal-output', 'version': 1,
-                'plan': {**fields, 'characters': [{'character_id': 'c', 'samples': [sample]}]},
-                'characters': [{'character_id': 'c', 'source_frames': [2], 'npz': pose.name,
-                    'npz_sha256': worker.digest(pose), 'schedule': [
-                        {'frame': 2, 'state': 'reconstructed', 'pose_source_frame': 2}],
-                    'bvh': bvh.name, 'bvh_sha256': worker.digest(bvh)}]}
-            worker.write_new_json(run/'output.json', report)
-            seed = worker.find_hold_seed(plan, character, root)
-            self.assertEqual(seed['frame'], 2)
-            self.assertEqual(worker.validate_hold_seed(plan, character, seed, root), pose)
-            altered = {**character, 'hold_context': [{**sample, 'evidence': {'observation_id': 'other'}}]}
-            self.assertIsNone(worker.find_hold_seed(plan, altered, root))
-            with self.assertRaisesRegex(RuntimeError, 'current reviewed evidence'):
-                worker.validate_hold_seed(plan, altered, seed, root)
-            self.assertIsNone(worker.find_hold_seed(plan, {**character, 'samples': [
-                {'frame': 5, 'mode': 'infer'}, {'frame': 6, 'mode': 'hold'}]}, root))
-            pose.write_bytes(b'tampered')
-            with self.assertRaisesRegex(RuntimeError, 'pose hash changed'):
-                worker.validate_hold_seed(plan, character, seed, root)
+        import inspect
+        text = inspect.getsource(worker)
+        self.assertNotIn('find_hold_seed', text)
+        self.assertNotIn('hold_context', text)
+        self.assertIn('repair_anchor_requests', text)
+        self.assertIn('repair_context', text)
+        self.assertIn("'version': 4", text)
 
     def test_async_output_accepts_navigation_but_rejects_new_project_source_and_offset(self):
         location = ReviewLocation(Path('a_vta'), Path('video.mp4'), 0, 10)
@@ -160,35 +135,36 @@ class BlenderOutputTests(unittest.TestCase):
             self.assertIn('cancelled', ui._generation_status)
             self.assertFalse(ui._status_is_error)
             self.assertIs(ui._view, view)
-    def test_hold_seed_copies_original_final_channels_not_span_renormalized_values(self):
-        import json
-        seed_rig = self.rig('final-seed', [0, 2])
-        target = self.rig('renormalized-segment', [2])
-        # Keep the helper's disposable import separate from fixture cleanup.
-        target['vta_character_id'] = 'c'
-        target.pose.bones['Root'].location.x = 500
-        target.pose.bones['Root'].keyframe_insert('location', frame=1)
-        schedule = [{'frame': f, 'state': 'held', 'pose_source_frame': 2} for f in (5, 6)]
-        self.output.retime_reviewed_action(target, [2], schedule, 1)
-        seed_values = {(fc.data_path, fc.array_index): fc.evaluate(2)
-                       for fc in self.output._iter_action_fcurves(seed_rig.animation_data.action)}
-        def imported(*args, **kwargs):
-            seed_copy = seed_rig.copy()
-            seed_copy.data = seed_rig.data.copy()
-            seed_copy.animation_data.action = seed_rig.animation_data.action.copy()
-            bpy.context.collection.objects.link(seed_copy)
-            bpy.context.view_layer.objects.active = seed_copy
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root/'source.bvh').write_bytes(b'hash-validated source')
-            (root/'output.json').write_text(json.dumps({'characters': [{'character_id': 'c',
-                'bvh': 'source.bvh', 'bvh_sha256': self.output._hash(root/'source.bvh'), 'source_frames': [0, 2]}]}))
-            with mock.patch.object(self.output, '_import_bvh', side_effect=imported):
-                self.output._copy_final_hold_seed(target, {'output': 'output.json', 'frame': 2}, schedule, root, 1)
-        for fc in self.output._iter_action_fcurves(target.animation_data.action):
-            if fc.data_path not in ('hide_render', 'hide_viewport'):
-                self.assertEqual(fc.evaluate(6), seed_values[fc.data_path, fc.array_index])
-                self.assertEqual(fc.evaluate(7), seed_values[fc.data_path, fc.array_index])
+    def test_interpolate_final_raw_rotation_and_root_exact_endpoints(self):
+        import math
+        from mathutils import Euler
+        obj = self.rig('interpolate-raw', [22,23,24,25,26])
+        # Wraparound rotations must take the short path, not interpolate Euler.
+        hip = obj.pose.bones['Hips']
+        for index, degrees in enumerate((170, 0, 0, 0, -170), 1):
+            hip.rotation_euler = (0, math.radians(degrees), 0)
+            hip.keyframe_insert('rotation_euler', frame=index)
+        raw = {(fc.data_path, fc.array_index): {f:fc.evaluate(i+1) for i,f in enumerate(range(22,27))}
+               for fc in self.output._iter_action_fcurves(obj.animation_data.action)}
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]/'Video-to-Animation'))
+        from vta_core import resolve_pose_schedule, quaternion_slerp
+        samples = [dict(frame=f, mode='infer', repair_mode='interpolate' if 23<=f<=25 else None,
+                        reason='raw') for f in range(22,27)]
+        schedule = resolve_pose_schedule(samples, list(range(22,27)))
+        self.output.retime_reviewed_action(obj, list(range(22,27)), schedule, 1,
+                                           repair_math=SimpleNamespace(quaternion_slerp=quaternion_slerp))
+        for fc in self.output._iter_action_fcurves(obj.animation_data.action):
+            if fc.data_path in ('hide_viewport', 'hide_render'):
+                continue
+            self.assertEqual(fc.evaluate(23), raw[fc.data_path,fc.array_index][22])
+            self.assertEqual(fc.evaluate(27), raw[fc.data_path,fc.array_index][26])
+        bpy.context.scene.frame_set(25)
+        bpy.context.view_layer.update()
+        self.assertAlmostEqual(obj.pose.bones['Root'].location.x, 4, places=6)
+        expected = Euler((0, math.pi, 0)).to_quaternion()
+        actual = obj.pose.bones['Hips'].rotation_euler.to_quaternion()
+        self.assertAlmostEqual(abs(actual.dot(expected)), 1, places=6)
 
     def test_generate_range_launches_source_bounds_and_keeps_hold_controls_distinct(self):
         import sys
@@ -477,7 +453,7 @@ Frame Time: 0.1
             output = run/'output.json'
             output.write_text(json.dumps(report))
             backend = SimpleNamespace(_load_context=lambda location:(None,SimpleNamespace(revision_id='a'),'a'),
-                _core=SimpleNamespace(build_skeletal_plan=lambda *_args:plan, resolve_pose_schedule=lambda *_args:schedule))
+                _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kw:plan, resolve_pose_schedule=lambda *_args, **_kw:schedule))
             location = ReviewLocation(root, root/'video.mp4', 0, 20)
             # Ordinary user object with a colliding intended display name survives.
             user = bpy.data.objects.new('VTA white [c]', None)
@@ -534,7 +510,7 @@ Frame Time: 0.1
                 partial_plan = {**plan, 'source_range': [0, 1]}
                 partial_backend = SimpleNamespace(_load_context=backend._load_context,
                     _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kwargs: partial_plan,
-                                          resolve_pose_schedule=lambda *_args: schedule))
+                                          resolve_pose_schedule=lambda *_args, **_kwargs: schedule))
                 report.update(version=2, plan=partial_plan)
                 output.write_text(json.dumps(report))
                 second[0]['vta_output_history'] = 'invalid history JSON'

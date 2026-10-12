@@ -99,12 +99,21 @@ def derived_mark_color(state):
     return TRACKING_COLOR if state in ('visible', 'partially-visible') else UNRESOLVED_COLOR
 
 
+def repair_range_colors(mode):
+    """Categorical repair colors, independent of identity/selection/confidence."""
+    if mode == 'freeze':
+        return (.34, .23, .10, 1), (.95, .70, .30, .85)
+    if mode == 'interpolate':
+        return (.25, .14, .36, 1), (.78, .53, .98, .85)
+    raise ValueError('Unknown repair range mode')
+
+
 def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
                           *, metrics=TimelineMetrics(), include_interval=False):
     """Inclusive frame cells shared by painting and exact interval hit-testing."""
     lanes = dict(character_lanes(view, height, first, metrics=metrics))
     rectangles = []
-    for interval in getattr(view, 'untrusted_motion_intervals', ()):
+    for interval in getattr(view, 'repair_ranges', ()):
         y = lanes.get(interval.character_id)
         if y is None:
             continue
@@ -121,7 +130,7 @@ def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
 
 def hit_motion_interval(view, view2d, width, height, point, offset=0, first=0,
                         *, metrics=TimelineMetrics()):
-    # Keys take precedence at their local symbol hit area, even inside Hold.
+    # Keys take precedence at their local symbol hit area, even inside a repair range.
     if hit_review_key(view, view2d, height, point, offset, first, metrics=metrics) is not None:
         return None
     return next((interval for interval, x0, x1, y0, y1 in motion_interval_rects(

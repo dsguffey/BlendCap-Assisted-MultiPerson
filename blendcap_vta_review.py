@@ -49,7 +49,7 @@ class CharacterRow:
     decision_state: str | None = None
     derived_state: str | None = None
     derived_observation_id: str | None = None
-    motion_untrusted: bool = False
+    pose_rejected: bool = False
 
     @property
     def available(self) -> bool:
@@ -332,7 +332,7 @@ def present_review(
                         display_name=item.display_name,
                         occupied_observation_id=occupied_by_character.get(item.character_id),
                         decision_state=decisions_by_character.get(item.character_id),
-                        motion_untrusted=item.character_id in getattr(review, "motion_untrusted_character_ids", ()),
+                        pose_rejected=item.character_id in getattr(review, "pose_rejected_character_ids", ()),
                         derived_state=(derived_by_character[item.character_id].state.value
                                        if item.character_id in derived_by_character else None),
                         derived_observation_id=(
@@ -467,10 +467,7 @@ def user_message(error: BaseException) -> str:
     if code in ERROR_MESSAGES:
         return ERROR_MESSAGES[code]
     if isinstance(error, VtaReviewUiError):
-        return (str(error).replace('Motion is Untrusted here', 'Animation needs Hold here')
-                .replace('Untrusted Motion Interval', 'Hold Range')
-                .replace('Untrusted interval', 'Hold Range')
-                .replace('Motion Trust', 'Hold'))
+        return str(error)
     return f"VTA review failed: {error}"
 
 
@@ -615,26 +612,26 @@ class PrivateCoreBackend:
             raise
 
     def set_motion_trust(self, location: ReviewLocation, character_id: str,
-                         start_visible: int, end_visible: int, *, action: str):
+                         start_visible: int, end_visible: int, *, action: str, mode=None):
         return self.set_motion_trust_for_characters(
-            location, (character_id,), start_visible, end_visible, action=action)[0]
+            location, (character_id,), start_visible, end_visible, action=action, mode=mode)[0]
 
     def set_motion_trust_for_characters(self, location: ReviewLocation, character_ids,
-                                       start_visible: int, end_visible: int, *, action: str):
+                                       start_visible: int, end_visible: int, *, action: str, mode=None):
         """Convert existing VSE frame coordinates, delegate all motion truth to core."""
         project, source = self._load_project_source(location)
         if (not isinstance(character_ids, (tuple, list)) or not character_ids
                 or any(not isinstance(cid, str) or not cid for cid in character_ids)
                 or len(set(character_ids)) != len(character_ids)
                 or not set(character_ids) <= {c.character_id for c in project.characters}):
-            raise VtaReviewUiError("Select existing Character rows before editing Hold.")
+            raise VtaReviewUiError("Select existing Character rows before editing repair ranges.")
         start, end = map_visible_analysis_range(location, source["start_frame"], source["end_frame"],
                                                start_visible, end_visible)
         digest = hashlib.sha256(project.to_json().encode("utf-8")).hexdigest()
         try:
             receipt = self._core.apply_motion_trust_many_and_persist(
                 location.companion_root, tuple(sorted(character_ids)), source["source_id"], start, end,
-                action=action, expected_project_sha256=digest)
+                action=action, mode=mode, expected_project_sha256=digest)
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):
                 raise VtaReviewUiError(str(exc)) from exc

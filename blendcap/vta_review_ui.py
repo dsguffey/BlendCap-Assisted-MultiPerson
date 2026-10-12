@@ -57,7 +57,7 @@ _timeline = None
 _timeline_identity = None
 _review_key_selection = ReviewKeySelection()
 _character_selections = {}
-_hold_selections = {}
+_repair_selections = {}
 _analysis_process = None
 _analysis_progress_started = False
 _analysis_root = None
@@ -78,6 +78,45 @@ _reconstruction_range = None
 _generation_status = ''
 _reconstruction_stop = None
 _pending_presentation = None
+# Python-only session memory: source/project scope and stable Character ID,
+# never a candidate, RNA property, saved key or .blend field.
+_last_assignment_target = None
+
+
+@bpy.app.handlers.persistent
+def _reset_repeat_assignment_session(_unused=None):
+    global _last_assignment_target
+    _last_assignment_target = None
+
+
+def _assignment_scope():
+    if _view is None or _location is None:
+        return None
+    return (_location.companion_root, _location.source_path, _view.source_id)
+
+
+def _remember_assignment(character_id):
+    global _last_assignment_target
+    _last_assignment_target = (*_assignment_scope(), character_id)
+
+
+def _repeat_character_id():
+    global _last_assignment_target
+    if _last_assignment_target is None or _assignment_scope() is None:
+        return None
+    if (_last_assignment_target[:-1] != _assignment_scope() or
+            not any(c.character_id == _last_assignment_target[-1] for c in _view.characters)):
+        _reset_repeat_assignment_session()
+        return None
+    return _last_assignment_target[-1]
+
+
+def _repeat_assignment_context(context):
+    return (getattr(getattr(context, 'area', None), 'type', None) == 'SEQUENCE_EDITOR'
+            and getattr(getattr(context, 'space_data', None), 'view_type', None)
+            in {'PREVIEW', 'SEQUENCER_PREVIEW'}
+            and role_for(getattr(context, 'workspace', None),
+                         getattr(context, 'screen', None), context.area) == ROLE_PREVIEW)
 
 
 def _presentation_timer():
@@ -253,33 +292,33 @@ def tracking_character_ids(context=None):
     return selection.character_ids if selection is not None else ()
 
 
-def selected_hold_interval(context):
+def selected_repair_range(context):
     if not _is_timeline_context(context) or _timeline is None or _location is None:
         return None
     pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
     key = (pointer(context.screen), pointer(context.area))
     identity = (str(_location.companion_root), _timeline.source_id, str(_location.source_path),
                 _location.blender_frame - _location.source_frame)
-    saved = _hold_selections.get(key)
+    saved = _repair_selections.get(key)
     if saved is None:
         return None
-    if saved[0] != identity or saved[1] not in _timeline.untrusted_motion_intervals:
-        _hold_selections.pop(key, None)
+    if saved[0] != identity or saved[1] not in _timeline.repair_ranges:
+        _repair_selections.pop(key, None)
         return None
     return saved[1]
 
 
-def clear_hold_selection(context):
+def clear_repair_selection(context):
     if getattr(context, 'screen', None) is None or getattr(context, 'area', None) is None:
         return
     pointer = lambda item: item.as_pointer() if hasattr(item, 'as_pointer') else id(item)
-    _hold_selections.pop((pointer(context.screen), pointer(context.area)), None)
+    _repair_selections.pop((pointer(context.screen), pointer(context.area)), None)
 
 
-def select_hold_interval(context, interval):
+def select_repair_range(context, interval):
     """Inspect one exact existing range; preserve other rows, keys and time."""
     selection = timeline_character_selection(context)
-    if selection is None or interval not in _timeline.untrusted_motion_intervals:
+    if selection is None or interval not in _timeline.repair_ranges:
         return False
     selection.select_box(_timeline, (interval.character_id,), extend=True,
                          active_id=interval.character_id)
@@ -288,9 +327,10 @@ def select_hold_interval(context, interval):
     key = (pointer(context.screen), pointer(context.area))
     identity = (str(_location.companion_root), _timeline.source_id, str(_location.source_path),
                 _location.blender_frame - _location.source_frame)
-    _hold_selections[key] = (identity, interval)
+    _repair_selections[key] = (identity, interval)
     context.window_manager.blendcap_vta_motion_start = visible_frame(_location, interval.start_frame)
     context.window_manager.blendcap_vta_motion_end = visible_frame(_location, interval.end_frame)
+    context.window_manager.blendcap_vta_repair_mode = interval.mode
     _sync_properties(context)
     vta_invalidation.request_redraw()
     return True
@@ -664,6 +704,7 @@ def refresh(context, *, force: bool = False) -> bool:
             _project_signature = project_signature
             _cache_signature = cache_signature
             _selection.accept_review(_view)
+            _repeat_character_id()  # deletion/project switch invalidates only session memory
             _rebuild_enum_items()
             # Query validates the source hash before presentation changes.
             # Queue only on changes: a timer redraw must not queue itself again.
@@ -681,7 +722,7 @@ def refresh(context, *, force: bool = False) -> bool:
         _timeline_identity = None
         _review_key_selection.clear()
         _character_selections.clear()
-        _hold_selections.clear()
+        _repair_selections.clear()
         _selection.review_key = None
         _selection.observation_id = ""
         _rebuild_enum_items()
@@ -1166,6 +1207,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             verb = "Reassigned" if confirmed_request is not None else "Assigned"
             _status = f"{verb} candidate to {character}."
             _status_is_error = False
+            _remember_assignment(character_id)
             self.report({'INFO'}, _status)
             return {'FINISHED'}
         except Exception as exc:
@@ -1173,6 +1215,86 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             _status_is_error = True
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_repeat_assignment'
+    bl_label = 'Repeat Last Assignment'
+    bl_description = 'Assign the current candidate to the last explicitly assigned Character and advance one frame'
+
+    @classmethod
+    def poll(cls, context):
+        target = _repeat_character_id()
+        if target is None or _analysis_locked() or not _repeat_assignment_context(context):
+            return False
+        intent = SelectionState()
+        intent.character_id = target
+        intent.observation_id = _selection.observation_id
+        return intent.can_assign(_view)
+
+    def _prepare(self, context, *, executing=False):
+        if not _edit_available(self):
+            return False
+        if not _repeat_assignment_context(context):
+            self.report({'ERROR'}, 'Use Repeat Last Assignment in the VTA Preview.')
+            return False
+        if not refresh(context, force=True):
+            self.report({'ERROR'}, _status)
+            return False
+        target = _repeat_character_id()
+        if target is None:
+            self.report({'ERROR'}, 'Assign a candidate to a Character first in this session.')
+            return False
+        try:
+            if getattr(self, '_repeat_location', None) is not None and (
+                    self._repeat_location != _location or self._repeat_target != target):
+                raise VtaReviewUiError('The repeat target or review frame changed. Select again.')
+            # Do not overwrite a changed selection while a confirmation is open:
+            # normal Assign must reject it using its existing request guards.
+            if not (executing and getattr(self, '_confirmed_request', None) is not None):
+                _selection.select_character(_view, target)
+                _sync_properties(context)
+            if not _selection.can_assign(_view):
+                raise VtaReviewUiError('Select one valid candidate for Repeat Last Assignment.')
+            scene = context.scene
+            strip = _active_video_strip(scene.sequence_editor)
+            if strip is None:
+                raise VtaReviewUiError('Select the matching movie strip in the Video Sequencer.')
+            _first, last = _get_backend(context).source_coverage(_location)
+            final_frame = min(visible_frame(_location, last), _strip_visible_end(strip) - 1)
+            if not _location.blender_frame <= final_frame:
+                raise VtaReviewUiError('The current frame is outside the source review range.')
+            self._repeat_target = target
+            self._repeat_location = _location
+            self._repeat_scene = scene
+            self._repeat_next_frame = min(_location.blender_frame + 1, final_frame)
+            return True
+        except Exception as exc:
+            self.report({'ERROR'}, user_message(exc))
+            return False
+
+    def invoke(self, context, event):
+        if not self._prepare(context):
+            return {'CANCELLED'}
+        # Same preparation, confirmation dialog, persistence and stale guards.
+        return BLENDCAP_OT_vta_review_assign.invoke(self, context, event)
+
+    def draw(self, context):
+        BLENDCAP_OT_vta_review_assign.draw(self, context)
+
+    def execute(self, context):
+        if not self._prepare(context, executing=True):
+            return {'CANCELLED'}
+        result = BLENDCAP_OT_vta_review_assign.execute(self, context)
+        if result == {'FINISHED'} and self._repeat_next_frame != self._repeat_location.blender_frame:
+            # Only after durable assignment success; no candidate is carried forward.
+            _selection.observation_id = ''
+            self._repeat_scene.frame_set(self._repeat_next_frame)
+            if not refresh(context, force=True):
+                self.report({'WARNING'}, 'Assignment saved; refresh VTA Review for the next frame.')
+            else:
+                _sync_properties(context)
+        return result
 
 
 class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
@@ -1345,7 +1467,7 @@ def select_timeline_character(context, character_id: str, *, extend=False) -> bo
         _selection.character_id = selection.active_id or ''
     else:
         _selection.character_id = character_id
-    clear_hold_selection(context)
+    clear_repair_selection(context)
     _sync_properties(context)
     return True
 
@@ -1355,7 +1477,7 @@ def select_timeline_characters(context, character_ids, *, extend=False) -> bool:
     if selection is None or not selection.select_box(_timeline, character_ids, extend=extend):
         return False
     _selection.character_id = selection.active_id or ''
-    clear_hold_selection(context)
+    clear_repair_selection(context)
     _sync_properties(context)
     return True
 
@@ -1369,7 +1491,7 @@ def select_timeline_key(context, key_id: str, *, extend: bool = False,
                 else _review_key_selection.click(_timeline, key_id, extend=extend))
     if not selected:
         return False
-    clear_hold_selection(context)
+    clear_repair_selection(context)
     key = key_at(_timeline, _review_key_selection.active_keyframe_id)
     if key is None:
         _sync_properties(context)
@@ -1389,7 +1511,7 @@ def select_timeline_keys(context, key_ids, *, extend: bool = False) -> bool:
         return False
     if not _review_key_selection.select_box(_timeline, key_ids, extend=extend):
         return False
-    clear_hold_selection(context)
+    clear_repair_selection(context)
     key = key_at(_timeline, _review_key_selection.active_keyframe_id)
     selection = timeline_character_selection(context)
     if selection is not None:
@@ -1486,6 +1608,27 @@ class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
 
 
 _review_context_keymap = None
+_repeat_assignment_keymap = None
+
+
+def _register_repeat_assignment_keymap():
+    global _repeat_assignment_keymap
+    config = getattr(bpy.context.window_manager.keyconfigs, 'addon', None)
+    if config is not None and _repeat_assignment_keymap is None:
+        # Blender's generic VSE map is dispatched in Preview and combined view.
+        keymap = config.keymaps.new(name='Video Sequence Editor',
+                                   space_type='SEQUENCE_EDITOR', region_type='WINDOW')
+        item = keymap.keymap_items.new(BLENDCAP_OT_vta_repeat_assignment.bl_idname,
+                                      'J', 'PRESS', repeat=False)
+        _repeat_assignment_keymap = (keymap, item)
+
+
+def _unregister_repeat_assignment_keymap():
+    global _repeat_assignment_keymap
+    if _repeat_assignment_keymap is not None:
+        keymap, item = _repeat_assignment_keymap
+        keymap.keymap_items.remove(item)
+        _repeat_assignment_keymap = None
 
 
 def _register_review_context_keymap():
@@ -1702,7 +1845,12 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
         animate = layout.row()
         animate.enabled = not _analysis_locked()
         animate.operator('blendcap.vta_generate_animation', text='Generate / Update Animation')
-        if not refresh(context):
+        available = refresh(context)
+        repeat = layout.row()
+        repeat.enabled = available and BLENDCAP_OT_vta_repeat_assignment.poll(context)
+        repeat.operator_context = 'INVOKE_DEFAULT'
+        repeat.operator('blendcap.vta_repeat_assignment', text='Repeat Last Assignment')
+        if not available:
             layout.label(text="VTA review unavailable", icon='INFO')
             return
         availability = _action_availability()
@@ -1726,7 +1874,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
 def _draw_vta_header(self, context):
     """Add one Sequencer-scoped menu beside Blender's native editor menus."""
     if getattr(getattr(context, "space_data", None), "view_type", None) not in {
-        'SEQUENCER', 'SEQUENCER_PREVIEW'
+        'PREVIEW', 'SEQUENCER', 'SEQUENCER_PREVIEW'
     }:
         return
     if role_for(getattr(context, 'workspace', None),
@@ -1740,7 +1888,7 @@ def _draw_vta_header(self, context):
 def _draw_vta_context(self, context):
     """Add the same submenu to Blender's normal Sequencer context menu."""
     if getattr(getattr(context, "space_data", None), "view_type", None) not in {
-        'SEQUENCER', 'SEQUENCER_PREVIEW'
+        'PREVIEW', 'SEQUENCER', 'SEQUENCER_PREVIEW'
     }:
         return
     if role_for(getattr(context, 'workspace', None),
@@ -1776,12 +1924,21 @@ def _remove_legacy_vta_menu_hook(menu):
 
 class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
     bl_idname = "blendcap.vta_motion_trust"
-    bl_label = "Edit Hold Range"
-    bl_description = "Edit selected Dope Sheet Characters' Hold ranges; never run tracking automatically"
+    bl_label = "Edit Repair Range"
+    bl_description = "Reject generated animation on the selected inclusive frames; identity and tracking stay independent"
     action: bpy.props.EnumProperty(items=(
-        ('MARK', 'Hold Animation', ''), ('CLEAR', 'Clear Hold Range', ''),
-        ('START_CURRENT', 'Set Hold Start to Current Frame', ''),
-        ('END_CURRENT', 'Set Hold End to Current Frame', '')), default='MARK')
+        ('FREEZE', 'Freeze', 'Use the most recent trusted pose for rejected frames until normal generated animation resumes'),
+        ('INTERPOLATE', 'Interpolate', 'Blend rejected gaps between trusted poses on both sides'),
+        ('CHANGE_MODE', 'Change Mode', 'Change the selected exact range mode'),
+        ('REMOVE', 'Remove Selected Range', 'Allow normal generation throughout the selected range'),
+        ('CLEAR', 'Clear Frame Range', 'Subtract inclusive frames from repair ranges'),
+        ('START_CURRENT', 'Set Start to Current Frame', ''),
+        ('END_CURRENT', 'Set End to Current Frame', '')), default='FREEZE')
+
+    @classmethod
+    def description(cls, context, properties):
+        return {'FREEZE': 'Use the most recent trusted pose for rejected frames until normal generated animation resumes',
+                'INTERPOLATE': 'Blend rejected gaps between trusted poses on both sides'}.get(properties.action, cls.bl_description)
 
     def execute(self, context):
         global _status, _status_is_error
@@ -1789,7 +1946,7 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             return {'CANCELLED'}
         try:
             if not _is_timeline_context(context):
-                raise VtaReviewUiError("Use Hold in the VTA Dope Sheet.")
+                raise VtaReviewUiError("Use repair ranges in the VTA Dope Sheet.")
             location = _location_from_context(context)
             wm = context.window_manager
             if self.action in {'START_CURRENT', 'END_CURRENT'}:
@@ -1797,28 +1954,36 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
                          else 'blendcap_vta_motion_end')
                 setattr(wm, field, location.blender_frame)
                 return {'FINISHED'}
-            if self.action not in {'MARK', 'CLEAR'}:
-                raise VtaReviewUiError("Unknown Hold action.")
+            if self.action not in {'FREEZE', 'INTERPOLATE', 'CLEAR', 'CHANGE_MODE', 'REMOVE'}:
+                raise VtaReviewUiError("Unknown repair action.")
             selection = timeline_character_selection(context)
             if selection is None or not selection.character_ids:
-                raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before editing Hold.")
+                raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before editing repair ranges.")
             targets = selection.character_ids
+            selected_range = selected_repair_range(context)
+            if self.action in {'CHANGE_MODE', 'REMOVE'} and selected_range is None:
+                raise VtaReviewUiError('Select a repair range first.')
             if not refresh(context, force=True):
                 raise VtaReviewUiError(_status)
             selection = timeline_character_selection(context)
             if selection is None or selection.character_ids != targets or _location != location:
-                raise VtaReviewUiError("The Hold selection or source changed; select the rows again.")
+                raise VtaReviewUiError("The repair selection or source changed; select the rows again.")
+            start, end = wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end
+            if selected_range is not None and self.action in {'CHANGE_MODE', 'REMOVE'}:
+                if selected_repair_range(context) != selected_range:
+                    raise VtaReviewUiError('The selected repair range changed; select it again.')
+                targets = (selected_range.character_id,)
+                start, end = (visible_frame(location, f) for f in (selected_range.start_frame, selected_range.end_frame))
+            action = 'clear' if self.action in {'CLEAR', 'REMOVE'} else 'change-mode' if self.action == 'CHANGE_MODE' else 'mark'
+            mode = (wm.blendcap_vta_repair_mode if self.action == 'CHANGE_MODE'
+                    else 'freeze' if self.action == 'FREEZE' else 'interpolate' if self.action == 'INTERPOLATE' else None)
             _get_backend(context).set_motion_trust_for_characters(
-                location, targets,
-                wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end,
-                action='mark' if self.action == 'MARK' else 'clear')
+                location, targets, start, end, action=action, mode=mode)
             if not refresh(context, force=True):
-                self.report({'WARNING'}, "Hold saved; refresh review to display it.")
+                self.report({'WARNING'}, "Repair saved; refresh review to display it.")
                 return {'FINISHED'}
             vta_invalidation.request_redraw()
-            _status = (f"Marked {len(targets)} Character(s) for Hold. Identity keys retained."
-                       if self.action == 'MARK' else
-                       "Hold range cleared. Use Update Tracking explicitly when ready.")
+            _status = 'Repair ranges saved. Generate Animation to recompute repair; identity and tracking retained.'
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -1833,37 +1998,41 @@ def draw_cleanup_commands(layout, context, *, menu=False):
     selection = timeline_character_selection(context)
     available = _is_timeline_context(context) and _location is not None and not _analysis_locked()
     for action, label in (
-            ('START_CURRENT', 'Set Hold Start to Current Frame' if menu else 'Start = Current Frame'),
-            ('END_CURRENT', 'Set Hold End to Current Frame' if menu else 'End = Current Frame'),
-            ('MARK', 'Hold Animation'), ('CLEAR', 'Clear Hold Range')):
+            ('START_CURRENT', 'Set Start to Current Frame' if menu else 'Start = Current Frame'),
+            ('END_CURRENT', 'Set End to Current Frame' if menu else 'End = Current Frame'),
+            ('FREEZE', 'Freeze'), ('INTERPOLATE', 'Interpolate'), ('CLEAR', 'Clear Frame Range'),
+            ('CHANGE_MODE', 'Change Mode'), ('REMOVE', 'Remove Selected Range')):
         row = layout.row()
         row.enabled = available and (action.endswith('CURRENT') or
                                     bool(selection and selection.character_ids))
+        if action in {'CHANGE_MODE', 'REMOVE'}:
+            row.enabled = available and selected_repair_range(context) is not None
         row.operator('blendcap.vta_motion_trust', text=label).action = action
 
 
 def draw_motion_trust(layout, context):
-    """Hold is UI vocabulary; the authoritative backend name is unchanged."""
-    layout.label(text='Hold Animation')
-    interval = selected_hold_interval(context)
+    """Explicit pose rejection, independent of identity and tracking."""
+    layout.label(text='Repair Animation')
+    interval = selected_repair_range(context)
     if interval is not None:
-        layout.label(text=f'Selected Hold: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+        layout.label(text=f'Selected {interval.mode.title()}: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
     wm = context.window_manager
     controls = layout.column()
     controls.enabled = _location is not None and not _analysis_locked()
     row = controls.row(align=True)
-    row.prop(wm, 'blendcap_vta_motion_start', text='Hold Start')
-    row.prop(wm, 'blendcap_vta_motion_end', text='Hold End')
+    row.prop(wm, 'blendcap_vta_motion_start', text='Start Frame')
+    row.prop(wm, 'blendcap_vta_motion_end', text='End Frame')
+    controls.prop(wm, 'blendcap_vta_repair_mode', text='Selected Mode')
     draw_cleanup_commands(layout, context)
-    layout.label(text='Clear subtracts the inclusive range; tracking stays explicit')
+    layout.label(text='Clear allows normal generation; regeneration retains rejection')
     active = current_character_id(context)
     selected = next((c for c in _view.characters if c.character_id == active), None) if _view else None
-    if selected is not None and selected.motion_untrusted:
-        layout.label(text='Animation Held', icon='INFO')
+    if selected is not None and selected.pose_rejected:
+        layout.label(text='Generated Animation Rejected', icon='INFO')
     if _timeline and _location:
-        for interval in _timeline.untrusted_motion_intervals:
+        for interval in _timeline.repair_ranges:
             if interval.character_id == active:
-                layout.label(text=f'Hold: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+                layout.label(text=f'{interval.mode.title()}: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
 
 
 class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
@@ -2091,8 +2260,8 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         )
         layout.label(text=(f"Active Character: {selected_character.display_name}"
                            if selected_character else "Select a Character above"), icon='USER')
-        if selected_character is not None and selected_character.motion_untrusted:
-            layout.label(text="Animation Held", icon='INFO')
+        if selected_character is not None and selected_character.pose_rejected:
+            layout.label(text="Generated Animation Rejected", icon='INFO')
         assignment_box = layout.box()
         assignment_box.label(text="Candidate Assignment")
         for candidate in _view.candidates:
@@ -2190,7 +2359,7 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         current.operator('blendcap.vta_generate_animation', text='Start = Current Frame').action = 'START_CURRENT'
         current.operator('blendcap.vta_generate_animation', text='End = Current Frame').action = 'END_CURRENT'
         controls.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
-        self.layout.label(text='Reviewed Characters only; Hold freezes pose and root.')
+        self.layout.label(text='Reviewed Characters only; Freeze / Interpolate repair rejected poses.')
         if any(o.get('vta_output_stale') for o in bpy.data.objects):
             self.layout.label(text='Animation is stale. Generate / Update explicitly.', icon='ERROR')
         if _generation_status:
@@ -2248,6 +2417,7 @@ classes = (
     BLENDCAP_OT_vta_copy_analysis_error,
     BLENDCAP_OT_vta_review_refresh,
     BLENDCAP_OT_vta_review_assign,
+    BLENDCAP_OT_vta_repeat_assignment,
     BLENDCAP_OT_vta_review_hard_state,
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
@@ -2265,6 +2435,9 @@ classes = (
 
 
 def register_properties() -> None:
+    _reset_repeat_assignment_session()
+    if _reset_repeat_assignment_session not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_reset_repeat_assignment_session)
     bpy.types.WindowManager.blendcap_vta_animation_start = bpy.props.IntProperty(
         name='Animation Start', description='Inclusive Blender frame', default=1)
     bpy.types.WindowManager.blendcap_vta_animation_end = bpy.props.IntProperty(
@@ -2272,9 +2445,11 @@ def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_show_suppressed = bpy.props.BoolProperty(
         name='Show Suppressed Candidates', default=False, update=_show_suppressed_changed)
     bpy.types.WindowManager.blendcap_vta_motion_start = bpy.props.IntProperty(
-        name="Hold Start", description="Inclusive Blender frame", default=1)
+        name="Start Frame", description="Inclusive Blender frame", default=1)
     bpy.types.WindowManager.blendcap_vta_motion_end = bpy.props.IntProperty(
-        name="Hold End", description="Inclusive Blender frame", default=1)
+        name="End Frame", description="Inclusive Blender frame", default=1)
+    bpy.types.WindowManager.blendcap_vta_repair_mode = bpy.props.EnumProperty(
+        name='Repair Mode', items=(('freeze', 'Freeze', ''), ('interpolate', 'Interpolate', '')), default='freeze')
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
         name="Show VTA Candidate Overlay", default=True,
         description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
@@ -2311,6 +2486,7 @@ def register_properties() -> None:
     )
     _register_preview_tools()
     _register_review_context_keymap()
+    _register_repeat_assignment_keymap()
     vta_overlay.register(overlay_state)
     vta_timeline_overlay.register(timeline_state)
     _remove_legacy_vta_menu_hook(bpy.types.SEQUENCER_MT_context_menu)
@@ -2320,6 +2496,10 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    _reset_repeat_assignment_session()
+    if _reset_repeat_assignment_session in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_reset_repeat_assignment_session)
+    _unregister_repeat_assignment_keymap()
     global _pending_presentation
     _pending_presentation = None
     if bpy.app.timers.is_registered(_presentation_timer):
@@ -2331,9 +2511,10 @@ def unregister_properties() -> None:
         bpy.app.timers.unregister(_reconstruction_timer)
     global _analysis_progress_started
     _character_selections.clear()
-    _hold_selections.clear()
+    _repair_selections.clear()
     del bpy.types.WindowManager.blendcap_vta_motion_start
     del bpy.types.WindowManager.blendcap_vta_motion_end
+    del bpy.types.WindowManager.blendcap_vta_repair_mode
     _remove_menu_hook(bpy.types.SEQUENCER_MT_context_menu, _draw_vta_context)
     _remove_menu_hook(bpy.types.SEQUENCER_MT_editor_menus, _draw_vta_header)
     vta_timeline_overlay.unregister()

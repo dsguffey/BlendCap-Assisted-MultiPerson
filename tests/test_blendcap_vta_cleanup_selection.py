@@ -73,10 +73,8 @@ class CharacterSelectionTests(unittest.TestCase):
     def test_tracking_tick_colors_are_state_only_not_selection(self):
         self.assertEqual(derived_mark_color('visible'), (.55, .68, .72, .55))
         self.assertEqual(derived_mark_color('unresolved'), (.48, .5, .52, .4))
-        message = tracking_update_error(VtaReviewUiError('Motion is Untrusted here; clear Motion Trust first'))
-        self.assertIn('Hold', message)
-        self.assertNotIn('Untrusted', message)
-        self.assertNotIn('Motion Trust', message)
+        message = tracking_update_error(VtaReviewUiError('No current identity anchor'))
+        self.assertIn('No current identity anchor', message)
 
     def test_backend_bulk_uses_one_core_command_and_visible_frame_mapping(self):
         core = NS(apply_motion_trust_many_and_persist=mock.Mock(return_value=('b', 'a')))
@@ -87,13 +85,13 @@ class CharacterSelectionTests(unittest.TestCase):
         with mock.patch.object(backend, '_load_project_source', return_value=(project,
                 dict(source_id='s', start_frame=0, end_frame=150))):
             self.assertEqual(backend.set_motion_trust_for_characters(location, ('b', 'a'),
-                             110, 120, action='mark'), ('b', 'a'))
+                             110, 120, action='mark', mode='freeze'), ('b', 'a'))
             core.apply_motion_trust_many_and_persist.assert_called_once_with(
-                Path('companion'), ('a', 'b'), 's', 9, 19, action='mark',
+                Path('companion'), ('a', 'b'), 's', 9, 19, action='mark', mode='freeze',
                 expected_project_sha256=__import__('hashlib').sha256(b'canonical').hexdigest())
             for ids in ((), ('a', 'a'), ('a', 'missing')):
                 with self.assertRaises(VtaReviewUiError):
-                    backend.set_motion_trust_for_characters(location, ids, 110, 120, action='mark')
+                    backend.set_motion_trust_for_characters(location, ids, 110, 120, action='mark', mode='freeze')
         self.assertEqual(core.apply_motion_trust_many_and_persist.call_count, 1)
 
 
@@ -124,10 +122,10 @@ class CleanupBlenderTests(unittest.TestCase):
         ui = self.ui
         self.real_timeline_context = ui._is_timeline_context
         review = NS(characters=tuple(NS(character_id=cid, occupied_observation_id=None,
-                           display_name=cid.title(), motion_untrusted=False) for cid in ('a', 'b', 'c')), source_frame=7)
+                           display_name=cid.title(), pose_rejected=False) for cid in ('a', 'b', 'c')), source_frame=7)
         for name, value in (('_timeline', self.timeline), ('_location', self.location),
                 ('_view', review), ('_selection', SelectionState()), ('_character_selections', {}),
-                ('_hold_selections', {})):
+                ('_repair_selections', {})):
             self.stack.enter_context(mock.patch.object(ui, name, value))
         self.stack.enter_context(mock.patch.object(ui, '_is_timeline_context', side_effect=lambda c:
             getattr(getattr(c, 'area', None), 'type', None) == 'DOPESHEET_EDITOR'))
@@ -204,11 +202,45 @@ class CleanupBlenderTests(unittest.TestCase):
     def execute(self, action):
         return self.ui.BLENDCAP_OT_vta_motion_trust.execute(NS(action=action, report=mock.Mock()), self.context)
 
+    def test_selected_mode_change_and_remove_use_exact_range_only(self):
+        from blendcap_vta_timeline import TimelineMotionInterval
+        ui, context = self.ui, self.context
+        interval = TimelineMotionInterval('b', 9, 19, 'freeze')
+        ui._timeline = TimelineView('s', self.timeline.characters, (), (), (interval,))
+        ui.select_timeline_characters(context, ('a', 'b'))
+        ui.select_repair_range(context, interval)
+        context.window_manager.blendcap_vta_motion_start = 115
+        context.window_manager.blendcap_vta_motion_end = 116
+        context.window_manager.blendcap_vta_repair_mode = 'interpolate'
+        backend = NS(set_motion_trust_for_characters=mock.Mock())
+        with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
+             mock.patch.object(ui, 'refresh', return_value=True), \
+             mock.patch.object(ui, '_get_backend', return_value=backend):
+            self.assertEqual(self.execute('CHANGE_MODE'), {'FINISHED'})
+            backend.set_motion_trust_for_characters.assert_called_with(self.location, ('b',), 110, 120,
+                action='change-mode', mode='interpolate')
+            self.assertEqual(self.execute('REMOVE'), {'FINISHED'})
+            backend.set_motion_trust_for_characters.assert_called_with(self.location, ('b',), 110, 120,
+                action='clear', mode=None)
+
+    def test_subtract_only_entered_range_and_no_implicit_mode_switch(self):
+        ui, context = self.ui, self.context
+        ui.select_timeline_characters(context, ('b',))
+        context.window_manager.blendcap_vta_motion_start = 115
+        context.window_manager.blendcap_vta_motion_end = 116
+        backend = NS(set_motion_trust_for_characters=mock.Mock())
+        with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
+             mock.patch.object(ui, 'refresh', return_value=True), \
+             mock.patch.object(ui, '_get_backend', return_value=backend):
+            self.assertEqual(self.execute('CLEAR'), {'FINISHED'})
+            backend.set_motion_trust_for_characters.assert_called_with(self.location, ('b',), 115, 116,
+                action='clear', mode=None)
+
     def test_no_rows_never_falls_back_to_sidebar(self):
         self.ui._selection.character_id = 'c'
         with mock.patch.object(self.ui, '_location_from_context', return_value=self.location), \
              mock.patch.object(self.ui, '_get_backend') as backend:
-            for action in ('MARK', 'CLEAR'):
+            for action in ('FREEZE', 'CLEAR'):
                 self.assertEqual(self.execute(action), {'CANCELLED'})
             backend.assert_not_called()
         self.assertFalse(self.ui._action_availability(self.context)['rename-character'])
@@ -221,10 +253,10 @@ class CleanupBlenderTests(unittest.TestCase):
         with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
              mock.patch.object(ui, 'refresh', return_value=True), \
              mock.patch.object(ui, '_get_backend', return_value=backend):
-            for action in ('MARK', 'CLEAR'):
+            for action in ('FREEZE', 'CLEAR'):
                 self.assertEqual(self.execute(action), {'FINISHED'})
                 backend.set_motion_trust_for_characters.assert_called_with(self.location, ('a', 'b'),
-                    110, 120, action=action.lower())
+                    110, 120, action='mark' if action == 'FREEZE' else 'clear', mode='freeze' if action == 'FREEZE' else None)
         backend.update_tracking.assert_not_called()
         self.context.scene.frame_set.assert_not_called()
 
@@ -237,7 +269,7 @@ class CleanupBlenderTests(unittest.TestCase):
         with mock.patch.object(ui, '_location_from_context', return_value=self.location), \
              mock.patch.object(ui, 'refresh', side_effect=refresh), \
              mock.patch.object(ui, '_get_backend') as backend:
-            self.assertEqual(self.execute('MARK'), {'CANCELLED'})
+            self.assertEqual(self.execute('FREEZE'), {'CANCELLED'})
             backend.assert_not_called()
 
     def test_boundary_commands_are_independent_and_do_not_author(self):
@@ -313,7 +345,7 @@ class CleanupBlenderTests(unittest.TestCase):
     def test_hold_click_exact_selection_fields_and_no_authoring_or_navigation(self):
         from blendcap_vta_timeline import TimelineMotionInterval
         ui, workspace, context = self.ui, self.workspace, self.context
-        interval = TimelineMotionInterval('b', 9, 19)
+        interval = TimelineMotionInterval('b', 9, 19, 'interpolate')
         other = TimelineMotionInterval('c', 20, 22)
         ui._timeline = TimelineView('s', self.timeline.characters, self.timeline.keys, (), (interval, other))
         ui.select_timeline_key(context, 'ka')
@@ -329,7 +361,8 @@ class CleanupBlenderTests(unittest.TestCase):
             result = workspace.BLENDCAP_OT_vta_timeline_select.invoke(NS(), context, event)
             self.assertEqual(result, {'FINISHED'})
             backend.assert_not_called()
-        self.assertEqual(ui.selected_hold_interval(context), interval)
+        self.assertEqual(ui.selected_repair_range(context), interval)
+        self.assertEqual(context.window_manager.blendcap_vta_repair_mode, 'interpolate')
         self.assertEqual(ui.timeline_character_selection(context).character_ids, ('a', 'b'))
         self.assertEqual(ui.current_character_id(context), 'b')
         self.assertEqual(ui._selection.character_id, 'b')
@@ -341,18 +374,18 @@ class CleanupBlenderTests(unittest.TestCase):
         context.window_manager.modal_handler_add.assert_not_called()
         context.window_manager.blendcap_vta_motion_start = 113
         self.assertEqual(repr(ui._timeline), snapshot)  # Controls aren't live authority.
-        ui.select_hold_interval(context, other)
-        self.assertEqual(ui.selected_hold_interval(context), other)
+        ui.select_repair_range(context, other)
+        self.assertEqual(ui.selected_repair_range(context), other)
         self.assertEqual(ui.timeline_character_selection(context).character_ids, ('a', 'b', 'c'))
         self.assertEqual((context.window_manager.blendcap_vta_motion_start,
                           context.window_manager.blendcap_vta_motion_end), (121, 123))
         ui._location = ReviewLocation(Path('companion'), Path('video'), 8, 109)
-        self.assertEqual(ui.selected_hold_interval(context), other)  # Ordinary scrub.
+        self.assertEqual(ui.selected_repair_range(context), other)  # Ordinary scrub.
         ui._location = ReviewLocation(Path('companion'), Path('video'), 8, 110)
-        self.assertIsNone(ui.selected_hold_interval(context))  # Changed strip mapping.
-        ui.select_hold_interval(context, other)
+        self.assertIsNone(ui.selected_repair_range(context))  # Changed strip mapping.
+        ui.select_repair_range(context, other)
         ui._timeline = self.timeline  # Explicit clear/merge invalidates transient range.
-        self.assertIsNone(ui.selected_hold_interval(context))
+        self.assertIsNone(ui.selected_repair_range(context))
 
     def test_window_draw_all_tracking_rows_and_only_selected_hold_outline(self):
         from blendcap_vta_timeline import TimelineDerived, TimelineMotionInterval
@@ -383,7 +416,7 @@ class CleanupBlenderTests(unittest.TestCase):
                 self.assertEqual(len(ticks), 3)
                 self.assertEqual([c for p,c in ticks], [TRACKING_COLOR, TRACKING_COLOR, UNRESOLVED_COLOR])
             lines.clear()
-            ui.select_hold_interval(context, interval)
+            ui.select_repair_range(context, interval)
             workspace._draw_window()
             color = (*context.preferences.themes[0].user_interface.wcol_list_item.text_sel, 1)
             self.assertEqual(len([p for p,c in lines if c == color and len(p) == 5]), 1)
@@ -469,14 +502,15 @@ class CleanupBlenderTests(unittest.TestCase):
         for menu in (False, True):
             calls.clear()
             ui.draw_cleanup_commands(Layout(), self.context, menu=menu)
-            self.assertEqual([c[3].action for c in calls], ['START_CURRENT', 'END_CURRENT', 'MARK', 'CLEAR'])
+            self.assertEqual([c[3].action for c in calls], ['START_CURRENT', 'END_CURRENT', 'FREEZE', 'INTERPOLATE', 'CLEAR', 'CHANGE_MODE', 'REMOVE'])
             self.assertTrue(all(c[0] == 'blendcap.vta_motion_trust' for c in calls))
-            self.assertEqual([c[2].enabled for c in calls], [True, True, False, False])
+            self.assertEqual([c[2].enabled for c in calls], [True, True, False, False, False, False, False])
         ui.select_timeline_characters(self.context, ('a', 'b'))
         calls.clear()
         ui.draw_cleanup_commands(Layout(), self.context)
-        self.assertTrue(all(c[2].enabled for c in calls))
-        self.assertEqual([c[1] for c in calls][-2:], ['Hold Animation', 'Clear Hold Range'])
+        self.assertTrue(all(c[2].enabled for c in calls[:5]))
+        self.assertFalse(any(c[2].enabled for c in calls[5:]))
+        self.assertEqual([c[1] for c in calls][2:5], ['Freeze', 'Interpolate', 'Clear Frame Range'])
 
 
 if __name__ == '__main__':

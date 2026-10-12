@@ -14,7 +14,7 @@ import bpy
 from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
-    motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color,
+    motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color, repair_range_colors,
 )
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_area_mode import (
@@ -271,26 +271,27 @@ def _draw_window():
         frame_x = lambda frame: region.view2d.view_to_region(
             frame + offset, 0, clip=False)[0]
         # Exact range inspection is transient; identity keys retain hit priority.
-        selected_hold = _ui().selected_hold_interval(context)
+        selected_repair = _ui().selected_repair_range(context)
         for interval, x0, x1, y0, y1 in motion_interval_rects(
                 view, region.view2d, region.width, region.height, offset, first,
                 metrics=metrics, include_interval=True):
-            _fill(shader, batch_for_shader, x0, y0, x1, y1, (.34, .23, .10, 1))
+            fill_color, line_color = repair_range_colors(interval.mode)
+            _fill(shader, batch_for_shader, x0, y0, x1, y1, fill_color)
             _line(shader, batch_for_shader, ((x0, y0), (x0, y1), (x1, y1), (x1, y0)),
-                  (.95, .70, .30, .85))
-            # Bounded repeated slash strokes distinguish Untrusted without color.
+                  line_color)
+            # Bounded slash strokes distinguish rejected ranges without color.
             spacing = max(12 * scale, (x1 - x0) / 160)
             for index in range(min(161, int((x1 - x0) / spacing) + 1)):
                 x = x0 + index * spacing
                 _line(shader, batch_for_shader,
-                      ((x, y0), (min(x1, x + 7 * scale), y1)), (.65, .48, .26, .65))
+                      ((x, y0), (min(x1, x + 7 * scale), y1)), line_color)
             if x1 - x0 > metrics.font_size * 13:
                 import blf
                 blf.position(0, x0 + 5 * scale, y0 + 3 * scale, 0)
                 blf.size(0, metrics.font_size)
-                blf.color(0, 1, .83, .55, 1)
-                blf.draw(0, 'ANIMATION HELD')
-            if interval == selected_hold:
+                blf.color(0, *line_color)
+                blf.draw(0, interval.mode.upper())
+            if interval == selected_repair:
                 inset = min(2 * scale, (x1 - x0) / 4, (y1 - y0) / 4)
                 highlight = (*context.preferences.themes[0].user_interface.wcol_list_item.text_sel, 1)
                 _line(shader, batch_for_shader,
@@ -575,7 +576,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                 interval = hit_motion_interval(view, context.region.view2d,
                                                context.region.width, context.region.height,
                                                point, offset, first, metrics=metrics)
-                if interval is not None and ui.select_hold_interval(context, interval):
+                if interval is not None and ui.select_repair_range(context, interval):
                     return {'FINISHED'}
             # Leave Blender's frame ruler and non-left-click tools native.
             if (event.type == 'LEFTMOUSE' and
