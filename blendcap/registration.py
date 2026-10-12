@@ -106,6 +106,7 @@ from .vta_review_ui import (
     unregister_properties as unregister_vta_review_properties,
 )
 from .vta_workspace import (
+    BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_open_vta_workspace,
     BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_vta_goto_review_key,
@@ -218,6 +219,7 @@ classes = (
     BLENDCAP_OT_open_license,
     BLENDCAP_OT_append_workspace,
     BLENDCAP_OT_open_vta_workspace,
+    BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_generate_mocap,
     BLENDCAP_OT_cancel,

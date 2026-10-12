@@ -9,6 +9,7 @@ import bpy
 from mathutils import Matrix, Vector, Euler, Quaternion
 from .helpers import _import_bvh
 from .retarget.fcurves import _iter_action_fcurves
+from .vta_scene_root import find_scene_root, ensure_scene_root, supported_parent, parent_to_scene_root
 _file_hash_cache = {}
 
 
@@ -126,7 +127,7 @@ def _regenerable_curves(previous, segment, preserve_object_transforms):
                  and any(p.interpolation != 'CONSTANT' for p in fc.keyframe_points)) for fc in curves)):
         raise ValueError('Range update cannot safely preserve edited/interpolated animation; use a separate generated rig')
     if preserve_object_transforms:
-        if (previous.type != 'ARMATURE' or previous.parent is not None or previous.constraints
+        if (previous.type != 'ARMATURE' or not supported_parent(previous) or previous.constraints
                 or any(b.constraints for b in previous.pose.bones)):
             raise ValueError('Prior VTA rig has parents or transform constraints; cannot register output safely')
         # Unknown/custom/delta channels do not become implicitly user-owned.
@@ -283,7 +284,7 @@ def register_camera_root(obj, samples):
     This cancels take-wide grounding/detrending, not pose or limb motion.
     """
     bpy.context.view_layer.update()
-    if obj.matrix_world != Matrix.Identity(4):
+    if obj.parent is not None or obj.matrix_world != Matrix.Identity(4):
         raise ValueError('Registered VTA output requires the canonical unedited object transform')
     root, hips = obj.pose.bones.get('Root'), obj.pose.bones.get('Hips')
     if root is None or hips is None or root.parent is not None:
@@ -311,7 +312,7 @@ def stage_source_camera(plan, records, location, bounded, bounds, reference=None
         raise ValueError('Established VTA scene reference must not be replaced by a range update')
     previous_matrix = scene_translation(saved) @ rotation
     matrix = scene_translation(reference) @ rotation
-    if previous is not None and (previous.parent is not None or previous.constraints or previous.animation_data is not None
+    if previous is not None and (not supported_parent(previous) or previous.constraints or previous.animation_data is not None
             or previous.matrix_world != previous_matrix or previous.data.type != 'PERSP'
             or previous.data.sensor_fit != 'HORIZONTAL' or previous.data.sensor_width != 36
             or previous.data.shift_x != 0 or previous.data.shift_y != 0):
@@ -420,6 +421,8 @@ def import_reviewed_output(path, location, backend):
     created = []
     staged = []
     committed = []
+    hierarchy_before = []
+    view_state = []
     before_objects = set(bpy.data.objects)
     before_actions = set(bpy.data.actions)
     before_armatures = set(bpy.data.armatures)
@@ -444,6 +447,13 @@ def import_reviewed_output(path, location, backend):
     selected_names = tuple(o.name for o in bpy.context.selected_objects)
     selected_characters = {o.get('vta_character_id') for o in prior if o.select_get()}
     try:
+        if report['version'] == 4:
+            from .vta_workspace import source_camera_view_state, configure_source_camera_views
+            view_state = source_camera_view_state()
+            find_scene_root(scene, plan['project_id'], plan['source_id'])
+            # Includes owned Characters with no new successful pose this run.
+            for obj in prior:
+                _regenerable_curves(obj, None, True)
         for record in records:
             cid = record['character_id']
             owned = [o for o in prior if o.get('vta_character_id') == cid]
@@ -526,6 +536,19 @@ def import_reviewed_output(path, location, backend):
                 scene.camera = camera_stage
             scene.render.resolution_x, scene.render.resolution_y = plan['width'], plan['height']
             scene.render.pixel_aspect_x = scene.render.pixel_aspect_y = 1
+        if report['version'] == 4:
+            # Fresh temporary rigs have completed registration unparented.
+            # Adopt only surviving owned objects; never the replacement temps.
+            scene_root = ensure_scene_root(scene, plan['project_id'], plan['source_id'])
+            replaced = {fresh for _previous, _action, fresh in staged if fresh is not None}
+            targets = [*prior, *(obj for obj in created if obj not in replaced), scene.camera]
+            for obj in targets:
+                hierarchy_before.append((obj, obj.parent, obj.parent_type, obj.parent_bone,
+                                         obj.matrix_parent_inverse.copy()))
+                parent_to_scene_root(obj, scene_root)
+            # Presentation is part of the same transaction, not a fallible
+            # post-commit step that could leave a partially adopted scene.
+            configure_source_camera_views(scene)
         for previous, action, fresh in staged:
             if fresh is not None:
                 created.remove(fresh)
@@ -535,6 +558,13 @@ def import_reviewed_output(path, location, backend):
             label = expected[obj['vta_character_id']]['display_name']
             obj.name = 'VTA ' + label + ' [' + obj['vta_character_id'] + ']'
     except Exception:
+        for owner, field, value in view_state:
+            setattr(owner, field, value)
+        # LRS/Actions were never rewritten by parenting. Restore hierarchy before
+        # camera world rollback; new roots are removed by the datablock cleanup.
+        for obj, parent, parent_type, parent_bone, inverse in reversed(hierarchy_before):
+            obj.parent, obj.parent_type, obj.parent_bone = parent, parent_type, parent_bone
+            obj.matrix_parent_inverse = inverse
         scene.camera = camera_before
         for obj, in_front in prior_display:
             obj.show_in_front = in_front
@@ -588,9 +618,6 @@ def import_reviewed_output(path, location, backend):
         if active_obj is not None:
             bpy.context.view_layer.objects.active = active_obj
         bpy.context.scene.frame_set(original_frame)
-    if report['version'] == 4:
-        from .vta_workspace import configure_source_camera_views
-        configure_source_camera_views(scene)
     return tuple(created), report
 
 

@@ -228,12 +228,21 @@ Frames: ''' + str(len(frames)) + '\nFrame Time: 0.1\n' + motion + '\n')
     def test_save_reload_then_bounded_full_preserves_object_keys(self):
         self.check_keys('location')
         rig = self.rigs[0]
+        scene_root = rig.parent
         keys, placement = self.curves(rig, True), self.placement(rig)
         path = self.root/'placement.blend'
         bpy.data.libraries.write(str(path), {rig})
         with bpy.data.libraries.load(str(path)) as (_, target):
             target.objects = [rig.name]
         restored = target.objects[0]
+        # This is an object-only library append, not a whole-scene reload. Its
+        # parent dependency is also appended; explicitly reconnect the tested
+        # object to this scene's existing owned identity container rather than
+        # expecting production to merge duplicate ownership implicitly.
+        appended_root = restored.parent
+        restored.parent = scene_root
+        if appended_root is not None and appended_root != scene_root:
+            bpy.data.objects.remove(appended_root, do_unlink=True)
         bpy.data.objects.remove(rig, do_unlink=True)
         bpy.context.collection.objects.link(restored)
         self.rigs = (restored, self.rigs[1])

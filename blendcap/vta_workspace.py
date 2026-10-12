@@ -27,6 +27,7 @@ _window_handler = None
 _channel_handler = None
 _header_registered = False
 _preview_header_registered = False
+_camera_header_registered = False
 _keymaps = []
 _box_gesture = None
 
@@ -34,6 +35,24 @@ _box_gesture = None
 def _ui():
     from . import vta_review_ui
     return vta_review_ui
+
+
+def source_camera_view_state():
+    """Snapshot only fields the generated-camera presentation changes."""
+    state = []
+    for workspace in bpy.data.workspaces:
+        if workspace.get(WORKSPACE_TAG) != 1:
+            continue
+        for screen in workspace.screens:
+            for area in screen.areas:
+                if area.type == 'VIEW_3D':
+                    space = area.spaces.active
+                    for owner, fields in ((space, ('use_local_camera', 'camera', 'show_object_viewport_armature')),
+                            (space.overlay, ('show_overlays', 'show_bones')),
+                            (space.region_3d, ('view_perspective', 'view_camera_offset', 'view_camera_zoom'))):
+                        state.extend((owner, field, tuple(getattr(owner, field)) if field == 'view_camera_offset'
+                                      else getattr(owner, field)) for field in fields)
+    return state
 
 
 def configure_source_camera_views(scene, workspaces=None):
@@ -67,6 +86,60 @@ def configure_source_camera_views(scene, workspaces=None):
                 space.region_3d.view_camera_zoom = 0
                 count += 1
     return count
+
+
+def snap_source_camera_view(context):
+    """Return the requested viewport to the owned camera; never align/move it."""
+    cameras = [o for o in context.scene.objects if o.type == 'CAMERA'
+               and o.get('vta_project_id') and o.get('vta_source_id')]
+    active = context.scene.camera
+    if active in cameras:
+        cameras = [o for o in cameras if o.get('vta_project_id') == active.get('vta_project_id')
+                   and o.get('vta_source_id') == active.get('vta_source_id')]
+    if len(cameras) != 1:
+        raise ValueError('Source camera unavailable or ambiguous. Generate animation with its source camera retained.')
+    area = getattr(context, 'area', None)
+    if area is not None and area.type == 'VIEW_3D':
+        areas = [area]
+    elif getattr(context, 'workspace', None) and context.workspace.get(WORKSPACE_TAG) == 1:
+        areas = [a for a in context.screen.areas if a.type == 'VIEW_3D']
+    else:
+        areas = []
+    if not areas:
+        raise ValueError('Use Snap to Source Camera in a 3D viewport or the VTA workspace.')
+    if any(a.spaces.active.local_view is not None for a in areas):
+        raise ValueError('Exit Local View (/) before snapping to the source camera.')
+    for target in areas:
+        space = target.spaces.active
+        space.use_local_camera = True
+        space.camera = cameras[0]
+        space.region_3d.view_perspective = 'CAMERA'
+        space.region_3d.view_camera_offset = (0, 0)
+        space.region_3d.view_camera_zoom = 0
+        space.overlay.show_overlays = True
+        space.overlay.show_bones = True
+        space.show_object_viewport_armature = True
+        target.tag_redraw()
+    return len(areas)
+
+
+class BLENDCAP_OT_vta_snap_source_camera(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_snap_source_camera'
+    bl_label = 'Snap to Source Camera'
+    bl_description = 'Restore the source-video camera view after orbiting; does not move the camera or Characters'
+
+    def execute(self, context):
+        try:
+            snap_source_camera_view(context)
+        except ValueError as error:
+            self.report({'WARNING'}, str(error))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+def _draw_camera_header(self, context):
+    if getattr(context, 'workspace', None) and context.workspace.get(WORKSPACE_TAG) == 1:
+        self.layout.operator('blendcap.vta_snap_source_camera', text='Camera View', icon='CAMERA_DATA')
 
 
 def _scope(context):
@@ -425,6 +498,7 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         ui = _ui()
         layout = self.layout
         layout.operator('blendcap.vta_review_refresh', text='Refresh Review')
+        layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         if not ui.refresh(context):
             layout.label(text='VTA review unavailable', icon='INFO')
             return
@@ -657,7 +731,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
 
 
 def register():
-    global _window_handler, _channel_handler, _header_registered, _preview_header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _camera_header_registered
     if _window_handler is None:
         _window_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_window, (), 'WINDOW', 'POST_PIXEL')
@@ -673,6 +747,9 @@ def register():
     if not _preview_header_registered:
         bpy.types.SEQUENCER_HT_header.append(_draw_preview_header)
         _preview_header_registered = True
+    if not _camera_header_registered:
+        bpy.types.VIEW3D_HT_header.append(_draw_camera_header)
+        _camera_header_registered = True
     config = getattr(bpy.context.window_manager.keyconfigs, 'addon', None)
     if config is not None and not _keymaps:
         # CHANNELS dispatches Animation Channels (EMPTY/WINDOW), not a
@@ -689,7 +766,7 @@ def register():
 
 
 def unregister():
-    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture, _camera_header_registered
     _box_gesture = None
     for keymap, items in _keymaps:
         for item in items:
@@ -703,6 +780,9 @@ def unregister():
     if _preview_header_registered:
         bpy.types.SEQUENCER_HT_header.remove(_draw_preview_header)
         _preview_header_registered = False
+    if _camera_header_registered:
+        bpy.types.VIEW3D_HT_header.remove(_draw_camera_header)
+        _camera_header_registered = False
     if _window_handler is not None:
         bpy.types.SpaceDopeSheetEditor.draw_handler_remove(_window_handler, 'WINDOW')
         _window_handler = None

@@ -1839,6 +1839,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
+        layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         analyze = layout.row()
         analyze.enabled = not _analysis_locked()
         analyze.operator("blendcap.vta_analyze", text="Analyze Candidates")
@@ -2099,6 +2100,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         layout = self.layout
         layout.operator('blendcap.open_vta_workspace', text='Open VTA Workspace',
                         icon='WORKSPACE')
+        layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         if _location is not None:
             layout.label(text=f"Blender frame {_location.blender_frame}")
         if _view is None:

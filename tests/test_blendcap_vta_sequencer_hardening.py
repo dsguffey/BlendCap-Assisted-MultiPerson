@@ -195,7 +195,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             def row(self):
                 return Layout(self.calls)
 
-            def operator(self, operator, *, text):
+            def operator(self, operator, *, text, **_kwargs):
                 self.calls.append((operator, text, self.enabled))
                 return SimpleNamespace()
 
@@ -223,7 +223,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             self.assertEqual({call[0] for call in menu.calls}, {
             "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
             "blendcap.vta_analyze", "blendcap.vta_generate_animation",
-            "blendcap.vta_repeat_assignment"
+            "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()
