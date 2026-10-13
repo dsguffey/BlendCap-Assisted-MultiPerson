@@ -49,11 +49,12 @@ def export_command(python, bundle, pose_path, bvh_path):
             '--no-foot-lock', '--smooth', '0', '--smooth-root', '0', '--smooth-vertical', '0']
 
 
-def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height):
+def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height, cam_int=None):
     """One exact reviewed box, one aligned pose; no detector or continuity fallback."""
     box = np.asarray([bbox_for_backend(evidence['box_xyxy'], height)], dtype=np.float32)
     with torch.inference_mode():
-        result = estimator.process_one_image(rgb, bboxes=box, inference_type='full')
+        options = {} if cam_int is None else {'cam_int': cam_int}
+        result = estimator.process_one_image(rgb, bboxes=box, inference_type='full', **options)
     if not isinstance(result, list) or len(result) != 1:
         raise RuntimeError('Explicit one-box reconstruction did not return exactly one pose')
     person = result[0]
@@ -71,7 +72,76 @@ def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height):
     if focal.size != 1 or not np.issubdtype(focal.dtype, np.number) or not np.isfinite(focal).all() or focal.item() <= 0:
         raise RuntimeError('Reconstruction requires a finite positive source focal_length')
     arrays['focal_length'] = float(focal.item())
+    if cam_int is not None and abs(arrays['focal_length'] - float(cam_int[0, 0, 0])) > 1e-3:
+        raise RuntimeError('Reconstruction did not use the fixed source calibration')
     return arrays
+
+
+def runtime_identity(bundle, provenance, estimator, torch):
+    """Actual offline model/code/config identity, never a path or a UI label alone."""
+    from importlib.metadata import version, PackageNotFoundError
+    def package(name):
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            return None
+    trees = {}
+    for name in ('models/fast-sam-3d-body', 'models/dinov3_hub'):
+        folder = bundle / name
+        if name == 'models/dinov3_hub':
+            override = os.environ.get('DINOV3_HUB_DIR')
+            default = folder / 'facebookresearch_dinov3_main'
+            if override and Path(override).resolve() != default.resolve():
+                folder = Path(override)
+        files = {str(p.relative_to(folder)): digest(p) for p in sorted(folder.rglob('*.py'))}
+        if not files:
+            raise RuntimeError('Installed reconstruction provider code is missing: ' + name)
+        trees[name] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    if os.environ.get('FOV_TRT', '0') == '1':
+        engine = bundle/'models/fast-sam-3d-body/checkpoints/moge_trt/moge_dinov2_encoder_fp16.engine'
+        trees['fov_trt_engine'] = digest(engine) if engine.is_file() else None
+        trees['tensorrt_version'] = package('tensorrt')
+    size = os.environ.get('FOV_MODEL', 's')
+    short = {'s': 'vits', 'b': 'vitb', 'l': 'vitl'}.get(size, 'vitl')
+    fov = Path(os.environ.get('BLENDCAP_MOGE_BASE', str(bundle/'checkpoints'))) / ('moge-2-'+short+'-normal/model.pt')
+    settings = {key: os.environ.get(key, default) for key, default in {
+        'FOV_MODEL': 's', 'FOV_FAST': '1', 'FOV_LEVEL': '0', 'FOV_SIZE': '0', 'FOV_TRT': '0',
+        'SKIP_KEYPOINT_PROMPT': '1', 'BODY_INTERM_PRED_LAYERS': '0,1,2',
+        'HAND_INTERM_PRED_LAYERS': '0,1', 'MHR_NO_CORRECTIVES': '1', 'GPU_HAND_PREP': '1',
+        'LAYER_DTYPE': 'fp32', 'USE_ORT': '0', 'USE_COMPILE': '0',
+        'USE_COMPILE_BACKBONE': '0', 'DECODER_COMPILE': '0'}.items()}
+    return {'backend': 'Fast-SAM-3D-Body', 'inference_type': 'full', 'settings': settings,
+        'asset_hashes': {key: provenance[key] for key in ('checkpoint_sha256', 'mhr_sha256',
+            'config_sha256', 'worker_sha256', 'capture_source_sha256', 'export_source_sha256',
+            'private_plan_source_sha256', 'registration_source_sha256', 'calibration_source_sha256')},
+        'provider_code': trees, 'fov_checkpoint_sha256': digest(fov) if fov.is_file() else None,
+        'fov_available': estimator.fov_estimator is not None, 'device': str(estimator.device),
+        'packages': {name: package(name) for name in ('torch', 'numpy', 'opencv-python', 'moge')},
+        'torch_cuda': getattr(getattr(torch, 'version', None), 'cuda', None),
+        'reconstruction_algorithm': 'reviewed-box-full-raw-v1'}
+
+
+def fixed_source_calibration(root, source, provider, estimator, np, torch, decode_rgb):
+    from vta_core.source_calibration import calibration_identity, load_or_compute_calibration
+    identity = calibration_identity(source.video_sha256, *source.require_dimensions(), provider)
+    def compute():
+        if estimator.fov_estimator is None:
+            raise RuntimeError('FIRST source-frame-0 calibration unavailable: install/repair MoGe; '
+                               'no default or per-frame fallback is permitted')
+        rgb = decode_rgb(0)
+        if rgb.shape[:2] != (identity['height'], identity['width']):
+            raise RuntimeError('Source-frame-0 calibration image dimensions changed')
+        with torch.inference_mode():
+            value = estimator.fov_estimator.get_cam_intrinsics(rgb)
+        if hasattr(value, 'detach'):
+            value = value.detach().cpu().numpy()
+        matrix = np.asarray(value)
+        if matrix.shape == (1, 3, 3):
+            matrix = matrix[0]
+        return matrix.tolist()
+    record, computed = load_or_compute_calibration(root, identity, compute)
+    matrix = torch.as_tensor([record['intrinsics']], dtype=torch.float32)
+    return identity, record, matrix, computed
 
 
 def run(args):
@@ -96,6 +166,7 @@ def run(args):
     from vta_core.source_decode import decode_source_frame
     from vta_core.provider_contract import ProviderFrameRequest
     from vta_core.camera_registration import source_camera_sample
+    from vta_core.source_calibration import calibration_identity, reconstruction_record
     from blendcap_vta_analyze_worker import _source_for_video
     lock = root / 'analysis/vta-analysis.lock'
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +201,7 @@ def run(args):
             'repair_stage': 'registered-raw-BVH-to-final-animation; private schedule v3; output v4',
             'private_plan_source_sha256': digest(core / 'vta_core/skeletal_output.py'),
             'registration_source_sha256': digest(core / 'vta_core/camera_registration.py'),
+            'calibration_source_sha256': digest(core / 'vta_core/source_calibration.py'),
             'private_state_source_sha256': digest(core / 'vta_core/state_model.py'),
             'environment_python': str(Path(sys.executable).resolve()),
             'command': sys.argv, 'plan_sha256': digest(output / 'plan.json')}
@@ -141,14 +213,31 @@ def run(args):
         # Existing estimator, offline local models. Explicit boxes bypass YOLO inference.
         from save_mhr_data import load_estimator_fast
         estimator = load_estimator_fast()
+        mode = getattr(args, 'fov_mode', 'FIRST')
+        if mode not in ('FIRST', 'EVERY'):
+            raise RuntimeError('Reviewed VTA reconstruction supports FIRST or EVERY, not MANUAL focal entry')
+        provider = runtime_identity(bundle, provenance, estimator, torch)
+        def decode_rgb(frame):
+            decoded = decode_source_frame(video, ProviderFrameRequest(source, frame))
+            return cv2.cvtColor(decoded.pixels_bgr, cv2.COLOR_BGR2RGB)
+        cam_int, calibration = None, None
+        identity = calibration_identity(source.video_sha256, plan['width'], plan['height'], provider)
+        if mode == 'FIRST':
+            if provider.get('fov_checkpoint_sha256') is None:
+                raise RuntimeError('FIRST calibration requires an identifiable offline MoGe checkpoint; prior output retained')
+            identity, calibration, cam_int, computed = fixed_source_calibration(
+                root, source, provider, estimator, np, torch, decode_rgb)
+            print('VTA source-frame-0 calibration ' + ('computed' if computed else 'reused'), flush=True)
+        reconstruction = reconstruction_record(mode, identity, calibration)
         provenance['device'] = str(estimator.device)
-        fov = bundle / 'checkpoints/moge-2-vits-normal/model.pt'
-        provenance['fov_backend'] = 'MoGe-s' if estimator.fov_estimator is not None else 'default-fov-fallback'
-        provenance['fov_checkpoint_sha256'] = digest(fov) if fov.is_file() else None
+        provenance['fov_backend'] = ('MoGe-'+provider.get('settings', {}).get('FOV_MODEL', 's')
+            if estimator.fov_estimator is not None else 'default-fov-fallback')
+        provenance['fov_checkpoint_sha256'] = provider.get('fov_checkpoint_sha256')
         provenance['yolo_checkpoint_sha256'] = digest(bundle / 'checkpoints/yolo/yolo11m-pose.pt')
         provenance['detector_inference_used'] = False
         provenance['warnings'] = ([] if estimator.fov_estimator is not None else
                                   ['MoGe unavailable; existing backend default FOV used'])
+        provenance['reconstruction'] = reconstruction
         records = {c['character_id']: {'frames': [], 'poses': [], 'failures': []}
                    for c in plan['characters']}
         attempted = {cid: set() for cid in records}
@@ -159,11 +248,11 @@ def run(args):
                     by_frame.setdefault(sample['frame'], []).append((character['character_id'], sample))
         for completed, (frame, requests) in enumerate(sorted(by_frame.items()), 1):
             check_stop()  # Cooperative stop; never kill an in-flight model call.
-            decoded = decode_source_frame(video, ProviderFrameRequest(source, frame))
-            rgb = cv2.cvtColor(decoded.pixels_bgr, cv2.COLOR_BGR2RGB)
+            rgb = decode_rgb(frame)
             for character_id, sample in requests:
                 attempted[character_id].add(frame)
-                arrays = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'])
+                arrays = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
+                                             **({} if cam_int is None else {'cam_int': cam_int}))
                 if arrays is None:
                     records[character_id]['failures'].append({'frame': frame, 'reason': 'nonfinite-pose'})
                     continue
@@ -184,9 +273,9 @@ def run(args):
                     check_stop()
                     frame = sample['frame']
                     attempted[cid].add(frame)
-                    decoded = decode_source_frame(video, ProviderFrameRequest(source, frame))
-                    rgb = cv2.cvtColor(decoded.pixels_bgr, cv2.COLOR_BGR2RGB)
-                    pose = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'])
+                    rgb = decode_rgb(frame)
+                    pose = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
+                                              **({} if cam_int is None else {'cam_int': cam_int}))
                     if pose is None:
                         record['failures'].append({'frame': frame, 'reason': 'nonfinite-repair-anchor'})
                     else:
@@ -212,6 +301,7 @@ def run(args):
                     for name, key in [('global_rots','pred_global_rots'), ('joint_coords','pred_joint_coords'), ('cam_t','pred_cam_t')]}
                 arrays.update(frame_indices=np.asarray(frames), fps=np.asarray(plan['fps']), blendcap_npz_version=np.asarray(1))
                 arrays['focal_length'] = np.asarray([p['focal_length'] for p in record['poses']])
+                arrays['reconstruction_fingerprint'] = np.asarray(reconstruction['fingerprint'])
                 with pose_path.open('xb') as handle:
                     np.savez_compressed(handle, **arrays)
                 command = export_command(sys.executable, bundle, pose_path, bvh_path)
@@ -227,7 +317,7 @@ def run(args):
         if not any(s['state'] != 'unavailable' for c in exported for s in c['schedule']):
             raise RuntimeError('Animation range has no successful trustworthy or repaired pose; prior output retained')
         result = {'schema': 'vta-reviewed-skeletal-output', 'version': 4, 'plan': plan,
-                  'provenance': provenance, 'characters': exported,
+                  'provenance': provenance, 'reconstruction': reconstruction, 'characters': exported,
                   'runtime_seconds': time.monotonic()-started}
         # Reject evidence edits even from writers not honoring the common lock.
         current = build_skeletal_plan(load_project_state(root), load_analysis_cache(root, revision), **options)
@@ -249,6 +339,7 @@ def main():
     parser.add_argument('--start-frame', type=int)
     parser.add_argument('--end-frame', type=int)
     parser.add_argument('--stop-file')
+    parser.add_argument('--fov-mode', choices=('FIRST', 'EVERY'), default='FIRST')
     run(parser.parse_args())
 
 

@@ -105,6 +105,9 @@ The easiest way to use BlendCap is the **paid build**: install it in Blender and
 
 Full documentation, installation, a first-capture quick start, every setting, and filming tips, lives in [`docs/`](docs/) in this repository, start at the [table of contents](docs/README.md).
 
+The current reviewed multi-Character integration is described in the
+[VTA public host workflow and technical guide](docs/vta_workflow.md).
+
 ## How it works
 
 ```mermaid

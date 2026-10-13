@@ -514,7 +514,15 @@ class PrivateCoreBackend:
         self._source_digest_cache: dict[Path, tuple[int, int, str]] = {}
 
     def query(self, location: ReviewLocation, *, show_suppressed=False) -> ReviewView:
-        project, cache, revision_id = self._load_context(location)
+        return self.frame_from_context(self._load_context(location), location,
+                                       show_suppressed=show_suppressed)
+
+    def frame_from_context(self, context, location: ReviewLocation, *, show_suppressed=False):
+        """Read-only presentation of an already validated in-memory snapshot.
+
+        Authoritative commands continue using _load_context, never this cache.
+        """
+        project, cache, revision_id = context
         try:
             review = self._core.build_frame_review(
                 project,
@@ -553,7 +561,10 @@ class PrivateCoreBackend:
 
     def query_timeline(self, location: ReviewLocation):
         """Read all authoritative keys once per project change, never per draw."""
-        project, cache, revision_id = self._load_context(location)
+        return self.timeline_from_context(self._load_context(location))
+
+    def timeline_from_context(self, context):
+        project, cache, revision_id = context
         try:
             self._core.validate_analysis_cache_registration(project, cache, revision_id)
             private = self._core.build_review_timeline(

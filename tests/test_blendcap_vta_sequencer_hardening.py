@@ -223,7 +223,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             self.assertEqual({call[0] for call in menu.calls}, {
             "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
             "blendcap.vta_analyze", "blendcap.vta_generate_animation",
-            "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera"
+            "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera",
+            "blendcap.vta_match_source_fps"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()
@@ -272,7 +273,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                                  "BLENDCAP_OT_vta_review_key_select")
                 self.assertEqual(bpy.types.Menu.bl_rna_get_subclass_py("BLENDCAP_MT_vta_commands"),
                                  ui.BLENDCAP_MT_vta_commands)
-                with mock.patch.object(ui, "_view", object()), mock.patch.object(ui, "_location", object()):
+                with mock.patch.object(ui, "_view", object()), mock.patch.object(ui, "_location", object()), \
+                     mock.patch.object(ui, '_requires_owned_scene', return_value=False):
                     self.assertTrue(bpy.ops.blendcap.vta_review_manage.poll())
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context")), 1)
                 self.assertEqual(len(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_header")), 1)

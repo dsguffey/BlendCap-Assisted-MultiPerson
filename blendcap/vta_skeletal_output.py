@@ -250,7 +250,7 @@ def _remove_staged(obj):
         bpy.data.actions.remove(action)
 
 
-def validate_camera_registration(record, plan, root, core):
+def validate_camera_registration(record, plan, root, core, reconstruction=None):
     """Bind derived calibration to the hashed raw NPZ, not object placement."""
     import numpy as np
     registration = record.get('camera_registration')
@@ -262,6 +262,14 @@ def validate_camera_registration(record, plan, root, core):
     if _hash(path) != record['npz_sha256']:
         raise ValueError('Camera registration NPZ hash changed')
     with np.load(path, allow_pickle=False) as raw:
+        if reconstruction is not None:
+            if ('reconstruction_fingerprint' not in raw
+                    or raw['reconstruction_fingerprint'].item() != reconstruction['fingerprint']):
+                raise ValueError('Raw reconstruction calibration fingerprint differs from output')
+            if reconstruction['mode'] == 'FIRST':
+                if not np.allclose(raw['focal_length'], reconstruction['calibration']['intrinsics'][0][0],
+                                   atol=1e-3, rtol=0):
+                    raise ValueError('Raw FIRST focal lengths differ from fixed source calibration')
         if list(raw['frame_indices']) != record['source_frames']:
             raise ValueError('Camera registration source frames differ from NPZ')
         samples = [core.source_camera_sample(f, (raw['joint_coords'][i, 1] + raw['cam_t'][i]).tolist(),
@@ -368,7 +376,7 @@ def stage_source_camera(plan, records, location, bounded, bounds, reference=None
     return previous, camera
 
 
-def import_reviewed_output(path, location, backend):
+def import_reviewed_output(path, location, backend, *, configure_views=True):
     root = Path(path).resolve().parent
     expected_root = (location.companion_root / 'reconstruction').resolve()
     if not root.is_relative_to(expected_root):
@@ -383,6 +391,8 @@ def import_reviewed_output(path, location, backend):
     plan = backend._core.build_skeletal_plan(project, cache, **options)
     if report['plan'] != plan:
         raise ValueError('Skeletal output is stale; Generate Animation again from current review')
+    reconstruction = report.get('reconstruction')
+    fingerprint = backend._core.reconstruction_fingerprint(reconstruction, plan.get('source_video_sha256'))
     expected = {c['character_id']: c for c in plan['characters']}
     records = report['characters']
     if len(records) != len(expected) or {r['character_id'] for r in records} != set(expected):
@@ -401,11 +411,19 @@ def import_reviewed_output(path, location, backend):
                 raise ValueError('Skeletal BVH hash changed')
             paths[record['character_id']] = bvh
         if report['version'] == 4:
-            registration[record['character_id']] = validate_camera_registration(record, plan, root, backend._core)
+            registration[record['character_id']] = validate_camera_registration(
+                record, plan, root, backend._core, reconstruction)
     if not paths or not any(s['state'] != 'unavailable' for r in records for s in r['schedule']):
         raise ValueError('Animation has no successful trustworthy or repaired pose; prior output retained')
     prior = [o for o in bpy.context.scene.objects if o.get('vta_project_id') == plan['project_id']
              and o.get('vta_source_id') == plan['source_id'] and o.type == 'ARMATURE']
+    owners = [*prior, *(o.data for o in bpy.context.scene.objects if o.type == 'CAMERA'
+        and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id'])]
+    previous_fingerprints = [o.get('vta_reconstruction_fingerprint', 'legacy-per-frame-intrinsics') for o in owners]
+    backend._core.require_compatible_reconstruction(fingerprint, previous_fingerprints, bounded=bounded)
+    if not bounded and any(value != fingerprint for value in previous_fingerprints):
+        if any(o.get('vta_character_id') not in paths for o in prior):
+            raise ValueError('Calibration migration requires whole-source replacement for every existing Character; previous animation retained')
     reference = None
     source_bounds = None
     if report['version'] == 4:
@@ -483,6 +501,7 @@ def import_reviewed_output(path, location, backend):
             obj['vta_cache_file_hash'] = _hash(location.companion_root / 'analysis' / (cache.revision_id + '.json'))
             obj['vta_analysis_revision_id'] = cache.revision_id
             obj['vta_output_stale'] = False
+            obj['vta_reconstruction_fingerprint'] = fingerprint
             if report['version'] == 4:
                 obj['vta_camera_registration_version'] = 1
                 obj.show_in_front = True
@@ -508,6 +527,7 @@ def import_reviewed_output(path, location, backend):
             for previous, action, fresh in staged:
                 limit_source_visibility(action, *source_bounds, preserve_object_transforms=True)
             camera_previous, camera_stage = stage_source_camera(plan, records, location, bounded, bounds, reference)
+            camera_stage.data['vta_reconstruction_fingerprint'] = fingerprint
         # Commit only after all new armatures validate. Old generated output is
         # retained on disk; only owned Blender projections are replaced.
         for previous, action, fresh in staged:
@@ -548,7 +568,8 @@ def import_reviewed_output(path, location, backend):
                 parent_to_scene_root(obj, scene_root)
             # Presentation is part of the same transaction, not a fallible
             # post-commit step that could leave a partially adopted scene.
-            configure_source_camera_views(scene)
+            if configure_views:
+                configure_source_camera_views(scene)
         for previous, action, fresh in staged:
             if fresh is not None:
                 created.remove(fresh)

@@ -171,7 +171,8 @@ class BlenderOutputTests(unittest.TestCase):
         ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
         wm = SimpleNamespace(blendcap_vta_animation_start=11, blendcap_vta_animation_end=15,
             blendcap_vta_motion_start=67, blendcap_vta_motion_end=90)
-        context = SimpleNamespace(window_manager=wm, scene=bpy.context.scene)
+        context = SimpleNamespace(window_manager=wm, scene=SimpleNamespace(
+            blendcap_props=SimpleNamespace(fov_mode='FIRST')))
         operator = SimpleNamespace(action='RANGE', report=mock.Mock())
         plan = mock.Mock(return_value={})
         backend = SimpleNamespace(_load_context=lambda _: ('project', 'cache', 'revision'),
@@ -180,6 +181,7 @@ class BlenderOutputTests(unittest.TestCase):
              mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
                  Path(directory), Path(directory)/'video.mp4', 0, 1)), \
              mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, 'require_loaded_context') as require_loaded, \
              mock.patch.object(ui, '_edit_available', return_value=True), \
              mock.patch.object(ui, '_python_exe', return_value='managed-python.exe'), \
              mock.patch.object(Path, 'is_file', return_value=True), \
@@ -189,7 +191,9 @@ class BlenderOutputTests(unittest.TestCase):
              mock.patch.object(bpy.app.timers, 'register'):
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'FINISHED'})
             plan.assert_called_once_with('project', 'cache', frame_range=(10, 14))
+            require_loaded.assert_called_once_with(context)
             command = launch.call_args.args[0]
+            self.assertEqual(command[command.index('--fov-mode')+1], 'FIRST')
             self.assertEqual(command[command.index('--start-frame')+1], '10')
             self.assertEqual(command[command.index('--end-frame')+1], '14')
             self.assertIn('11–15', ui._generation_status)
@@ -305,10 +309,11 @@ class BlenderOutputTests(unittest.TestCase):
                     self.assertFalse(writes)
                     in_draw[0] = False
                     ui._presentation_timer()
-                    self.assertEqual(len(writes), 3)
+                    self.assertEqual(len(writes), 2)  # No editor binding in presentation timer.
                     process.poll.return_value = 0
                     self.assertIsNone(ui._reconstruction_timer())
                     commit.assert_called_once()
+                    self.assertFalse(commit.call_args.kwargs['configure_views'])
                     self.assertIs(ui._view, view)
                     ui._reconstruction_process = SimpleNamespace(poll=lambda: 1, returncode=1)
                     ui._reconstruction_timer()
@@ -453,7 +458,9 @@ Frame Time: 0.1
             output = run/'output.json'
             output.write_text(json.dumps(report))
             backend = SimpleNamespace(_load_context=lambda location:(None,SimpleNamespace(revision_id='a'),'a'),
-                _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kw:plan, resolve_pose_schedule=lambda *_args, **_kw:schedule))
+                _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kw:plan, resolve_pose_schedule=lambda *_args, **_kw:schedule,
+                    reconstruction_fingerprint=lambda *args:'legacy-per-frame-intrinsics',
+                    require_compatible_reconstruction=lambda *args, **kw:None))
             location = ReviewLocation(root, root/'video.mp4', 0, 20)
             # Ordinary user object with a colliding intended display name survives.
             user = bpy.data.objects.new('VTA white [c]', None)
@@ -510,6 +517,8 @@ Frame Time: 0.1
                 partial_plan = {**plan, 'source_range': [0, 1]}
                 partial_backend = SimpleNamespace(_load_context=backend._load_context,
                     _core=SimpleNamespace(build_skeletal_plan=lambda *_args, **_kwargs: partial_plan,
+                                          reconstruction_fingerprint=lambda *args:'legacy-per-frame-intrinsics',
+                                          require_compatible_reconstruction=lambda *args, **kw:None,
                                           resolve_pose_schedule=lambda *_args, **_kwargs: schedule))
                 report.update(version=2, plan=partial_plan)
                 output.write_text(json.dumps(report))

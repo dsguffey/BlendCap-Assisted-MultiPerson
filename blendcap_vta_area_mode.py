@@ -72,7 +72,7 @@ def _legacy_preset_role(workspace, screen, area):
     return None
 
 
-def role_for(workspace, screen, area):
+def configured_role_for(workspace, screen, area):
     """Read the mode of one current Area; never treat an Area pointer as state."""
     if screen is None or area is None:
         return None
@@ -88,6 +88,14 @@ def role_for(workspace, screen, area):
     if screen.get(MODE_KEY) is not None:
         return None
     return _legacy_preset_role(workspace, screen, area)
+
+
+def role_for(workspace, screen, area):
+    # Exit changes behavior, not the saved editor configuration. Dictionaries
+    # and older hosts without this registered property keep legacy semantics.
+    if getattr(workspace, 'blendcap_vta_mode_enabled', True) is False:
+        return None
+    return configured_role_for(workspace, screen, area)
 
 
 def set_role(workspace, screen, area, role):

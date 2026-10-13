@@ -4,6 +4,9 @@ User documentation for BlendCap — markerless performance capture for Blender.
 
 New here? Start with the [Quick Start](04-quick-start.md).
 
+For the current reviewed multi-Character integration, see the
+[VTA public host workflow and technical guide](vta_workflow.md).
+
 ## Contents
 
 | # | Page | What it covers |

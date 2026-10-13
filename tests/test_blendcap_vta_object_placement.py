@@ -58,6 +58,8 @@ class ObjectPlacementTests(unittest.TestCase):
             revision_id='a', source=SimpleNamespace(start_frame=0, end_frame=5)), 'a'),
             _core=SimpleNamespace(build_skeletal_plan=lambda *args, **kw:self.plan,
                 resolve_pose_schedule=lambda *args, **kw:self.schedule,
+                reconstruction_fingerprint=lambda *args:'legacy-per-frame-intrinsics',
+                require_compatible_reconstruction=lambda *args, **kw:None,
                 source_camera_sample=sample, scene_reference_from_samples=reference))
         self.report = self.make_report(False)
         self.rigs, _ = self.output.import_reviewed_output(self.report, self.location, self.backend)

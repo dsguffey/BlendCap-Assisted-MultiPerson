@@ -12,7 +12,9 @@ import hashlib
 import json
 from typing import Any
 
-from track_preview_target import TrackError, validate_anchors, validate_sidecar
+from blendcap_vta_preview_validation import (
+    PreviewEvidenceError, validate_anchors, validate_sidecar,
+)
 
 
 BOUNDARY_SCHEMA = "vta-neutral-reviewed-observation"
@@ -106,7 +108,7 @@ def translate_reviewed_anchor(
     try:
         sidecar = validate_sidecar(sidecar_document, digest=sidecar_digest)
         anchors = validate_anchors(anchor_document, sidecar)
-    except TrackError as exc:
+    except PreviewEvidenceError as exc:
         raise BoundaryTranslationError(f"invalid BlendCap evidence: {exc}") from exc
 
     requested_anchor_id = _nonempty_string(anchor_id, "anchor_id")

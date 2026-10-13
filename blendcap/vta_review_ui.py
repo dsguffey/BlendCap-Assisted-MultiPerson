@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import math
 import os
 import subprocess
 import textwrap
@@ -36,8 +37,9 @@ from ..blendcap_vta_analysis_runtime import (
 )
 from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, TimelineCharacterSelection, key_at
-from ..blendcap_vta_area_mode import ROLE_PREVIEW, ROLE_TIMELINE, role_for
+from ..blendcap_vta_area_mode import ROLE_PREVIEW, ROLE_TIMELINE, WORKSPACE_TAG, role_for
 from . import vta_invalidation, vta_overlay, vta_timeline_overlay
+from .vta_presentation import Presentation, source_identity, pointer, at_frame, file_signature
 from .helpers import (
     _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
 )
@@ -55,6 +57,13 @@ _project_signature = None
 _cache_signature = None
 _timeline = None
 _timeline_identity = None
+_presentation_scene = None
+_active_review_scene = None
+_scene_sessions = {}
+_validated_sources = {}
+_observer_tokens = {}
+_display = Presentation()
+_display_backend = None
 _review_key_selection = ReviewKeySelection()
 _character_selections = {}
 _repair_selections = {}
@@ -87,6 +96,235 @@ _last_assignment_target = None
 def _reset_repeat_assignment_session(_unused=None):
     global _last_assignment_target
     _last_assignment_target = None
+
+
+def _managed_context(context):
+    workspace = getattr(context, 'workspace', None)
+    screen = getattr(context, 'screen', None)
+    return bool((workspace is not None and workspace.get(WORKSPACE_TAG) == 1)
+                or (hasattr(screen, 'areas') and role_for(workspace, screen,
+                            getattr(context, 'area', None)) in {ROLE_PREVIEW, ROLE_TIMELINE}))
+
+
+def _requires_owned_scene(context):
+    if hasattr(getattr(context, 'workspace', None), 'blendcap_vta_loaded_scene'):
+        return True
+    if _managed_context(context):
+        return True
+    # Preserve the initial legacy source/preparation workflow. Once this file
+    # has owned Scenes, the sidebar must not resurrect unowned review state
+    # merely because the user changed to an ordinary workspace.
+    return (isinstance(getattr(context, 'scene', None), bpy.types.Scene)
+            and any(s.get('vta_scene_timing_version') == 1 for s in bpy.data.scenes))
+
+
+def _context_for_main_scene(context):
+    from .vta_scene_session import main_scene, scene_context
+    return scene_context(context,main_scene(context))
+
+
+def loaded_context_matches(context, target=None):
+    # Unregistered host-independent unit adapters retain their prior contract.
+    # Every enabled Blender workspace has the registered session properties.
+    workspace = getattr(context,'workspace',None)
+    if not hasattr(workspace,'blendcap_vta_loaded_scene'):
+        return True
+    from .vta_scene_session import matches
+    return matches(context,target)
+
+
+def require_loaded_context(context):
+    if not loaded_context_matches(context):
+        from .vta_scene_session import warning
+        raise VtaReviewUiError(warning(context) or 'Enter VTA Mode / Load VTA Scene first.')
+
+
+def record_scene_source(scene, info):
+    """Cache validated metadata, never an authority decision or disk write."""
+    identity = source_identity(scene, bpy.data.filepath)
+    _validated_sources[pointer(scene)] = (identity, (info[0], dict(info[1]), info[2], info[3]),
+        (file_signature(info[2].companion_root/'project_state.json'), file_signature(info[2].source_path)))
+
+
+def cached_scene_source(context):
+    from .vta_scene_session import main_scene
+    scene = main_scene(context)
+    entry = _validated_sources.get(pointer(scene)) if scene is not None else None
+    identity = source_identity(scene, bpy.data.filepath) if scene is not None else None
+    return entry[1] if entry and identity is not None and entry[0] == identity else None
+
+
+def _source_files_changed(context, info):
+    from .vta_scene_session import main_scene
+    entry = _validated_sources.get(pointer(main_scene(context)))
+    stamp = (file_signature(info[2].companion_root/'project_state.json'), file_signature(info[2].source_path))
+    return entry is None or entry[2] != stamp
+
+
+def _activate_review_scene(scene):
+    """Invalidate presentation only; retain each Scene's transient selections."""
+    global _active_review_scene, _view, _location, _timeline, _timeline_identity
+    global _project_signature, _cache_signature, _presentation_scene
+    global _selection, _review_key_selection, _character_selections, _repair_selections
+    global _last_assignment_target
+    if scene is _active_review_scene:
+        return False
+    if _active_review_scene is not None:
+        try:
+            _scene_sessions[_active_review_scene.as_pointer()] = (_selection, _review_key_selection,
+                _character_selections, _repair_selections, _last_assignment_target)
+        except ReferenceError:
+            pass  # A deleted Scene cannot retain a session.
+    (_selection, _review_key_selection, _character_selections, _repair_selections,
+     _last_assignment_target) = _scene_sessions.get(scene.as_pointer() if scene else None,
+        (SelectionState(), ReviewKeySelection(), {}, {}, None))
+    _active_review_scene = scene
+    _view = _location = _timeline = _timeline_identity = None
+    _project_signature = _cache_signature = _presentation_scene = None
+    _rebuild_enum_items()
+    return True
+
+
+def _presentation_current(context):
+    """Fail closed before a timer runs; never draw another Scene/frame's data."""
+    if not _requires_owned_scene(context):
+        return True
+    if not loaded_context_matches(context):
+        return False
+    from .vta_scene_session import main_scene
+    scene = main_scene(context)
+    if scene is not _presentation_scene or _location is None:
+        return False
+    if scene.frame_current != _location.blender_frame:
+        return False
+    if (hasattr(getattr(context, 'workspace', None), 'blendcap_vta_loaded_scene') and
+            cached_scene_source(context) is None):
+        return False
+    if (not hasattr(getattr(context, 'workspace', None), 'blendcap_vta_loaded_scene') and
+            isinstance(scene, bpy.types.Scene) and
+            _vse_source_path(_active_video_strip(scene.sequence_editor)) != _location.source_path):
+        return False
+    workspace = getattr(context, 'workspace', None)
+    if role_for(workspace, getattr(context, 'screen', None), getattr(context, 'area', None)) == ROLE_PREVIEW:
+        return (getattr(workspace, 'sequencer_scene', None) in (None, scene))
+    return True
+
+
+def _source_actions_available(context):
+    if _analysis_locked():
+        return False
+    if not _requires_owned_scene(context):
+        return True  # Existing legacy source workflow outside VTA-managed editors.
+    if not loaded_context_matches(context):
+        return False
+    try:
+        from .vta_scene_timing import owns_scene
+        bound = _context_for_main_scene(context)
+        info = cached_scene_source(bound)
+        if info is None:
+            if hasattr(getattr(context, 'workspace', None), 'blendcap_vta_loaded_scene'):
+                return False
+            info = _timing_source(bound)  # Unregistered legacy unit adapters.
+        pid, source, _location, _strip = info
+        return owns_scene(bound.scene, pid, source)
+    except Exception:
+        return False
+
+
+@bpy.app.handlers.persistent
+def _reset_scene_presentation(_unused=None):
+    """Clear content/session state, never workspace roles or Blender context.
+
+    Add-on enable runs inside RestrictBlend, where context.scene/data are
+    unavailable. The runtime observer later reads context without choosing it.
+    This same Python-only reset is also safe during file loading.
+    """
+    global _active_review_scene, _pending_presentation, _presentation_scene
+    global _view, _location, _timeline, _timeline_identity, _project_signature, _cache_signature
+    global _selection, _review_key_selection, _character_selections, _repair_selections
+    global _last_assignment_target
+    global _display_backend
+    _scene_sessions.clear()
+    _validated_sources.clear()
+    _observer_tokens.clear()
+    _display.clear()
+    _display_backend = None
+    _load_scene_enum_items.clear()
+    _active_review_scene = None
+    _pending_presentation = None
+    _view = _location = _timeline = _timeline_identity = _presentation_scene = None
+    _project_signature = _cache_signature = None
+    _selection = SelectionState()
+    _review_key_selection = ReviewKeySelection()
+    _character_selections = {}
+    _repair_selections = {}
+    _last_assignment_target = None
+    _rebuild_enum_items()
+
+
+def _observer_identity(context):
+    from .vta_scene_session import main_scene, MODE, LAST
+    scene = main_scene(context)
+    workspace = context.workspace
+    info = cached_scene_source(context)
+    old_entry = _validated_sources.get(pointer(scene))
+    location = info[2] if info else old_entry[1][2] if old_entry else None
+    # Stats only, no model loads. This slow observation is never used in draws
+    # or frame handlers; it detects independent canonical/evidence file edits.
+    stamp = _display.signature(location) if location else None
+    if location is None:
+        try:
+            root = companion_root_for_blend(bpy.data.filepath)
+            strip = scene.sequence_editor.active_strip if scene.sequence_editor else None
+            path = _vse_source_path(strip)
+            stamp = (file_signature(root/'project_state.json'), file_signature(path) if path else None)
+        except (VtaReviewUiError, OSError):
+            pass
+    return (pointer(scene), scene.frame_current, pointer(workspace),
+        getattr(workspace, MODE, False), pointer(getattr(workspace, LAST, None)),
+        pointer(workspace.sequencer_scene), source_identity(scene, bpy.data.filepath),
+        loaded_context_matches(context), stamp,
+        getattr(context.window_manager, 'blendcap_vta_show_suppressed', False),
+        _configured_core_location(context))
+
+
+def _observe_context(context):
+    key = pointer(context.window)
+    token = _observer_identity(context)
+    if _observer_tokens.get(key) != token:
+        refresh(context, check_disk=True)
+        _observer_tokens[key] = _observer_identity(context)
+
+
+def _scene_observer_timer():
+    """Passive review refresh only. No Scene/editor/camera binding writes."""
+    for window in tuple(bpy.context.window_manager.windows):
+        with bpy.context.temp_override(window=window):
+            context = bpy.context
+            if _managed_context(context):
+                _observe_context(context)
+            else:
+                # Opted-in editors also exist outside the bundled preset.
+                area = next((a for a in context.screen.areas if role_for(
+                    context.workspace, context.screen, a) in {ROLE_PREVIEW, ROLE_TIMELINE}), None)
+                if area is not None:
+                    with bpy.context.temp_override(area=area):
+                        _observe_context(bpy.context)
+    return 0.2
+
+
+@bpy.app.handlers.persistent
+def _frame_presentation_changed(scene, _depsgraph=None):
+    """Correct-frame in-memory review before redraw, no ID/Scene/disk writes."""
+    if _display_backend is None:
+        return
+    for window in tuple(bpy.context.window_manager.windows):
+        if window.scene != scene:
+            continue
+        with bpy.context.temp_override(window=window):
+            context = bpy.context
+            if loaded_context_matches(context) and cached_scene_source(context) is not None:
+                refresh(context, memory_only=True)
 
 
 def _assignment_scope():
@@ -126,12 +364,12 @@ def _presentation_timer():
     if pending is None:
         return None
     scene, root = pending
+    if _requires_owned_scene(bpy.context) and not loaded_context_matches(bpy.context):
+        return None
     if _location is None or _location.companion_root != root:
         return None
     try:
         _sync_properties(bpy.context)
-        if scene is not None and scene.name in bpy.data.scenes:
-            ensure_vta_preview_context(bpy.context, scene)
         from .vta_skeletal_output import mark_stale_outputs
         mark_stale_outputs(root)
     except Exception as exc:
@@ -207,6 +445,277 @@ def _location_from_context(context, *, allow_outside=False) -> ReviewLocation:
         source_frame=source_frame,
         blender_frame=int(scene.frame_current),
     )
+
+
+def _timing_source(context):
+    """Hash-validated source metadata, independent of current playhead bounds."""
+    location = _location_from_context(context, allow_outside=True)
+    backend = _get_backend(context)
+    project = backend._core.load_project_state(location.companion_root).to_dict()
+    digest = backend._source_hash(location.source_path)
+    sources = [s for s in project['sources'] if s.get('video_sha256') == digest]
+    if len(sources) != 1:
+        raise VtaReviewUiError('Active clip does not uniquely match the VTA project source.')
+    strip = _active_video_strip(context.scene.sequence_editor)
+    from .vta_scene_timing import validate_source_strip
+    validate_source_strip(strip)
+    if not math.isclose(float(strip.fps), sources[0]['fps'], rel_tol=1e-6, abs_tol=1e-3):
+        raise VtaReviewUiError('Movie FPS differs from the VTA source metadata; use the original source clip. No Scene was retimed.')
+    return project['project_id'], sources[0], location, strip
+
+
+
+
+_load_scene_enum_items = []
+
+
+def build_load_scene_choices(context):
+    global _load_scene_enum_items
+    from .vta_scene_session import validate
+    items = []
+    for scene in bpy.data.scenes:
+        try:
+            validate(context, scene)
+        except Exception:
+            continue
+        items.append((scene.name, scene.name, 'Load this metadata-owned VTA Scene'))
+    _load_scene_enum_items = items
+    return _load_scene_enum_items
+
+
+def load_scene_items(_self, _context):
+    """RNA draw callback: no validation, scans, project loads or filesystem."""
+    return _load_scene_enum_items
+
+
+class BLENDCAP_OT_vta_load_scene(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_load_scene'
+    bl_label = 'Load VTA Scene'
+    bl_description = 'Explicitly restore the selected VTA Scene and workspace once'
+    scene_name: bpy.props.EnumProperty(name='VTA Scene', items=load_scene_items)
+
+    @classmethod
+    def poll(cls, context):
+        return not _analysis_locked()
+
+    def invoke(self, context, event):
+        from .vta_scene_session import main_scene
+        items = build_load_scene_choices(context)
+        if not items:
+            self.report({'ERROR'}, 'No valid VTA Scene available. Use New VTA Scene.')
+            return {'CANCELLED'}
+        active = main_scene(context)
+        self.scene_name = active.name if active and active.name in {i[0] for i in items} else items[0][0]
+        if len(items) == 1:
+            return self.execute(context)
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, 'scene_name')
+
+    def execute(self, context):
+        try:
+            from .vta_scene_session import load
+            load(context, bpy.data.scenes.get(self.scene_name))
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_enter_mode(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_enter_mode'
+    bl_label = 'Enter VTA Mode'
+    bl_description = 'Load the last successfully loaded VTA Scene once'
+
+    @classmethod
+    def poll(cls, context):
+        return not _analysis_locked()
+
+    def execute(self, context):
+        try:
+            from .vta_scene_session import enter
+            enter(context)
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_exit_mode(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_exit_mode'
+    bl_label = 'Exit VTA Mode'
+    bl_description = 'Stop VTA review; preserve Scene, remembered target and editor configuration'
+
+    def execute(self, context):
+        from .vta_scene_session import exit_mode
+        exit_mode(context)
+        vta_invalidation.request_redraw()
+        return {'FINISHED'}
+
+
+def draw_scene_workflow(layout, context):
+    for command in ('enter_mode', 'exit_mode', 'load_scene', 'new_scene'):
+        layout.operator('blendcap.vta_' + command)
+    from .vta_scene_session import warning
+    message = warning(context)
+    if message:
+        layout.label(text=message, icon='INFO')
+
+
+class BLENDCAP_OT_vta_new_scene(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_new_scene'
+    bl_label = 'New VTA Scene'
+    bl_description = 'Create and load a blank VTA-owned Scene; no source or animation is copied'
+
+    @classmethod
+    def poll(cls, context):
+        return not _analysis_locked()
+
+    def execute(self, context):
+        try:
+            if _analysis_locked():
+                raise VtaReviewUiError('Unavailable while VTA analysis or generation is running.')
+            from .vta_scene_session import create_blank, load
+            scene = create_blank()
+            try:
+                load(context,scene)
+            except Exception:
+                bpy.data.scenes.remove(scene,do_unlink=True)
+                raise
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_choose_clip(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_choose_clip'
+    bl_label = 'Choose Clip'
+    bl_description = 'Configure a blank VTA Scene; clear the current source before choosing another'
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(default='*.mp4;*.mov;*.mkv;*.avi;*.webm', options={'HIDDEN'})
+
+    @classmethod
+    def poll(cls, context):
+        from .vta_scene_session import main_scene, source_bound, owned
+        return (not _analysis_locked() and loaded_context_matches(context)
+                and owned(main_scene(context)) and not source_bound(main_scene(context)))
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        try:
+            from .vta_source_lifecycle import configure
+            configure(context, self.filepath)
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+class BLENDCAP_OT_vta_clear_source(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_clear_source'
+    bl_label = 'Clear Source'
+    bl_description = 'Detach this Scene source/content; preserve project history and Blender datablocks'
+
+    @classmethod
+    def poll(cls, context):
+        from .vta_scene_session import main_scene, source_bound
+        return (not _analysis_locked() and loaded_context_matches(context)
+                and source_bound(main_scene(context)))
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        try:
+            from .vta_source_lifecycle import clear
+            clear(context)
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+def draw_vta_source(layout, context):
+    from .vta_scene_session import main_scene, source_bound
+    scene = main_scene(context)
+    row = layout.row(align=True)
+    if source_bound(scene):
+        owned_strips = [s for s in scene.sequence_editor.strips if
+                        s.get('vta_source_strip_version') == 1 and
+                        s.get('vta_project_id') == scene.get('vta_project_id') and
+                        s.get('vta_source_id') == scene.get('vta_source_id')] if scene.sequence_editor else []
+        strip = owned_strips[0] if len(owned_strips) == 1 else _active_video_strip(scene.sequence_editor)
+        path = _vse_source_path(strip)
+        row.label(text=path.name if path else 'Bound VTA source', icon='FILE_MOVIE')
+        row.operator('blendcap.vta_clear_source', text='', icon='X')
+    else:
+        row.operator('blendcap.vta_choose_clip', text='Choose Clip...', icon='FILE_MOVIE')
+
+
+class BLENDCAP_OT_vta_match_source_fps(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_match_source_fps'
+    bl_label = 'Match FPS to Source'
+    bl_description = 'Match only this owned Scene playback rate; never move keys or repair ranges'
+
+    @classmethod
+    def poll(cls, context):
+        try:
+            from .vta_scene_timing import owns_scene, source_rate
+            if not loaded_context_matches(context):
+                return False
+            context = _context_for_main_scene(context)
+            info = cached_scene_source(context)
+            if info is None:
+                if hasattr(getattr(context, 'workspace', None), 'blendcap_vta_loaded_scene'):
+                    return False
+                info = _timing_source(context)
+            pid, source, _location, _strip = info
+            source_rate(source)
+            return not _analysis_locked() and owns_scene(context.scene, pid, source)
+        except Exception:
+            return False
+
+    def execute(self, context):
+        try:
+            from .vta_scene_timing import match_source_rate
+            require_loaded_context(context)
+            context = _context_for_main_scene(context)
+            if _analysis_locked():
+                raise VtaReviewUiError('Unavailable while VTA analysis or generation is running.')
+            pid, source, _location, _strip = _timing_source(context)
+            match_source_rate(context.scene, pid, source)
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, user_message(error))
+            return {'CANCELLED'}
+
+
+def draw_scene_timing(layout, context, *, menu=False):
+    try:
+        from .vta_scene_timing import owns_scene
+        info = cached_scene_source(context)
+        if info is None:
+            raise VtaReviewUiError('Load a validated VTA Scene first.')
+        pid, source, _location, _strip = info
+        owned = owns_scene(context.scene, pid, source)
+        if not menu:
+            layout.label(text=f'Scene: {context.scene.render.fps / context.scene.render.fps_base:g} fps · Source: {source["fps"]:g} fps')
+    except Exception:
+        owned = False
+    row = layout.row()
+    row.enabled = BLENDCAP_OT_vta_match_source_fps.poll(context)
+    row.operator('blendcap.vta_match_source_fps', text='Match FPS to Source')
 
 
 def _vse_source_path(strip) -> Path | None:
@@ -354,10 +863,13 @@ def _sync_properties(context) -> None:
 
 def overlay_state():
     """Read-only draw callback state; never queries or mutates private core."""
-    return _view, _selection.observation_id
+    return ((_view, _selection.observation_id) if _presentation_current(bpy.context)
+            else (None, ''))
 
 
 def timeline_state(context=None):
+    if not _presentation_current(context or bpy.context):
+        return (None, (), None, 0, 0)
     offset = 0 if _location is None else _location.blender_frame - _location.source_frame
     return (_timeline, _review_key_selection.keyframe_ids,
             _review_key_selection.active_keyframe_id, offset, _lane_scroll(context))
@@ -511,6 +1023,9 @@ def _configured_analysis_paths(context):
 
 class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
     bl_idname = "blendcap.vta_analyze"
+    @classmethod
+    def poll(cls, context):
+        return _source_actions_available(context)
     bl_label = "Analyze Candidates"
     bl_description = "Analyze missing video frames with the existing offline SAM3 provider"
 
@@ -519,6 +1034,8 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
         global _analysis_start, _analysis_end, _analysis_fallback_status
         global _status, _status_is_error
         try:
+            require_loaded_context(context)
+            context = _context_for_main_scene(context)
             location = _location_from_context(context)
             if _analysis_locked(location.companion_root):
                 raise VtaReviewUiError("Unavailable while candidate analysis is running.")
@@ -625,12 +1142,29 @@ class BLENDCAP_OT_vta_copy_analysis_error(bpy.types.Operator):
 
 
 def ensure_vta_preview_context(context, owning_scene) -> int:
-    """Bind existing VSE Preview areas to the owning scene's workspace slot."""
+    """One-shot explicit Load setup in exclusively VTA-managed VSE workspaces.
+
+    Blender's selector is WORKSPACE-wide, not per area. If ordinary VSE areas
+    share the workspace, preserve their choice and let VTA fail closed on a
+    mismatch. No observer calls this; no other workspace or Scene strip changes.
+    """
     workspace = getattr(context, "workspace", None)
     window = getattr(context, "window", None)
     screen = getattr(window, "screen", None)
     areas = getattr(screen, "areas", ()) if screen is not None else ()
-    return vta_overlay.bind_vse_preview_scene(workspace, areas, owning_scene)
+    screens = getattr(workspace, 'screens', ()) if workspace is not None else ()
+    sequencers = [(screen, area) for screen in screens for area in screen.areas
+                  if area.type == 'SEQUENCE_EDITOR']
+    if not sequencers or any(role_for(workspace, screen, area) != ROLE_PREVIEW
+                             for screen, area in sequencers):
+        return 0
+    changed = int(workspace.sequencer_scene != owning_scene)
+    # One-shot explicit Load setup. Observers never repair this pointer.
+    workspace.sequencer_scene = owning_scene
+    for area in areas:
+        if area.type == 'SEQUENCE_EDITOR':
+            area.tag_redraw()
+    return changed
 
 
 def _rebuild_enum_items() -> None:
@@ -664,26 +1198,76 @@ def _rebuild_enum_items() -> None:
     )
 
 
-def refresh(context, *, force: bool = False) -> bool:
+def refresh(context, *, force: bool = False, target_scene=None, check_disk=False,
+            memory_only=False, validated_info=None) -> bool:
     global _view, _location, _project_signature, _status, _status_is_error
-    global _timeline, _timeline_identity, _cache_signature
+    global _timeline, _timeline_identity, _cache_signature, _presentation_scene, _display_backend
     try:
-        backend = _get_backend(context, force=force)
-        location = _location_from_context(context)
-        project_path = location.companion_root / "project_state.json"
-        try:
-            project_stat = project_path.stat()
-            project_signature = (project_stat.st_size, project_stat.st_mtime_ns)
-        except OSError:
-            project_signature = None
-        cache_path = (location.companion_root / "analysis" /
-                      f"{_view.analysis_revision_id}.json") if _view is not None else None
-        try:
-            cache_stat = cache_path.stat() if cache_path is not None else None
-            cache_signature = ((cache_stat.st_size, cache_stat.st_mtime_ns)
-                               if cache_stat is not None else None)
-        except OSError:
-            cache_signature = None
+        info = None
+        if _requires_owned_scene(context):
+            if not loaded_context_matches(context, target_scene):
+                _activate_review_scene(None)
+                from .vta_scene_session import warning
+                raise VtaReviewUiError(warning(context) or 'Enter VTA Mode / Load VTA Scene first.')
+            context = _context_for_main_scene(context)
+            _activate_review_scene(context.scene)
+            from .vta_scene_timing import owns_scene
+            from .vta_scene_session import owned, source_bound
+            scene = context.scene
+            if not owned(scene):
+                raise VtaReviewUiError('Load a metadata-owned VTA Scene / New VTA Scene.')
+            if not source_bound(scene):
+                _activate_review_scene(None)
+                _status = 'Blank VTA Scene; choose a clip in Video Source.'
+                _status_is_error = False
+                return True
+            info = validated_info or cached_scene_source(context)
+            if force or info is None or (check_disk and _source_files_changed(context, info)):
+                if memory_only:
+                    return False
+                # Draw does not perform initial validation. Observer/Load does.
+                if not force and not check_disk and hasattr(context.workspace, 'blendcap_vta_loaded_scene') and info is None:
+                    return False
+                try:
+                    info = validated_info or _timing_source(context)
+                    pid, source, _source_location, _strip = info
+                    if not owns_scene(scene, pid, source):
+                        raise VtaReviewUiError('Active Scene ownership does not match the validated VTA source.')
+                except Exception:
+                    # Preserve only the old paths for cheap change observation;
+                    # failed validation must not leave controls enabled by an
+                    # old successful metadata entry.
+                    entry = _validated_sources.get(pointer(scene))
+                    if entry:
+                        _validated_sources[pointer(scene)] = (None, entry[1], entry[2])
+                    raise
+                record_scene_source(scene, info)
+        elif _active_review_scene is not None and isinstance(getattr(context, 'scene', None), bpy.types.Scene):
+            _activate_review_scene(context.scene)
+        if memory_only and _display_backend is None:
+            return False
+        backend = (_display_backend if memory_only or (not force and not check_disk and _display_backend is not None)
+                   else _get_backend(context, force=force))
+        _display_backend = backend
+        location = at_frame(info, context.scene) if info else _location_from_context(context)
+        capable = info is not None and callable(getattr(backend, 'frame_from_context', None))
+        model_changed = False
+        if capable:
+            if memory_only and not _display.current(backend, location):
+                return False
+            if force or check_disk or not _display.current(backend, location):
+                if memory_only:
+                    return False
+                model_changed = _display.observe(backend, location, info[1], force=force)
+            project_signature = _display.stamp[0] if _display.stamp else None
+            cache_signature = _display.stamp[2] if _display.stamp else None
+        else:
+            # Legacy host-independent test/adapters retain the original API.
+            project_path = location.companion_root / "project_state.json"
+            project_signature = file_signature(project_path)
+            cache_path = (location.companion_root / "analysis" /
+                          f"{_view.analysis_revision_id}.json") if _view is not None else None
+            cache_signature = file_signature(cache_path) if cache_path else None
         key_changed = (
             _location is None
             or _location.companion_root != location.companion_root
@@ -691,24 +1275,27 @@ def refresh(context, *, force: bool = False) -> bool:
             or _location.source_frame != location.source_frame
             or _project_signature != project_signature
             or _cache_signature != cache_signature
+            or _presentation_scene is not getattr(context, 'scene', None)
         )
-        timeline_identity = (location.companion_root, location.source_path, project_signature)
-        if force or timeline_identity != _timeline_identity or _timeline is None:
-            _timeline = backend.query_timeline(location)
+        timeline_identity = (location.companion_root, location.source_path, project_signature, cache_signature)
+        if force or model_changed or timeline_identity != _timeline_identity or _timeline is None:
+            _timeline = _display.review_timeline(backend) if capable else backend.query_timeline(location)
             _timeline_identity = timeline_identity
             _review_key_selection.reconcile(_timeline)
-        if force or key_changed or _view is None:
-            _view = backend.query(location, show_suppressed=getattr(
+        if force or model_changed or key_changed or _view is None:
+            query = _display.frame if capable else lambda owner, loc, **kw: owner.query(loc, **kw)
+            _view = query(backend, location, show_suppressed=getattr(
                 context.window_manager, 'blendcap_vta_show_suppressed', False))
             _location = location
             _project_signature = project_signature
             _cache_signature = cache_signature
+            _presentation_scene = getattr(context, 'scene', None)
             _selection.accept_review(_view)
             _repeat_character_id()  # deletion/project switch invalidates only session memory
             _rebuild_enum_items()
             # Query validates the source hash before presentation changes.
             # Queue only on changes: a timer redraw must not queue itself again.
-            _queue_presentation(context, _owning_vse_scene(context, location))
+            _queue_presentation(context, context.scene if info else _owning_vse_scene(context, location))
         if force:
             _status = "Review refreshed from canonical state."
             _status_is_error = False
@@ -773,6 +1360,8 @@ def _character_changed(self, _context):
 
 
 def _overlay_enabled(context) -> bool:
+    if not _presentation_current(context):
+        return False
     scene = getattr(context, "sequencer_scene", None) or getattr(context, "scene", None)
     return bool(
         scene is not None
@@ -888,7 +1477,7 @@ def _reconstruction_timer():
         with bpy.context.temp_override(scene=scene, view_layer=scene.view_layers[0]):
             validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context, allow_outside=True))
             rigs, report = import_reviewed_output(output, _reconstruction_location,
-                                                 _get_backend(bpy.context))
+                                                 _get_backend(bpy.context), configure_views=False)
         unavailable = sum(s['state'] == 'unavailable' for c in report['characters'] for s in c['schedule'])
         _status = f'Generated {len(rigs)} Character armature(s). {unavailable} unavailable Character-frames.'
         _status_is_error = False
@@ -905,6 +1494,9 @@ def _reconstruction_timer():
 
 class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
     bl_idname = 'blendcap.vta_generate_animation'
+    @classmethod
+    def poll(cls, context):
+        return _source_actions_available(context)
     bl_label = 'Generate / Update Animation'
     bl_description = 'Explicitly reconstruct reviewed Character boxes; no identity decisions or tracking changes'
 
@@ -955,9 +1547,16 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             python = Path(_python_exe())
             if not python.is_file() or not (bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt').is_file():
                 raise VtaReviewUiError('Skeletal environment unavailable. Install BlendCap body models in Preferences.')
+            # Generation never activates a Scene or repairs editor choices.
+            require_loaded_context(context)
+            location = _location_from_context(context)
             command = [str(python), str(bundle / 'blendcap_vta_reconstruct_worker.py'),
                        '--core-root', str(_backend_root), '--blendcap-root', str(bundle),
                        '--companion-root', str(location.companion_root), '--video', str(location.source_path)]
+            mode = context.scene.blendcap_props.fov_mode
+            if mode not in ('FIRST', 'EVERY'):
+                raise VtaReviewUiError('Reviewed VTA animation supports Sample first frame or Sample every frame; manual focal entry is not supported.')
+            command += ['--fov-mode', mode]
             if source_range is not None:
                 command += ['--start-frame', str(source_range[0]), '--end-frame', str(source_range[1])]
             from uuid import uuid4
@@ -1115,7 +1714,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (not _analysis_locked() and _view is not None
+        return (_presentation_current(context) and not _analysis_locked() and _view is not None
                 and _selection.can_assign(_view) and _location is not None)
 
     def invoke(self, context, _event):
@@ -1225,7 +1824,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         target = _repeat_character_id()
-        if target is None or _analysis_locked() or not _repeat_assignment_context(context):
+        if not _presentation_current(context) or target is None or _analysis_locked() or not _repeat_assignment_context(context):
             return False
         intent = SelectionState()
         intent.character_id = target
@@ -1314,7 +1913,7 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (
-            not _analysis_locked()
+            _presentation_current(context) and not _analysis_locked()
             and _view is not None
             and _location is not None
             and _selection.character_id in {item.character_id for item in _view.characters}
@@ -1415,7 +2014,7 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
 
     @classmethod
     def poll(cls, _context):
-        return not _analysis_locked()
+        return _presentation_current(_context) and not _analysis_locked() and (not _managed_context(_context) or _view is not None)
 
     def execute(self, context):
         global _view, _status, _status_is_error
@@ -1683,7 +2282,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
 
     @classmethod
     def poll(cls, _context):
-        return not _analysis_locked() and _view is not None and _location is not None
+        return _presentation_current(_context) and not _analysis_locked() and _view is not None and _location is not None
 
     def _arguments(self):
         if self.action == "clear-assignment":
@@ -1807,7 +2406,7 @@ def _action_availability(context=None):
     frame_has_key = bool(_view and _timeline and any(
         key.source_frame == _view.source_frame for key in _timeline.keys
     ))
-    if _analysis_locked():
+    if _analysis_locked() or not _presentation_current(context or bpy.context):
         return {action: False for action, _label, _description in _MANAGEMENT_ACTIONS} | {
             "update-tracking": False,
         }
@@ -1840,11 +2439,12 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
+        draw_scene_timing(layout, context, menu=True)
         analyze = layout.row()
-        analyze.enabled = not _analysis_locked()
+        analyze.enabled = _source_actions_available(context)
         analyze.operator("blendcap.vta_analyze", text="Analyze Candidates")
         animate = layout.row()
-        animate.enabled = not _analysis_locked()
+        animate.enabled = _source_actions_available(context)
         animate.operator('blendcap.vta_generate_animation', text='Generate / Update Animation')
         available = refresh(context)
         repeat = layout.row()
@@ -2045,7 +2645,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return bool(_view is not None and _location is not None and
+        return bool(_presentation_current(context) and _view is not None and _location is not None and
                     not _analysis_locked() and tracking_character_ids(context))
 
     def execute(self, context):
@@ -2100,7 +2700,9 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         layout = self.layout
         layout.operator('blendcap.open_vta_workspace', text='Open VTA Workspace',
                         icon='WORKSPACE')
+        draw_scene_workflow(layout, context)
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
+        draw_scene_timing(layout, context)
         if _location is not None:
             layout.label(text=f"Blender frame {_location.blender_frame}")
         if _view is None:
@@ -2437,9 +3039,18 @@ classes = (
 
 
 def register_properties() -> None:
+    bpy.types.WorkSpace.blendcap_vta_mode_enabled = bpy.props.BoolProperty(default=False)
+    bpy.types.WorkSpace.blendcap_vta_loaded_scene = bpy.props.PointerProperty(type=bpy.types.Scene)
     _reset_repeat_assignment_session()
+    _reset_scene_presentation()
     if _reset_repeat_assignment_session not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_reset_repeat_assignment_session)
+    if _reset_scene_presentation not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_reset_scene_presentation)
+    if _frame_presentation_changed not in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.append(_frame_presentation_changed)
+    if not bpy.app.timers.is_registered(_scene_observer_timer):
+        bpy.app.timers.register(_scene_observer_timer, first_interval=0.0, persistent=True)
     bpy.types.WindowManager.blendcap_vta_animation_start = bpy.props.IntProperty(
         name='Animation Start', description='Inclusive Blender frame', default=1)
     bpy.types.WindowManager.blendcap_vta_animation_end = bpy.props.IntProperty(
@@ -2498,9 +3109,19 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    _reset_scene_presentation()
     _reset_repeat_assignment_session()
     if _reset_repeat_assignment_session in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_reset_repeat_assignment_session)
+    if _reset_scene_presentation in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_reset_scene_presentation)
+    if _frame_presentation_changed in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.remove(_frame_presentation_changed)
+    if bpy.app.timers.is_registered(_scene_observer_timer):
+        bpy.app.timers.unregister(_scene_observer_timer)
+    del bpy.types.WorkSpace.blendcap_vta_mode_enabled
+    del bpy.types.WorkSpace.blendcap_vta_loaded_scene
+    _scene_sessions.clear()
     _unregister_repeat_assignment_keymap()
     global _pending_presentation
     _pending_presentation = None

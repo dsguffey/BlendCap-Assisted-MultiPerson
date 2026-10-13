@@ -127,6 +127,9 @@ Torchreid OSNet-AIN x1.0 architecture (Kaiyang Zhou)
   Note    : appearance_osnet.py adapts only the checkpoint-compatible
             inference architecture. No Torchreid package or model weights
             are bundled or downloaded.
+            Historical attribution retained for previously published
+            diagnostic source; that diagnostic is not part of the current
+            public host tree.
 
 onnx, NumPy, SciPy, einops, timm, safetensors, hydra-core, omegaconf,
 trimesh, roma, loguru, portalocker, pytorch-lightning, torchmetrics,

@@ -143,6 +143,14 @@ def _draw_donate_section(layout, prefs):
 
 def _draw_source_section(layout, context, props):
     # --- SOURCE ---
+    from .vta_scene_session import main_scene, owned
+    if owned(main_scene(context)):
+        from .vta_review_ui import draw_vta_source
+        box = layout.box()
+        box.label(text='Video Source', icon='FILE_MOVIE')
+        draw_vta_source(box, context)
+        layout.separator()
+        return
     box = layout.box()
     src_header = box.row(align=True)
     src_header.prop(props, "video_source_expanded",

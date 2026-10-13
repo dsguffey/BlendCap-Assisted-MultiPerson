@@ -124,6 +124,7 @@ class CleanupBlenderTests(unittest.TestCase):
         review = NS(characters=tuple(NS(character_id=cid, occupied_observation_id=None,
                            display_name=cid.title(), pose_rejected=False) for cid in ('a', 'b', 'c')), source_frame=7)
         for name, value in (('_timeline', self.timeline), ('_location', self.location),
+                ('_presentation_scene', self.context.scene),
                 ('_view', review), ('_selection', SelectionState()), ('_character_selections', {}),
                 ('_repair_selections', {})):
             self.stack.enter_context(mock.patch.object(ui, name, value))

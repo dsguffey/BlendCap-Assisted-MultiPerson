@@ -396,10 +396,11 @@ class BlenderWorkspaceTests(unittest.TestCase):
             context.scene.frame_set.assert_not_called()
             self.assertEqual(repr(view), before)
 
-    def test_mode_header_has_one_toggle_and_active_only_commands(self):
+    def test_mode_header_has_one_toggle_and_commands_even_when_off(self):
         area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
         space = SimpleNamespace(show_region_ui=False)
         context = SimpleNamespace(area=area, space_data=space,
+                                  workspace=SimpleNamespace(blendcap_vta_mode_enabled=True),
                                   region=SimpleNamespace(type='HEADER'))
         layout = mock.Mock()
         with mock.patch.object(self.workspace, 'role_for', return_value=ROLE_TIMELINE), \
@@ -407,7 +408,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
                  data(), (), None, 0, 0, None)):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertTrue(layout.operator.call_args.kwargs['depress'])
-        self.assertEqual(layout.operator.call_args.kwargs['text'], 'VTA Mode')
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Exit VTA Mode')
         self.assertEqual(layout.operator.call_args.kwargs['icon'], 'KEY_HLT')
         self.assertEqual(layout.operator.call_count, 1)
         layout.menu.assert_called_once_with('BLENDCAP_MT_vta_timeline_commands',
@@ -415,12 +416,13 @@ class BlenderWorkspaceTests(unittest.TestCase):
         layout.prop.assert_not_called()
         layout.label.assert_not_called()
         layout.reset_mock()
+        context.workspace.blendcap_vta_mode_enabled = False
         with mock.patch.object(self.workspace, 'role_for', return_value=None):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertFalse(layout.operator.call_args.kwargs['depress'])
-        self.assertEqual(layout.operator.call_args.kwargs['text'], 'VTA Mode')
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Enter VTA Mode')
         self.assertEqual(layout.operator.call_count, 1)
-        self.assertFalse(layout.menu.called)
+        self.assertTrue(layout.menu.called)
         layout.prop.assert_not_called()
         layout.label.assert_not_called()
 
@@ -574,8 +576,10 @@ class BlenderWorkspaceTests(unittest.TestCase):
         pre_actions = len(bpy.data.actions)
         self.addon.register()
         try:
+            original_scene = bpy.context.window.scene
             self.assertEqual(bpy.ops.blendcap.open_vta_workspace(), {'FINISHED'})
             self.assertEqual(bpy.ops.blendcap.open_vta_workspace(), {'FINISHED'})
+            self.assertIs(bpy.context.window.scene, original_scene)
             tagged = [w for w in bpy.data.workspaces if w.get(WORKSPACE_TAG) == 1]
             self.assertEqual(len(tagged), 1)
             self.assertEqual(tagged[0].name, 'Video to Animation')
@@ -587,45 +591,30 @@ class BlenderWorkspaceTests(unittest.TestCase):
                 area=normal_area, region=SimpleNamespace(type='WINDOW'))
             self.assertFalse(self.workspace.BLENDCAP_OT_vta_timeline_select.poll(stock_context))
             review_screen = tagged[0].screens[0]
+            # Opening a layout no longer enters mode or guesses a Scene.
+            self.assertFalse(tagged[0].blendcap_vta_mode_enabled)
+            tagged[0].blendcap_vta_mode_enabled = True  # Scope-only geometry poll below.
             review_context = SimpleNamespace(
                 workspace=tagged[0], screen=review_screen,
                 area=review_area(tagged[0], review_screen),
                 region=SimpleNamespace(type='WINDOW'))
             self.assertTrue(self.workspace.BLENDCAP_OT_vta_timeline_select.poll(review_context))
-            self.assertTrue(review_context.area.spaces.active.show_region_ui)
+            # Opening does not restore editor choices; explicit Load does setup.
+            self.assertFalse(review_context.area.spaces.active.show_region_ui)
             self.assertTrue(self.workspace.BLENDCAP_PT_vta_timeline.poll(review_context))
             self.assertTrue(hasattr(bpy.types, 'BLENDCAP_PT_vta_timeline'))
             self.assertEqual(len(bpy.data.actions), pre_actions)
         finally:
             self.addon.unregister()
 
-    def test_toggle_scopes_mode_to_one_editor_and_restores_stock_dopesheet(self):
-        class Screen(dict):
-            def __init__(self, areas):
-                super().__init__()
-                self.areas = areas
-
-        first_space = SimpleNamespace(show_region_ui=False)
-        first = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET',
-                                spaces=SimpleNamespace(active=first_space))
-        second = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
-        screen = Screen((first, second))
-        context = SimpleNamespace(workspace={}, screen=screen, area=first,
-                                  space_data=SimpleNamespace())
-        operator = SimpleNamespace(report=mock.Mock())
-        toggle = self.workspace.BLENDCAP_OT_vta_toggle_editor_mode
-        with mock.patch.object(self.ui, 'refresh', return_value=True) as refresh, \
-             mock.patch.object(self.workspace.vta_invalidation,
-                               'request_redraw') as redraw:
-            self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
-            self.assertIs(review_area({}, screen), first)
-            self.assertTrue(first_space.show_region_ui)
-            self.assertIsNone(role_for({}, screen, second))
-            refresh.assert_called_once_with(context, force=True)
-            self.assertEqual(toggle.execute(operator, context), {'FINISHED'})
-            self.assertIsNone(review_area({}, screen))
-            self.assertEqual(redraw.call_count, 2)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_toggle_delegates_explicit_session_without_rewriting_roles(self):
+        session = importlib.import_module(self.workspace.__package__+'.vta_scene_session')
+        context=SimpleNamespace(workspace=SimpleNamespace(blendcap_vta_mode_enabled=False))
+        operator=SimpleNamespace(report=mock.Mock())
+        toggle=self.workspace.BLENDCAP_OT_vta_toggle_editor_mode
+        with mock.patch.object(session,'enter') as enter, mock.patch.object(session,'exit_mode') as exit_mode:
+            self.assertEqual(toggle.execute(operator,context),{'FINISHED'})
+            enter.assert_called_once_with(context);exit_mode.assert_not_called()
+            context.workspace.blendcap_vta_mode_enabled=True
+            self.assertEqual(toggle.execute(operator,context),{'FINISHED'})
+            exit_mode.assert_called_once_with(context)

@@ -19,6 +19,7 @@ from ..blendcap_vta_workspace import (
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
+    configured_role_for,
 )
 from . import vta_invalidation
 
@@ -123,15 +124,26 @@ def snap_source_camera_view(context):
     return len(areas)
 
 
+
+
 class BLENDCAP_OT_vta_snap_source_camera(bpy.types.Operator):
     bl_idname = 'blendcap.vta_snap_source_camera'
     bl_label = 'Snap to Source Camera'
     bl_description = 'Restore the source-video camera view after orbiting; does not move the camera or Characters'
 
+    @classmethod
+    def poll(cls, context):
+        if not _ui().loaded_context_matches(context):
+            return False
+        scene = getattr(context, 'scene', None)
+        return bool(scene and any(o.type == 'CAMERA' and o.get('vta_project_id')
+                                  and o.get('vta_source_id') for o in scene.objects))
+
     def execute(self, context):
         try:
-            snap_source_camera_view(context)
-        except ValueError as error:
+            _ui().require_loaded_context(context)
+            snap_source_camera_view(_ui()._context_for_main_scene(context))
+        except (ValueError, RuntimeError) as error:
             self.report({'WARNING'}, str(error))
             return {'CANCELLED'}
         return {'FINISHED'}
@@ -194,15 +206,12 @@ def _draw_header(self, context):
         return
     # Header draw contexts use the HEADER region, while _scope intentionally
     # accepts only the canvas regions. The editor role is the mode authority.
-    active = role_for(getattr(context, 'workspace', None),
-                      getattr(context, 'screen', None), area) == ROLE_TIMELINE
+    from .vta_scene_session import enabled
+    active = enabled(getattr(context, 'workspace', None))
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
-                         text='VTA Mode', icon='KEY_HLT', depress=active)
-    if active:
-        if _state(context)[0] is None:
-            _ui().refresh(context)
-        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
+                         text='Exit VTA Mode' if active else 'Enter VTA Mode', icon='KEY_HLT', depress=active)
+    self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
 
 
 def _draw_preview_header(self, context):
@@ -212,12 +221,8 @@ def _draw_preview_header(self, context):
             getattr(space, 'view_type', None) not in {'PREVIEW', 'SEQUENCER_PREVIEW'}):
         return
     active = role_for(context.workspace, context.screen, area) == ROLE_PREVIEW
-    self.layout.separator()
-    self.layout.operator('blendcap.vta_toggle_editor_mode',
-                         text='Exit VTA Preview' if active else 'Enter VTA Preview',
-                         icon='KEY_HLT' if active else 'KEY_DEHLT', depress=active)
-    if active:
-        self.layout.label(text='VTA MODE — Preview')
+    if active and not _ui().loaded_context_matches(context):
+        self.layout.label(text='VTA mismatch — Load VTA Scene to restore', icon='INFO')
 
 
 def _line(shader, batch_for_shader, points, color):
@@ -430,45 +435,41 @@ def _draw_window():
         return
 
 
+def get_vta_workspace(context):
+    """Find/open the dedicated preset without choosing or activating a Scene."""
+    if context.workspace.get(WORKSPACE_TAG) == 1:
+        return context.workspace
+    matches = [w for w in bpy.data.workspaces if w.get(WORKSPACE_TAG) == 1]
+    if len(matches) > 1:
+        raise ValueError('Multiple VTA workspaces are tagged; choose one manually.')
+    if matches:
+        return matches[0]
+    if WORKSPACE_NAME in bpy.data.workspaces:
+        raise ValueError('A workspace named Video to Animation already exists; it was not replaced.')
+    path = Path(__file__).resolve().parent.parent / 'vta_workspace_mode.blend'
+    with bpy.data.libraries.load(str(path), link=False) as (source, dest):
+        if WORKSPACE_NAME not in source.workspaces:
+            raise ValueError('Bundled file has no VTA workspace.')
+        dest.workspaces = [WORKSPACE_NAME]
+    workspace = dest.workspaces[0]
+    if workspace is None or workspace.get(WORKSPACE_TAG) != 1:
+        raise ValueError('Bundled workspace is missing its VTA scope tag.')
+    return workspace
+
+
 class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
     bl_idname = 'blendcap.open_vta_workspace'
     bl_label = 'Open VTA Workspace'
     bl_description = 'Open the provisional Video to Animation review workspace'
 
     def execute(self, context):
-        matches = [item for item in bpy.data.workspaces if item.get(WORKSPACE_TAG) == 1]
-        if len(matches) > 1:
-            self.report({'ERROR'}, 'Multiple VTA workspaces are tagged; choose one manually.')
+        try:
+            workspace = get_vta_workspace(context)
+        except (OSError, ValueError, RuntimeError) as error:
+            self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
-        if matches:
-            workspace = matches[0]
-        else:
-            if WORKSPACE_NAME in bpy.data.workspaces:
-                self.report({'ERROR'}, 'A workspace named Video to Animation already exists; it was not replaced.')
-                return {'CANCELLED'}
-            path = Path(__file__).resolve().parent.parent / 'vta_workspace_mode.blend'
-            if not path.is_file():
-                self.report({'ERROR'}, 'Bundled VTA workspace is unavailable.')
-                return {'CANCELLED'}
-            try:
-                with bpy.data.libraries.load(str(path), link=False) as (source, dest):
-                    if WORKSPACE_NAME not in source.workspaces:
-                        raise ValueError('Bundled file has no VTA workspace.')
-                    dest.workspaces = [WORKSPACE_NAME]
-                workspace = dest.workspaces[0]
-            except (OSError, RuntimeError, ValueError) as exc:
-                self.report({'ERROR'}, f'Could not open VTA workspace: {exc}')
-                return {'CANCELLED'}
-            if workspace is None or workspace.get(WORKSPACE_TAG) != 1:
-                self.report({'ERROR'}, 'Bundled workspace is missing its VTA scope tag.')
-                return {'CANCELLED'}
         context.window.workspace = workspace
-        configure_source_camera_views(context.scene, [workspace])
-        for screen in workspace.screens:
-            initialize_workspace_preset(workspace, screen)
-            for area in screen.areas:
-                if role_for(workspace, screen, area) == ROLE_TIMELINE:
-                    area.spaces.active.show_region_ui = True
+        # Open the layout only. Enter/Load/New are the explicit Scene actions.
         vta_invalidation.request_redraw()
         self.report({'INFO'}, 'Video to Animation workspace opened. Layout is provisional.')
         return {'FINISHED'}
@@ -497,8 +498,10 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
     def draw(self, context):
         ui = _ui()
         layout = self.layout
+        ui.draw_scene_workflow(layout, context)
         layout.operator('blendcap.vta_review_refresh', text='Refresh Review')
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
+        ui.draw_scene_timing(layout, context, menu=True)
         if not ui.refresh(context):
             layout.label(text='VTA review unavailable', icon='INFO')
             return
@@ -592,30 +595,25 @@ class BLENDCAP_OT_vta_goto_review_key(bpy.types.Operator):
 class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
     bl_idname = 'blendcap.vta_toggle_editor_mode'
     bl_label = 'Enter / Exit VTA Mode'
-    bl_description = 'Toggle VTA presentation only in this editor area'
+    bl_description = 'Enter the remembered VTA Scene or exit review without changing data'
 
     @classmethod
     def poll(cls, context):
         area = getattr(context, 'area', None)
         if area is None:
             return False
-        return ((area.type == 'DOPESHEET_EDITOR' and area.ui_type == 'DOPESHEET')
-                or (area.type == 'SEQUENCE_EDITOR' and
-                    getattr(getattr(context, 'space_data', None), 'view_type', None)
-                    in {'PREVIEW', 'SEQUENCER_PREVIEW'}))
+        return area.type == 'DOPESHEET_EDITOR' and area.ui_type == 'DOPESHEET'
 
     def execute(self, context):
-        area = context.area
-        role = ROLE_TIMELINE if area.type == 'DOPESHEET_EDITOR' else ROLE_PREVIEW
-        active = role_for(context.workspace, context.screen, area) == role
         try:
-            set_role(context.workspace, context.screen, area, None if active else role)
+            from .vta_scene_session import enabled, enter, exit_mode
+            if enabled(context.workspace):
+                exit_mode(context)
+            else:
+                enter(context)
         except ValueError as exc:
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
-        if not active and role == ROLE_TIMELINE:
-            area.spaces.active.show_region_ui = True
-            _ui().refresh(context, force=True)
         vta_invalidation.request_redraw()
         return {'FINISHED'}
 

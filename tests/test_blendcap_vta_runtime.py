@@ -9,6 +9,13 @@ import blendcap_vta_runtime as runtime
 
 
 class RuntimeDiscoveryTests(unittest.TestCase):
+    def test_pre_calibration_core_is_rejected_at_the_existing_import_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=self._root(directory)
+            core=self._core_for(root)
+            del core.reconstruction_fingerprint
+            result=runtime.discover_vta_core(root,importer=lambda _name:core,sys_path=[])
+            self.assertEqual(result.status,runtime.VtaCoreStatus.INCOMPATIBLE)
     def _root(self, directory: str, *, valid: bool = True) -> Path:
         root = Path(directory) / "VTA"
         package = root / "vta_core"
