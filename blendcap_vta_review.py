@@ -628,7 +628,7 @@ class PrivateCoreBackend:
             location, (character_id,), start_visible, end_visible, action=action, mode=mode)[0]
 
     def set_motion_trust_for_characters(self, location: ReviewLocation, character_ids,
-                                       start_visible: int, end_visible: int, *, action: str, mode=None):
+                                       start_visible: int, end_visible: int, *, action: str, mode=None, previous_range=None):
         """Convert existing VSE frame coordinates, delegate all motion truth to core."""
         project, source = self._load_project_source(location)
         if (not isinstance(character_ids, (tuple, list)) or not character_ids
@@ -642,7 +642,8 @@ class PrivateCoreBackend:
         try:
             receipt = self._core.apply_motion_trust_many_and_persist(
                 location.companion_root, tuple(sorted(character_ids)), source["source_id"], start, end,
-                action=action, mode=mode, expected_project_sha256=digest)
+                action=action, mode=mode, expected_project_sha256=digest,
+                **({'previous_range': previous_range} if previous_range is not None else {}))
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core") or isinstance(exc, OSError):
                 raise VtaReviewUiError(str(exc)) from exc

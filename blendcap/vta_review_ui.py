@@ -86,6 +86,10 @@ _reconstruction_scene = None
 _reconstruction_range = None
 _generation_status = ''
 _reconstruction_stop = None
+_generation_job = None
+_generation_details = ''
+_operation_feedback = {}
+_character_scroll = {}
 _pending_presentation = None
 # Python-only session memory: source/project scope and stable Character ID,
 # never a candidate, RNA property, saved key or .blend field.
@@ -96,6 +100,12 @@ _last_assignment_target = None
 def _reset_repeat_assignment_session(_unused=None):
     global _last_assignment_target
     _last_assignment_target = None
+
+
+@bpy.app.handlers.persistent
+def _cancel_generation_before_load(_unused=None):
+    if _reconstruction_process is not None and _reconstruction_process.poll() is None:
+        _cancel_generation_request()
 
 
 def _managed_context(context):
@@ -250,6 +260,7 @@ def _reset_scene_presentation(_unused=None):
     _display.clear()
     _display_backend = None
     _load_scene_enum_items.clear()
+    _operation_feedback.clear()
     _active_review_scene = None
     _pending_presentation = None
     _view = _location = _timeline = _timeline_identity = _presentation_scene = None
@@ -257,6 +268,7 @@ def _reset_scene_presentation(_unused=None):
     _selection = SelectionState()
     _review_key_selection = ReviewKeySelection()
     _character_selections = {}
+    _character_scroll.clear()
     _repair_selections = {}
     _last_assignment_target = None
     _rebuild_enum_items()
@@ -768,6 +780,7 @@ def timeline_character_selection(context):
                 str(_location.source_path))
     previous = _character_selections.get(key)
     if previous is None or previous[0] != identity:
+        _character_scroll.pop(key, None)
         previous = (identity, TimelineCharacterSelection())
         _character_selections[key] = previous
     previous[1].reconcile(_timeline)
@@ -851,6 +864,9 @@ def _sync_properties(context) -> None:
         return
     if _is_timeline_context(context):
         _selection.character_id = current_character_id(context) or ''
+        _character_scroll.pop((pointer(context.screen), pointer(context.area)), None)
+    else:
+        sync_character_to_timeline(context)
     wm = context.window_manager
     _syncing_properties = True
     try:
@@ -878,10 +894,37 @@ def timeline_state(context=None):
 def _lane_scroll(context=None) -> int:
     """Focus the selected Character automatically; no exposed pagination knob."""
     active = current_character_id(context)
+    if context is not None:
+        saved = _character_scroll.get((pointer(getattr(context, 'screen', None)), pointer(getattr(context, 'area', None))))
+        if saved and saved[0] == active:
+            return saved[1]
     if _timeline is None or not active:
         return 0
     return next((index for index, item in enumerate(_timeline.characters)
                  if item.character_id == active), 0)
+
+
+def sync_character_to_timeline(context):
+    """Preview/sidebar selection updates existing row state, never navigation."""
+    cid = _selection.character_id
+    if (_syncing_properties or not cid or _timeline is None or _location is None
+            or _is_timeline_context(context) or not _presentation_current(context)):
+        return False
+    changed = False
+    for area in getattr(getattr(context, 'screen', None), 'areas', ()):
+        target = SimpleNamespace(area=area, screen=context.screen, workspace=context.workspace)
+        if not _is_timeline_context(target):
+            continue
+        selection = timeline_character_selection(target)
+        if selection is None or cid not in {c.character_id for c in _timeline.characters}:
+            continue
+        first = _lane_scroll(target)
+        selection.click(_timeline, cid)
+        _character_scroll[(pointer(context.screen), pointer(area))] = (cid, first)
+        changed = True
+    if changed:
+        vta_invalidation.request_redraw()
+    return changed
 
 
 def next_generic_character_name(view) -> str:
@@ -938,12 +981,13 @@ def _require_analysis_idle() -> None:
         raise VtaReviewUiError("Unavailable while candidate analysis is running.")
 
 
-def _edit_available(operator) -> bool:
+def _edit_available(operator, *, quiet=False) -> bool:
     try:
         _require_analysis_idle()
         return True
     except VtaReviewUiError as exc:
-        operator.report({'ERROR'}, str(exc))
+        if not quiet:
+            operator.report({'ERROR'}, str(exc))
         return False
 
 
@@ -1347,6 +1391,7 @@ def _candidate_changed(self, _context):
         character = _selection.character_id or _NO_SELECTION
         if self.blendcap_vta_character != character:
             self.blendcap_vta_character = character
+    sync_character_to_timeline(_context)
     vta_invalidation.request_redraw()
 
 
@@ -1356,6 +1401,7 @@ def _character_changed(self, _context):
     _selection.character_id = (
         "" if self.blendcap_vta_character == _NO_SELECTION else self.blendcap_vta_character
     )
+    sync_character_to_timeline(_context)
     vta_invalidation.request_redraw()
 
 
@@ -1449,25 +1495,248 @@ def _show_suppressed_changed(self, context):
     refresh(context, force=True)
 
 
+def _feedback_key(operation, context=None):
+    context = context or bpy.context
+    scene = getattr(getattr(context, 'window', None), 'scene', getattr(context, 'scene', None))
+    return pointer(scene), source_identity(scene, getattr(bpy.data, 'filepath', '')), operation
+
+
+def clear_operation_feedback(operation, context=None):
+    _operation_feedback.pop(_feedback_key(operation, context), None)
+
+
+def set_operation_feedback(operation, primary, details, *, context=None, disposition='', log=None, error=True):
+    context = context or bpy.context
+    _operation_feedback[_feedback_key(operation, context)] = dict(primary=primary,details=details,
+        disposition=disposition,log=log,error=error)
+    wm = getattr(context, 'window_manager', None)
+    field = 'blendcap_vta_' + operation + '_details'
+    if wm is not None and hasattr(wm, field):
+        setattr(wm, field, False)
+    vta_invalidation.request_redraw()
+
+
+def draw_operation_feedback(layout, context, operation):
+    item = _operation_feedback.get(_feedback_key(operation, context))
+    if item is None:
+        return
+    layout.label(text=item['primary'], icon='ERROR' if item['error'] else 'INFO')
+    if item['disposition']:
+        layout.label(text=item['disposition'])
+    field = 'blendcap_vta_' + operation + '_details'
+    expanded = getattr(context.window_manager, field, False)
+    layout.prop(context.window_manager, field, text='Details', icon='TRIA_DOWN' if expanded else 'TRIA_RIGHT', emboss=False)
+    if expanded:
+        for paragraph in item['details'].splitlines():
+            for line in textwrap.wrap(paragraph, width=52, break_long_words=True):
+                layout.label(text=line)
+        row = layout.row()
+        row.enabled = item['log'] is not None
+        row.operator('blendcap.vta_generation_details', text='Go to Log', icon='FILE_FOLDER').operation = operation
+        if item['log'] is None:
+            layout.label(text='No log was created for this validation.')
+
+
+def open_operation_log(path):
+    """User command only; explicit argument vector, no shell or clipboard."""
+    from ..blendcap_vta_generation_ipc import filesystem_path
+    path = Path(path).resolve()
+    if os.name == 'nt' and os.path.isfile(filesystem_path(path)):
+        subprocess.Popen(['explorer.exe', '/select,' + str(path)])
+    else:
+        folder = path.parent
+        if not folder.is_dir():
+            raise ValueError('Log folder is unavailable: ' + str(folder))
+        bpy.ops.wm.path_open(filepath=str(folder))
+
+
+def _generation_failure(exc, *, cancelled=False, context=None, location=None, reconstruction_started=None):
+    global _status, _status_is_error, _generation_status, _generation_details, _reconstruction_log
+    from .vta_generation import failure_message
+    diagnostic = str(exc)
+    recovery = failure_message(diagnostic, cancelled).removeprefix('Couldn’t update the animation. Your existing animation was kept unchanged. ')
+    details = recovery if recovery.startswith(diagnostic) else diagnostic + '\n' + recovery
+    started = _generation_job is not None if reconstruction_started is None else reconstruction_started
+    details += '\n' + ('Reconstruction started; prior animation was retained.' if started else 'Reconstruction did not start; prior animation was retained.')
+    if _reconstruction_log is None and location is not None:
+        try:
+            from uuid import uuid4
+            from ..blendcap_vta_generation_ipc import filesystem_path
+            log = location.companion_root/'reconstruction'/('check-' + uuid4().hex[:16] + '.log')
+            os.makedirs(filesystem_path(log.parent), exist_ok=True)
+            with open(filesystem_path(log), 'x', encoding='utf-8') as handle:
+                handle.write(details + '\n')
+            _reconstruction_log = log
+        except OSError:
+            pass  # A diagnostic write cannot replace the actual validation failure.
+    _generation_details = details + ('\nLog: ' + str(_reconstruction_log) if _reconstruction_log else '')
+    _status = ('Update cancelled.' if cancelled else 'Couldn’t update the animation.') + ' Your existing animation was kept unchanged.'
+    _status_is_error = not cancelled
+    _generation_status = 'Update cancelled; existing animation unchanged.' if cancelled else 'Update failed; existing animation unchanged.'
+    set_operation_feedback('animation', 'Update cancelled.' if cancelled else 'Couldn’t update the animation.',
+        _generation_details, context=context, disposition='Your existing animation was kept unchanged.',
+        log=_reconstruction_log,error=not cancelled)
+
+
+def _generation_log_lines(*, complete=False):
+    from ..blendcap_vta_generation_ipc import filesystem_path
+    if _reconstruction_log is None or not os.path.isfile(filesystem_path(_reconstruction_log)):
+        return []
+    with open(filesystem_path(_reconstruction_log), encoding='utf-8', errors='replace') as handle:
+        raw = handle.read()
+    # The worker writes large READY JSON. A concurrent read may end mid-write;
+    # consume only newline-terminated records, never cancel on a partial marker.
+    return (raw if complete else raw[:raw.rfind('\n') + 1]).splitlines()
+
+
+def _cancel_generation_request(job_id=None):
+    job = _generation_job
+    if job is None or job_id not in (None, job['id']):
+        return False
+    from ..blendcap_vta_generation_ipc import cancel_request
+    cancel_request(job)
+    return True
+
+
+def _send_generation_decision(job_id, migration):
+    job = _generation_job
+    if job is None or job['id'] != job_id:
+        raise VtaReviewUiError('This update is no longer waiting for confirmation. Retry Generate Animation Range.')
+    from ..blendcap_vta_generation_ipc import publish_decision
+    publish_decision(job, migration)
+
+
+class BLENDCAP_OT_vta_update_animation(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_update_animation'
+    bl_label = 'Existing animation needs to be updated'
+    bl_description = 'Update existing animation safely, then complete the requested range'
+
+    def invoke(self, context, event):
+        if _generation_job is None or _generation_job.get('decided'):
+            return {'CANCELLED'}
+        self.job_id = _generation_job['id']
+        return context.window_manager.invoke_props_dialog(self, width=480,
+            confirm_text='Update Animation and Continue')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='Some animation was created with an older method or settings.')
+        layout.label(text='VTA must update it before safely completing this range.')
+        migration = _generation_job.get('required') if _generation_job else None
+        if migration:
+            offset = _generation_job['offset']
+            layout.label(text=f'Update existing animation: {migration[0]+offset}–{migration[1]+offset}.')
+        layout.label(text='Your existing animation stays unchanged unless all work succeeds.')
+
+    def execute(self, context):
+        global _generation_status
+        # A delayed dialog from an old request cannot cancel or repaint a new one.
+        if (_generation_job is None or _generation_job['id'] != getattr(self, 'job_id', None)
+                or _generation_job.get('cancelled')):
+            return {'CANCELLED'}
+        try:
+            if context.scene != _reconstruction_scene:
+                raise VtaReviewUiError('The target Scene changed. Cancel and retry in the intended VTA Scene.')
+            require_loaded_context(context)
+            _send_generation_decision(self.job_id, _generation_job['required'])
+            _generation_status = 'Updating existing animation, then the requested range…'
+            return {'FINISHED'}
+        except Exception as exc:
+            _generation_job['error'] = str(exc)
+            _cancel_generation_request(self.job_id)
+            _generation_failure(exc)
+            return {'CANCELLED'}
+
+    def cancel(self, context):
+        if (_generation_job and _generation_job['id'] == getattr(self, 'job_id', None)
+                and not _generation_job.get('decided')):
+            _cancel_generation_request(self.job_id)
+            _generation_failure('User declined animation update', cancelled=True)
+
+
+class BLENDCAP_OT_vta_generation_details(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_generation_details'
+    bl_label = 'Go to Log'
+    bl_description = 'Open the relevant log folder; highlight the log file on Windows'
+    operation: bpy.props.EnumProperty(items=(('animation','Animation',''),('tracking','Tracking',''),('repair','Repair','')), default='animation')
+
+    def execute(self, context):
+        item = _operation_feedback.get(_feedback_key(getattr(self,'operation','animation'), context))
+        path = item['log'] if item else None
+        if path is None:
+            return {'CANCELLED'}
+        try:
+            open_operation_log(path)
+        except (OSError, ValueError) as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+def _request_generation_confirmation():
+    return bpy.ops.blendcap.vta_update_animation('INVOKE_DEFAULT')
+
+
 def _reconstruction_timer():
     global _reconstruction_process, _status, _status_is_error, _generation_status
+    global _generation_job
     process = _reconstruction_process
     if process is None:
         return None
     if process.poll() is None:
-        if _reconstruction_log is not None and _reconstruction_log.is_file():
-            lines = _reconstruction_log.read_text(encoding='utf-8', errors='replace').splitlines()
+        if _reconstruction_log is not None:
+            lines = _generation_log_lines()
+            job = _generation_job
+            ready = next((line[10:] for line in lines if line.startswith('VTA_READY=')), None)
+            if job is not None and not job.get('ready') and not job.get('cancelled') and ready:
+                job['ready'] = True
+                try:
+                    if bpy.context.scene != _reconstruction_scene:
+                        raise VtaReviewUiError('Target Scene changed during generation. Retry in the intended VTA Scene.')
+                    require_loaded_context(bpy.context)
+                    validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context, allow_outside=True))
+                    payload = json.loads(ready)
+                    if payload.get('generation_id') != job['id']:
+                        raise VtaReviewUiError('Generation message belongs to a different request. Retry generation.')
+                    if payload['plan'] != job['plan']:
+                        raise VtaReviewUiError('Review changed during generation. Retry Generate Animation Range.')
+                    from .vta_generation import migration_range
+                    backend = _get_backend(bpy.context)
+                    incoming = backend._core.reconstruction_fingerprint(payload['reconstruction'], job['plan']['source_video_sha256'])
+                    required = migration_range(_reconstruction_scene, job['plan'], incoming, job['domain'], job['offset'])
+                    job['required'] = required
+                    if required is None:
+                        raise VtaReviewUiError('Existing animation changed while preparing the update. Retry generation.')
+                    else:
+                        _generation_status = 'Existing animation needs to be updated. Confirm the update or cancel.'
+                        result = _request_generation_confirmation()
+                        if 'CANCELLED' in result:
+                            raise VtaReviewUiError('Return to the target VTA Scene, then retry Generate Animation Range.')
+                except Exception as exc:
+                    job['error'] = str(exc)
+                    _cancel_generation_request(job['id'])
+                    _generation_failure(exc)
+            if job and not job.get('cancelled') and ('VTA_CALIBRATION_READY=' + job['id']) in lines:
+                _generation_status = f'Generating animation {_reconstruction_range}…'
             progress = next((line[13:] for line in reversed(lines) if line.startswith('VTA_PROGRESS=')), None)
-            if progress:
+            if progress and not (job and job.get('cancelled')):
                 _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: {progress}'
         vta_invalidation.request_redraw()
         return 0.5
     _reconstruction_process = None
     try:
+        job = _generation_job
+        lines = _generation_log_lines(complete=True)
+        cancelled = bool(job and (job.get('cancelled') or ('VTA_CANCELLED=' + job['id']) in lines))
+        cancelled = cancelled or bool(_reconstruction_stop and _reconstruction_stop.is_file())
+        if cancelled:
+            error = job.get('error') if job else None
+            _generation_failure(error or 'User cancelled this generation', cancelled=not error)
+            return None
         if process.returncode:
-            raise VtaReviewUiError('Animation generation failed. See the project reconstruction log: '
-                                   + str(_reconstruction_log))
-        lines = _reconstruction_log.read_text(encoding='utf-8', errors='replace').splitlines()
+            lines = _generation_log_lines(complete=True)
+            raise VtaReviewUiError(next((line for line in reversed(lines) if line.strip()), 'Reconstruction worker could not finish.'))
+        lines = _generation_log_lines(complete=True)
         output = next(Path(line.split('=', 1)[1]) for line in reversed(lines)
                       if line.startswith('VTA_OUTPUT='))
         from .vta_skeletal_output import import_reviewed_output
@@ -1476,18 +1745,37 @@ def _reconstruction_timer():
         scene = _reconstruction_scene
         with bpy.context.temp_override(scene=scene, view_layer=scene.view_layers[0]):
             validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context, allow_outside=True))
-            rigs, report = import_reviewed_output(output, _reconstruction_location,
-                                                 _get_backend(bpy.context), configure_views=False)
+            if _generation_job is None:
+                rigs, report = import_reviewed_output(output, _reconstruction_location,
+                                                     _get_backend(bpy.context), configure_views=False)
+            else:
+                from .vta_generation import import_generation
+                paths = [Path(line.split('=', 1)[1]) for line in lines if line.startswith('VTA_OUTPUT=')]
+                rigs, report = import_generation(paths, _reconstruction_location, _get_backend(bpy.context),
+                                                migration=_generation_job.get('migration', False))
         unavailable = sum(s['state'] == 'unavailable' for c in report['characters'] for s in c['schedule'])
         _status = f'Generated {len(rigs)} Character armature(s). {unavailable} unavailable Character-frames.'
         _status_is_error = False
         _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: complete.'
+        clear_operation_feedback('animation')
+        from .vta_workspace import snap_first_output
+        if job:
+            try:
+                snap_first_output(bpy.context, scene, job.get('first_output', False), job.get('workspace'))
+            except Exception:
+                # Animation has already committed. A presentation convenience
+                # must never falsely report transaction failure/unchanged output.
+                _status += ' Use Camera View to show the new animation.'
     except Exception as exc:
-        _status, _status_is_error = user_message(exc), True
         cancelled = _reconstruction_stop is not None and _reconstruction_stop.is_file()
-        _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: {"cancelled" if cancelled else "failed"}; prior output retained.'
-        if cancelled:
-            _status, _status_is_error = _generation_status, False
+        error = _generation_job.get('error') if _generation_job else None
+        _generation_failure(error or exc, cancelled=cancelled and not error)
+    finally:
+        if _generation_job is not None:
+            from ..blendcap_vta_generation_ipc import cleanup_request
+            cleanup_request(_generation_job)
+        _generation_job = None
+        vta_invalidation.request_redraw()
     vta_invalidation.request_redraw()
     return None
 
@@ -1496,53 +1784,69 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
     bl_idname = 'blendcap.vta_generate_animation'
     @classmethod
     def poll(cls, context):
-        return _source_actions_available(context)
-    bl_label = 'Generate / Update Animation'
+        # The same operator exposes cooperative Cancel. Other actions still
+        # fail the execute-time edit guard while a job holds the source lock.
+        return ((_reconstruction_process is not None and _reconstruction_process.poll() is None)
+                or _source_actions_available(context))
+    bl_label = 'Generate Animation Range'
     bl_description = 'Explicitly reconstruct reviewed Character boxes; no identity decisions or tracking changes'
 
-    action: bpy.props.EnumProperty(items=(('WHOLE', 'Whole Source', ''),
-        ('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
-        ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='WHOLE')
+    action: bpy.props.EnumProperty(items=(('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
+        ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='RANGE')
 
     def execute(self, context):
         global _reconstruction_process, _reconstruction_location, _reconstruction_log
         global _reconstruction_scene, _reconstruction_range, _generation_status
         global _reconstruction_stop
+        global _generation_job, _generation_details
         global _status, _status_is_error
         if self.action == 'CANCEL':
             if _reconstruction_process is None or _reconstruction_process.poll() is not None:
                 return {'CANCELLED'}
             try:
-                if not _reconstruction_stop.exists():
-                    with _reconstruction_stop.open('x', encoding='utf-8') as handle:
-                        handle.write('Stop this generation between model calls.\n')
+                if not _cancel_generation_request():
+                    return {'CANCELLED'}
                 _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: stopping after current work…'
                 return {'FINISHED'}
             except Exception as exc:
                 self.report({'ERROR'}, user_message(exc))
                 return {'CANCELLED'}
-        if not _edit_available(self):
+        if not _edit_available(self, quiet=True):
+            _generation_failure('Another operation is running. Wait or cancel it before generating.', context=context)
             return {'CANCELLED'}
         if self.action in ('START_CURRENT', 'END_CURRENT'):
             name = 'blendcap_vta_animation_' + ('start' if self.action == 'START_CURRENT' else 'end')
             setattr(context.window_manager, name, context.scene.frame_current)
             return {'FINISHED'}
+        # Settle a worker that finished just before its next timer tick, then
+        # start with fresh request-scoped state (never inherit a previous Cancel).
+        if _reconstruction_process is not None and _reconstruction_process.poll() is not None:
+            _reconstruction_timer()
+        _generation_job = None
+        _reconstruction_log = _reconstruction_stop = None
+        _generation_details = ''
+        clear_operation_feedback('animation', context)
         try:
             location = _location_from_context(context)
             backend = _get_backend(context)
             project, cache, _revision = backend._load_context(location)
-            source_range = None
-            visible_range = None
-            if self.action == 'RANGE':
-                start = context.window_manager.blendcap_vta_animation_start
-                end = context.window_manager.blendcap_vta_animation_end
-                if start > end:
-                    raise VtaReviewUiError('Animation Start must not exceed Animation End.')
-                offset = location.blender_frame - location.source_frame
-                source_range = (start - offset, end - offset)
-                visible_range = f'{start}–{end}'
-            backend._core.build_skeletal_plan(project, cache, **(
-                {'frame_range': source_range} if source_range is not None else {}))
+            from ..blendcap_vta_generation_ipc import preflight_generation_paths
+            preflight_generation_paths(location.companion_root)
+            from .vta_generation import plan_options
+            start = context.window_manager.blendcap_vta_animation_start
+            end = context.window_manager.blendcap_vta_animation_end
+            offset = location.blender_frame - location.source_frame
+            source_range = (start - offset, end - offset)
+            domain = (cache.source.start_frame, cache.source.end_frame)
+            options = plan_options(source_range, domain)
+            if getattr(context.window_manager, 'blendcap_vta_generation_scope', 'ALL') == 'SELECTED':
+                ids = tracking_character_ids(context)
+                if not ids:
+                    raise VtaReviewUiError('Select Character rows before selected-Character generation, or choose All Reviewed.')
+                options['character_ids'] = ids
+            plan = backend._core.build_skeletal_plan(project, cache, **options)
+            backend._core.validate_skeletal_repairs(project, plan, frame_offset=offset)
+            visible_range = f'{start}–{end}'
             bundle = Path(__file__).resolve().parents[1]
             python = Path(_python_exe())
             if not python.is_file() or not (bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt').is_file():
@@ -1557,36 +1861,56 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             if mode not in ('FIRST', 'EVERY'):
                 raise VtaReviewUiError('Reviewed VTA animation supports Sample first frame or Sample every frame; manual focal entry is not supported.')
             command += ['--fov-mode', mode]
-            if source_range is not None:
+            if 'frame_range' in options:
                 command += ['--start-frame', str(source_range[0]), '--end-frame', str(source_range[1])]
-            from uuid import uuid4
-            _reconstruction_log = location.companion_root / 'reconstruction' / ('generation-' + uuid4().hex + '.log')
-            _reconstruction_log.parent.mkdir(parents=True, exist_ok=True)
-            _reconstruction_stop = _reconstruction_log.with_suffix('.stop')
-            command += ['--stop-file', str(_reconstruction_stop)]
+            for cid in options.get('character_ids', ()):
+                command += ['--character-id', cid]
+            from .vta_generation import owners, fingerprint
+            from ..blendcap_vta_generation_ipc import filesystem_path, new_request
+            previous = sorted({fingerprint(o) for o in owners(context.scene, plan['project_id'], plan['source_id'])})
+            job = new_request(location.companion_root, decision_required=bool(previous))
+            job.update(plan=plan, domain=domain, offset=offset,
+                       workspace=getattr(context, 'workspace', None),
+                       first_output=not any(o.type == 'ARMATURE' for o in owners(context.scene, plan['project_id'], plan['source_id'])))
+            _reconstruction_log = job['log']
+            os.makedirs(filesystem_path(_reconstruction_log.parent), exist_ok=True)
+            _reconstruction_stop = job['stop']
+            command += ['--stop-file', str(job['stop']), '--generation-id', job['id']]
+            for value in previous:
+                command += ['--previous-fingerprint', value]
+            if job['decision'] is not None:
+                command += ['--decision-file', str(job['decision'])]
             environment = os.environ.copy()
             environment.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', PYTHONNOUSERSITE='1')
-            with _reconstruction_log.open('x', encoding='utf-8') as log:
+            with open(filesystem_path(_reconstruction_log), 'x', encoding='utf-8') as log:
                 _reconstruction_process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                     stdout=log, stderr=log, cwd=str(bundle), env=environment,
                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             _reconstruction_location = location
             _reconstruction_scene = context.scene
             _reconstruction_range = visible_range
+            job['process'] = _reconstruction_process
+            _generation_job = job
+            _generation_details = 'Log: ' + str(_reconstruction_log)
             if not bpy.app.timers.is_registered(_reconstruction_timer):
                 bpy.app.timers.register(_reconstruction_timer, first_interval=0.5)
-            _generation_status = f'Generating animation {visible_range or "Whole Source"}…'
+            _generation_status = f'Checking source calibration for animation {visible_range}…'
             _status, _status_is_error = _generation_status, False
             return {'FINISHED'}
         except Exception as exc:
-            self.report({'ERROR'}, user_message(exc))
+            _generation_failure(exc, context=context, location=locals().get('location'), reconstruction_started=False)
             return {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_suppress_candidate(bpy.types.Operator):
     bl_idname = 'blendcap.vta_suppress_candidate'
     bl_label = 'Suppress Candidate'
-    bl_description = 'Reversibly exclude this observation; raw detector evidence is retained'
+    bl_description = 'Ignore this candidate during automatic continuation; retain raw evidence for Restore'
+
+    @classmethod
+    def description(cls, context, properties):
+        return ('Restore this candidate for automatic continuation; raw evidence was retained'
+                if properties.restore else cls.bl_description)
 
     restore: bpy.props.BoolProperty(default=False)
 
@@ -2445,7 +2769,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
         analyze.operator("blendcap.vta_analyze", text="Analyze Candidates")
         animate = layout.row()
         animate.enabled = _source_actions_available(context)
-        animate.operator('blendcap.vta_generate_animation', text='Generate / Update Animation')
+        animate.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
         available = refresh(context)
         repeat = layout.row()
         repeat.enabled = available and BLENDCAP_OT_vta_repeat_assignment.poll(context)
@@ -2529,7 +2853,8 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
     bl_description = "Reject generated animation on the selected inclusive frames; identity and tracking stay independent"
     action: bpy.props.EnumProperty(items=(
         ('FREEZE', 'Freeze', 'Use the most recent trusted pose for rejected frames until normal generated animation resumes'),
-        ('INTERPOLATE', 'Interpolate', 'Blend rejected gaps between trusted poses on both sides'),
+        ('INTERPOLATE', 'Interpolate', 'Repair selected frames; valid unrepaired anchors must be outside both endpoints'),
+        ('RESIZE', 'Apply Start / End', 'Resize the selected repair in place; do not merge overlapping repairs'),
         ('CHANGE_MODE', 'Change Mode', 'Change the selected exact range mode'),
         ('REMOVE', 'Remove Selected Range', 'Allow normal generation throughout the selected range'),
         ('CLEAR', 'Clear Frame Range', 'Subtract inclusive frames from repair ranges'),
@@ -2539,11 +2864,15 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
     @classmethod
     def description(cls, context, properties):
         return {'FREEZE': 'Use the most recent trusted pose for rejected frames until normal generated animation resumes',
-                'INTERPOLATE': 'Blend rejected gaps between trusted poses on both sides'}.get(properties.action, cls.bl_description)
+                'INTERPOLATE': 'Repair selected frames; valid unrepaired anchors must be outside the repair range',
+                'RESIZE': 'Apply edited Start / End to the selected repair without changing its type'}.get(properties.action, cls.bl_description)
 
     def execute(self, context):
         global _status, _status_is_error
-        if not _edit_available(self):
+        clear_operation_feedback('repair', context)
+        if not _edit_available(self, quiet=True):
+            set_operation_feedback('repair','Couldn’t edit the repair.', 'Another operation is running. Wait or cancel it before editing repairs.',
+                                   context=context,disposition='Existing repair ranges were kept unchanged.')
             return {'CANCELLED'}
         try:
             if not _is_timeline_context(context):
@@ -2555,14 +2884,14 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
                          else 'blendcap_vta_motion_end')
                 setattr(wm, field, location.blender_frame)
                 return {'FINISHED'}
-            if self.action not in {'FREEZE', 'INTERPOLATE', 'CLEAR', 'CHANGE_MODE', 'REMOVE'}:
+            if self.action not in {'FREEZE', 'INTERPOLATE', 'CLEAR', 'CHANGE_MODE', 'REMOVE', 'RESIZE'}:
                 raise VtaReviewUiError("Unknown repair action.")
             selection = timeline_character_selection(context)
             if selection is None or not selection.character_ids:
                 raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before editing repair ranges.")
             targets = selection.character_ids
             selected_range = selected_repair_range(context)
-            if self.action in {'CHANGE_MODE', 'REMOVE'} and selected_range is None:
+            if self.action in {'CHANGE_MODE', 'REMOVE', 'RESIZE'} and selected_range is None:
                 raise VtaReviewUiError('Select a repair range first.')
             if not refresh(context, force=True):
                 raise VtaReviewUiError(_status)
@@ -2570,19 +2899,31 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             if selection is None or selection.character_ids != targets or _location != location:
                 raise VtaReviewUiError("The repair selection or source changed; select the rows again.")
             start, end = wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end
-            if selected_range is not None and self.action in {'CHANGE_MODE', 'REMOVE'}:
+            editing_selected = selected_range is not None and self.action in {'CHANGE_MODE', 'REMOVE', 'RESIZE', 'FREEZE', 'INTERPOLATE'}
+            if editing_selected:
                 if selected_repair_range(context) != selected_range:
                     raise VtaReviewUiError('The selected repair range changed; select it again.')
                 targets = (selected_range.character_id,)
-                start, end = (visible_frame(location, f) for f in (selected_range.start_frame, selected_range.end_frame))
-            action = 'clear' if self.action in {'CLEAR', 'REMOVE'} else 'change-mode' if self.action == 'CHANGE_MODE' else 'mark'
+                if self.action != 'RESIZE':
+                    start, end = (visible_frame(location, f) for f in (selected_range.start_frame, selected_range.end_frame))
+            action = ('resize' if self.action == 'RESIZE' else 'clear' if self.action in {'CLEAR', 'REMOVE'}
+                      else 'change-mode' if editing_selected else 'mark')
             mode = (wm.blendcap_vta_repair_mode if self.action == 'CHANGE_MODE'
+                    else selected_range.mode if self.action == 'RESIZE'
                     else 'freeze' if self.action == 'FREEZE' else 'interpolate' if self.action == 'INTERPOLATE' else None)
             _get_backend(context).set_motion_trust_for_characters(
-                location, targets, start, end, action=action, mode=mode)
+                location, targets, start, end, action=action, mode=mode,
+                **({'previous_range': (selected_range.start_frame, selected_range.end_frame)} if action == 'resize' else {}))
             if not refresh(context, force=True):
-                self.report({'WARNING'}, "Repair saved; refresh review to display it.")
+                set_operation_feedback('repair','Repair saved; refresh unavailable.',
+                    'Refresh review to display the saved repair.', context=context)
                 return {'FINISHED'}
+            if editing_selected and self.action != 'REMOVE':
+                new_range = next((i for i in _timeline.repair_ranges if i.character_id == selected_range.character_id
+                                 and visible_frame(location, i.start_frame) == start
+                                 and visible_frame(location, i.end_frame) == end and i.mode == mode), None)
+                if new_range is not None:
+                    select_repair_range(context, new_range)
             vta_invalidation.request_redraw()
             _status = 'Repair ranges saved. Generate Animation to recompute repair; identity and tracking retained.'
             _status_is_error = False
@@ -2590,7 +2931,8 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             return {'FINISHED'}
         except Exception as exc:
             _status, _status_is_error = user_message(exc), True
-            self.report({'ERROR'}, _status)
+            set_operation_feedback('repair','Couldn’t edit the repair.',_status,context=context,
+                                   disposition='Existing repair ranges were kept unchanged.')
             return {'CANCELLED'}
 
 
@@ -2602,12 +2944,15 @@ def draw_cleanup_commands(layout, context, *, menu=False):
             ('START_CURRENT', 'Set Start to Current Frame' if menu else 'Start = Current Frame'),
             ('END_CURRENT', 'Set End to Current Frame' if menu else 'End = Current Frame'),
             ('FREEZE', 'Freeze'), ('INTERPOLATE', 'Interpolate'), ('CLEAR', 'Clear Frame Range'),
-            ('CHANGE_MODE', 'Change Mode'), ('REMOVE', 'Remove Selected Range')):
+            ('RESIZE', 'Apply Start / End'), ('REMOVE', 'Remove Selected Range')):
         row = layout.row()
         row.enabled = available and (action.endswith('CURRENT') or
                                     bool(selection and selection.character_ids))
-        if action in {'CHANGE_MODE', 'REMOVE'}:
+        interval = selected_repair_range(context)
+        if action in {'RESIZE', 'REMOVE'}:
             row.enabled = available and selected_repair_range(context) is not None
+        if interval is not None and action in {'FREEZE', 'INTERPOLATE'}:
+            row.enabled = row.enabled and interval.mode != action.lower()
         row.operator('blendcap.vta_motion_trust', text=label).action = action
 
 
@@ -2616,15 +2961,18 @@ def draw_motion_trust(layout, context):
     layout.label(text='Repair Animation')
     interval = selected_repair_range(context)
     if interval is not None:
-        layout.label(text=f'Selected {interval.mode.title()}: {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+        layout.label(text=f'Selected repair: {interval.mode.title()}, frames {visible_frame(_location, interval.start_frame)}–{visible_frame(_location, interval.end_frame)}')
+    else:
+        layout.label(text='No repair selected: buttons create a repair.')
     wm = context.window_manager
     controls = layout.column()
     controls.enabled = _location is not None and not _analysis_locked()
     row = controls.row(align=True)
     row.prop(wm, 'blendcap_vta_motion_start', text='Start Frame')
     row.prop(wm, 'blendcap_vta_motion_end', text='End Frame')
-    controls.prop(wm, 'blendcap_vta_repair_mode', text='Selected Mode')
     draw_cleanup_commands(layout, context)
+    layout.label(text='Interpolate anchors must be outside the repair range.')
+    draw_operation_feedback(layout, context, 'repair')
     layout.label(text='Clear allows normal generation; regeneration retains rejection')
     active = current_character_id(context)
     selected = next((c for c in _view.characters if c.character_id == active), None) if _view else None
@@ -2650,7 +2998,10 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
     def execute(self, context):
         global _status, _status_is_error
-        if not _edit_available(self):
+        clear_operation_feedback('tracking', context)
+        if not _edit_available(self, quiet=True):
+            set_operation_feedback('tracking','Couldn’t update tracking.','Another operation is running. Wait or cancel it before tracking.',
+                                   context=context,disposition='Existing tracking was kept unchanged.')
             return {'CANCELLED'}
         try:
             location = _location_from_context(context)
@@ -2667,7 +3018,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             if not refresh(context, force=True):
                 _status = f"Tracking saved, but review refresh failed: {_status}"
                 _status_is_error = True
-                self.report({'WARNING'}, _status)
+                set_operation_feedback('tracking','Tracking saved; refresh unavailable.',_status,context=context)
                 return {'FINISHED'}
             names = {c.character_id: c.display_name for c in _view.characters}
             _status = '\n'.join(f'{names.get(item.character_id, item.character_id)}: ' +
@@ -2675,14 +3026,16 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
                                if item.update is not None else 'Not updated — ' + tracking_update_error(VtaReviewUiError(item.error)))
                               for item in outcomes)
             _status_is_error = any(item.update is None for item in outcomes)
-            self.report({'WARNING'} if _status_is_error else {'INFO'}, _status)
+            set_operation_feedback('tracking','Tracking incomplete.' if _status_is_error else 'Tracking updated.',_status,
+                                   context=context,error=_status_is_error)
             return {'FINISHED'} if any(item.update is not None for item in outcomes) else {'CANCELLED'}
         except Exception as exc:
             if not isinstance(exc, VtaReviewUiError):
                 traceback.print_exc()
             _status = tracking_update_error(exc)
             _status_is_error = True
-            self.report({'ERROR'}, _status)
+            set_operation_feedback('tracking','Couldn’t update tracking.',_status,context=context,
+                                   disposition='Existing tracking was kept unchanged.')
             return {'CANCELLED'}
 
 
@@ -2703,10 +3056,15 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         draw_scene_workflow(layout, context)
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         draw_scene_timing(layout, context)
+        layout.operator('blendcap.vta_camera_depth', text='Move Along Camera Depth')
+        from .vta_workspace import blank_animation_guidance
+        for line in blank_animation_guidance(context):
+            layout.label(text=line, icon='INFO' if line.startswith('No ') else 'NONE')
         if _location is not None:
             layout.label(text=f"Blender frame {_location.blender_frame}")
         if _view is None:
-            layout.label(text=_status or "Review unavailable", icon='ERROR')
+            scoped_error = any(key[0] == _feedback_key('animation', context)[0] for key in _operation_feedback)
+            layout.label(text="Review unavailable" if scoped_error else (_status or "Review unavailable"), icon='ERROR')
             layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
         else:
             if _view.state == 'analyzed-empty':
@@ -2940,10 +3298,7 @@ class VIEW3D_PT_blendcap_vta_tracking(_VtaReviewSubpanel, bpy.types.Panel):
         row.operator("blendcap.vta_update_tracking", text="Update Tracking", icon='FILE_REFRESH')
         layout.label(text="Nearest hard keys bound the interval")
         layout.label(text="Otherwise: about 5 seconds each way")
-        if _status:
-            for index, line in enumerate(textwrap.wrap(_status, width=54)):
-                layout.label(text=line, icon=('ERROR' if _status_is_error else 'INFO')
-                             if index == 0 else 'NONE')
+        draw_operation_feedback(layout, context, 'tracking')
 
 
 class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
@@ -2951,11 +3306,14 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
     bl_idname = 'VIEW3D_PT_blendcap_vta_animation'
 
     def draw(self, context):
-        row = self.layout.row()
-        row.enabled = _view is not None and not _analysis_locked()
-        row.operator('blendcap.vta_generate_animation')
+        info = cached_scene_source(context)
+        if info:
+            source = info[1]
+            offset = info[2].blender_frame - info[2].source_frame
+            self.layout.label(text=f'Source frames: {source["start_frame"]+offset}–{source["end_frame"]+offset}. Choose this range for the full source.')
         controls = self.layout.column()
         controls.enabled = _view is not None and not _analysis_locked()
+        controls.prop(context.window_manager, 'blendcap_vta_generation_scope', text='Characters')
         bounds = controls.row(align=True)
         bounds.prop(context.window_manager, 'blendcap_vta_animation_start')
         bounds.prop(context.window_manager, 'blendcap_vta_animation_end')
@@ -2964,12 +3322,14 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         current.operator('blendcap.vta_generate_animation', text='End = Current Frame').action = 'END_CURRENT'
         controls.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
         self.layout.label(text='Reviewed Characters only; Freeze / Interpolate repair rejected poses.')
-        if any(o.get('vta_output_stale') for o in bpy.data.objects):
-            self.layout.label(text='Animation is stale. Generate / Update explicitly.', icon='ERROR')
-        if _generation_status:
+        if any(o.get('vta_output_stale') for o in context.scene.objects):
+            self.layout.label(text='Review changed since generation. Generate the affected range to update it.', icon='INFO')
+        feedback = _operation_feedback.get(_feedback_key('animation', context))
+        if _generation_status and feedback is None:
             self.layout.label(text=_generation_status, icon='TIME' if _reconstruction_process is not None else 'INFO')
         if _reconstruction_process is not None and _reconstruction_process.poll() is None:
             self.layout.operator('blendcap.vta_generate_animation', text='Cancel Generation').action = 'CANCEL'
+        draw_operation_feedback(self.layout, context, 'animation')
 
 
 class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
@@ -3012,6 +3372,8 @@ class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
 
 classes = (
     BLENDCAP_OT_vta_generate_animation,
+    BLENDCAP_OT_vta_update_animation,
+    BLENDCAP_OT_vta_generation_details,
     VIEW3D_PT_blendcap_vta_animation,
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_candidate_select,
@@ -3047,6 +3409,8 @@ def register_properties() -> None:
         bpy.app.handlers.load_post.append(_reset_repeat_assignment_session)
     if _reset_scene_presentation not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_reset_scene_presentation)
+    if _cancel_generation_before_load not in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(_cancel_generation_before_load)
     if _frame_presentation_changed not in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.append(_frame_presentation_changed)
     if not bpy.app.timers.is_registered(_scene_observer_timer):
@@ -3057,10 +3421,17 @@ def register_properties() -> None:
         name='Animation End', description='Inclusive Blender frame', default=20)
     bpy.types.WindowManager.blendcap_vta_show_suppressed = bpy.props.BoolProperty(
         name='Show Suppressed Candidates', default=False, update=_show_suppressed_changed)
+    bpy.types.WindowManager.blendcap_vta_generation_scope = bpy.props.EnumProperty(
+        name='Generation Scope', items=(('ALL', 'All Reviewed', 'Generate all reviewed Characters'),
+        ('SELECTED', 'Selected Rows', 'Generate only selected VTA Character rows; incompatible calibration still requires source-wide migration')),
+        default='ALL')
+    for operation in ('animation','tracking','repair'):
+        setattr(bpy.types.WindowManager, 'blendcap_vta_' + operation + '_details',
+                bpy.props.BoolProperty(name='Details', default=False))
     bpy.types.WindowManager.blendcap_vta_motion_start = bpy.props.IntProperty(
-        name="Start Frame", description="Inclusive Blender frame", default=1)
+        name="Start Frame", description="Inclusive repair start; Apply Start / End saves selected range edits", default=1)
     bpy.types.WindowManager.blendcap_vta_motion_end = bpy.props.IntProperty(
-        name="End Frame", description="Inclusive Blender frame", default=1)
+        name="End Frame", description="Inclusive repair end; Interpolate anchors must lie outside both endpoints", default=1)
     bpy.types.WindowManager.blendcap_vta_repair_mode = bpy.props.EnumProperty(
         name='Repair Mode', items=(('freeze', 'Freeze', ''), ('interpolate', 'Interpolate', '')), default='freeze')
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
@@ -3109,12 +3480,17 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    # Cooperative release also covers the worker waiting for consent.
+    if _reconstruction_process is not None and _reconstruction_process.poll() is None and _reconstruction_stop:
+        _cancel_generation_request()
     _reset_scene_presentation()
     _reset_repeat_assignment_session()
     if _reset_repeat_assignment_session in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_reset_repeat_assignment_session)
     if _reset_scene_presentation in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_reset_scene_presentation)
+    if _cancel_generation_before_load in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(_cancel_generation_before_load)
     if _frame_presentation_changed in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_frame_presentation_changed)
     if bpy.app.timers.is_registered(_scene_observer_timer):
@@ -3130,6 +3506,9 @@ def unregister_properties() -> None:
     del bpy.types.WindowManager.blendcap_vta_animation_start
     del bpy.types.WindowManager.blendcap_vta_animation_end
     del bpy.types.WindowManager.blendcap_vta_show_suppressed
+    del bpy.types.WindowManager.blendcap_vta_generation_scope
+    for operation in ('animation','tracking','repair'):
+        delattr(bpy.types.WindowManager, 'blendcap_vta_' + operation + '_details')
     if bpy.app.timers.is_registered(_reconstruction_timer):
         bpy.app.timers.unregister(_reconstruction_timer)
     global _analysis_progress_started

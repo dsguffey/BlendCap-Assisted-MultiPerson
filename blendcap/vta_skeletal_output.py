@@ -376,7 +376,7 @@ def stage_source_camera(plan, records, location, bounded, bounds, reference=None
     return previous, camera
 
 
-def import_reviewed_output(path, location, backend, *, configure_views=True):
+def import_reviewed_output(path, location, backend, *, configure_views=True, migration_approved=False):
     root = Path(path).resolve().parent
     expected_root = (location.companion_root / 'reconstruction').resolve()
     if not root.is_relative_to(expected_root):
@@ -388,6 +388,8 @@ def import_reviewed_output(path, location, backend, *, configure_views=True):
     bounded = (report['plan'].get('generation_scope') == 'range'
                or report['version'] == 2 or report['plan'].get('version') == 2)
     options = {'frame_range': report['plan']['source_range']} if bounded else {}
+    if 'character_scope' in report['plan']:
+        options['character_ids'] = report['plan']['character_scope']
     plan = backend._core.build_skeletal_plan(project, cache, **options)
     if report['plan'] != plan:
         raise ValueError('Skeletal output is stale; Generate Animation again from current review')
@@ -417,13 +419,29 @@ def import_reviewed_output(path, location, backend, *, configure_views=True):
         raise ValueError('Animation has no successful trustworthy or repaired pose; prior output retained')
     prior = [o for o in bpy.context.scene.objects if o.get('vta_project_id') == plan['project_id']
              and o.get('vta_source_id') == plan['source_id'] and o.type == 'ARMATURE']
+    all_prior = prior
     owners = [*prior, *(o.data for o in bpy.context.scene.objects if o.type == 'CAMERA'
         and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id'])]
     previous_fingerprints = [o.get('vta_reconstruction_fingerprint', 'legacy-per-frame-intrinsics') for o in owners]
-    backend._core.require_compatible_reconstruction(fingerprint, previous_fingerprints, bounded=bounded)
-    if not bounded and any(value != fingerprint for value in previous_fingerprints):
+    replacing_calibration = migration_approved and any(value != fingerprint for value in previous_fingerprints)
+    if replacing_calibration:
+        from .vta_generation import migration_range
+        offset = location.blender_frame - location.source_frame
+        required = migration_range(bpy.context.scene, plan, fingerprint,
+            (cache.source.start_frame, cache.source.end_frame), offset)
+        if (required is not None and (plan['source_range'][0] > required[0]
+                                     or plan['source_range'][1] < required[1])):
+            raise ValueError('Calibration migration does not cover all existing animation; previous animation retained')
+        if fingerprint == 'legacy-per-frame-intrinsics':
+            raise ValueError('Calibration migration requires current reconstruction metadata')
+    backend._core.require_compatible_reconstruction(fingerprint, previous_fingerprints,
+                                                   bounded=bounded and not replacing_calibration)
+    if (not bounded or replacing_calibration) and any(value != fingerprint for value in previous_fingerprints):
         if any(o.get('vta_character_id') not in paths for o in prior):
-            raise ValueError('Calibration migration requires whole-source replacement for every existing Character; previous animation retained')
+            raise ValueError('Calibration migration requires replacement for every existing Character; previous animation retained')
+    if 'character_scope' in plan:
+        # Compatible partial publication never validates/rewrites unrelated rigs.
+        prior = [o for o in all_prior if o.get('vta_character_id') in expected]
     reference = None
     source_bounds = None
     if report['version'] == 4:
@@ -509,10 +527,10 @@ def import_reviewed_output(path, location, backend, *, configure_views=True):
             if previous is not None:
                 if not _same_skeleton(previous, obj):
                     raise ValueError('Range update skeleton differs; previous animation retained')
-                merge_bounds = bounds if bounded else (0, 0)  # full replaces all generated keys
+                merge_bounds = bounds if bounded else (0, 0)
                 staged.append((previous, merge_reviewed_range(previous, obj.animation_data.action,
                     *merge_bounds, source_bounds=source_bounds, preserve_object_transforms=True,
-                    full=not bounded), obj))
+                    full=not bounded or replacing_calibration), obj))
             elif bounded:
                 for frame in (bounds[0] - 1, bounds[1] + 1):
                     obj.hide_viewport = obj.hide_render = True
@@ -521,12 +539,22 @@ def import_reviewed_output(path, location, backend, *, configure_views=True):
                     for point in fc.keyframe_points:
                         point.interpolation = 'CONSTANT'
         if report['version'] == 4:
+            if replacing_calibration and bounded:
+                # A replacement Action has no inherited out-of-range availability.
+                for previous, action, fresh in staged:
+                    for fc in _iter_action_fcurves(action):
+                        if fc.data_path in ('hide_viewport', 'hide_render'):
+                            for frame in (bounds[0] - 1, bounds[1] + 1):
+                                point = fc.keyframe_points.insert(frame, 1)
+                                point.interpolation = 'CONSTANT'
+                            fc.update()
             for obj in created:
                 obj.matrix_world = scene_translation(reference)
                 limit_source_visibility(obj.animation_data.action, *source_bounds)
             for previous, action, fresh in staged:
                 limit_source_visibility(action, *source_bounds, preserve_object_transforms=True)
-            camera_previous, camera_stage = stage_source_camera(plan, records, location, bounded, bounds, reference)
+            camera_previous, camera_stage = stage_source_camera(plan, records, location,
+                bounded and not replacing_calibration, bounds, reference)
             camera_stage.data['vta_reconstruction_fingerprint'] = fingerprint
         # Commit only after all new armatures validate. Old generated output is
         # retained on disk; only owned Blender projections are replaced.

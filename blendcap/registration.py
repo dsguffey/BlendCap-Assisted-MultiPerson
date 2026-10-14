@@ -87,6 +87,8 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_match_source_fps,
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_generate_animation,
+    BLENDCAP_OT_vta_update_animation,
+    BLENDCAP_OT_vta_generation_details,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_analyze,
@@ -118,12 +120,14 @@ from .vta_workspace import (
     BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_timeline_select,
+    BLENDCAP_OT_vta_timeline_hover,
     BLENDCAP_MT_vta_timeline_context,
     BLENDCAP_MT_vta_timeline_commands,
     BLENDCAP_PT_vta_timeline,
     register as register_vta_workspace,
     unregister as unregister_vta_workspace,
 )
+from .vta_camera_depth import BLENDCAP_OT_vta_camera_depth
 from . import retarget
 
 
@@ -227,6 +231,7 @@ classes = (
     BLENDCAP_OT_append_workspace,
     BLENDCAP_OT_open_vta_workspace,
     BLENDCAP_OT_vta_snap_source_camera,
+    BLENDCAP_OT_vta_camera_depth,
     BLENDCAP_OT_vta_new_scene,
     BLENDCAP_OT_vta_choose_clip,
     BLENDCAP_OT_vta_clear_source,
@@ -276,9 +281,12 @@ classes = (
     OUTPUT_PT_blendcap_ui,
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_generate_animation,
+    BLENDCAP_OT_vta_update_animation,
+    BLENDCAP_OT_vta_generation_details,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_timeline_select,
+    BLENDCAP_OT_vta_timeline_hover,
     BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,

@@ -503,7 +503,7 @@ class CleanupBlenderTests(unittest.TestCase):
         for menu in (False, True):
             calls.clear()
             ui.draw_cleanup_commands(Layout(), self.context, menu=menu)
-            self.assertEqual([c[3].action for c in calls], ['START_CURRENT', 'END_CURRENT', 'FREEZE', 'INTERPOLATE', 'CLEAR', 'CHANGE_MODE', 'REMOVE'])
+            self.assertEqual([c[3].action for c in calls], ['START_CURRENT', 'END_CURRENT', 'FREEZE', 'INTERPOLATE', 'CLEAR', 'RESIZE', 'REMOVE'])
             self.assertTrue(all(c[0] == 'blendcap.vta_motion_trust' for c in calls))
             self.assertEqual([c[2].enabled for c in calls], [True, True, False, False, False, False, False])
         ui.select_timeline_characters(self.context, ('a', 'b'))

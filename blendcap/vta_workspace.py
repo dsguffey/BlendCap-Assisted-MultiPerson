@@ -31,6 +31,8 @@ _preview_header_registered = False
 _camera_header_registered = False
 _keymaps = []
 _box_gesture = None
+_blank_handler = None
+_hover = None
 
 
 def _ui():
@@ -152,6 +154,87 @@ class BLENDCAP_OT_vta_snap_source_camera(bpy.types.Operator):
 def _draw_camera_header(self, context):
     if getattr(context, 'workspace', None) and context.workspace.get(WORKSPACE_TAG) == 1:
         self.layout.operator('blendcap.vta_snap_source_camera', text='Camera View', icon='CAMERA_DATA')
+
+
+def blank_animation_guidance(context):
+    """Cheap presentation only: never create objects or load project state."""
+    if (getattr(context, 'area', None) is None or context.area.type != 'VIEW_3D'
+            or not getattr(context, 'workspace', None) or context.workspace.get(WORKSPACE_TAG) != 1
+            or not _ui().loaded_context_matches(context)):
+        return ()
+    info = _ui().cached_scene_source(context)
+    if not info:
+        return ()
+    project_id, source_id = info[0], info[1]['source_id']
+    if any(o.type == 'ARMATURE' and o.get('vta_project_id') == project_id
+           and o.get('vta_source_id') == source_id for o in context.scene.objects):
+        return ()
+    return ('No animation generated yet.',
+            'Set Animation Start / End and click Generate Animation Range.')
+
+
+def _draw_blank_animation():
+    lines = blank_animation_guidance(bpy.context)
+    if not lines:
+        return
+    import blf
+    region = bpy.context.region
+    if region is None or region.type != 'WINDOW':
+        return
+    scale = _metrics(bpy.context).ui_scale
+    space = bpy.context.space_data
+    left = max((r.width for r in bpy.context.area.regions if r.type == 'TOOLS'), default=0) if space.show_region_toolbar else 0
+    right = max((r.width for r in bpy.context.area.regions if r.type == 'UI'), default=0) if space.show_region_ui else 0
+    draw_blank_guidance(region.width, region.height, lines, scale=scale, left=left, right=right)
+
+
+def draw_blank_guidance(width, height, lines, *, scale=1, left=0, right=0, draw=None):
+    """Real font metrics, wrapped and centred away from headers/overlay panels.
+
+    `draw` allows the same layout/BLF font to be raster-verified headlessly.
+    """
+    import blf
+    scale = max(.5, min(scale, 4))
+    x0, x1 = left + 24 * scale, width - right - 24 * scale
+    available = x1 - x0
+    if available < 80 * scale or height < 100 * scale:
+        return []  # Sidebar repeats guidance if the usable viewport is too small.
+    rows = []
+    for index, message in enumerate(lines):
+        size = (18 if index == 0 else 15) * scale
+        blf.size(0, size)
+        words = message.split(); line = ''
+        for word in words:
+            candidate = (line + ' ' + word).strip()
+            if line and blf.dimensions(0, candidate)[0] > available:
+                rows.append((line, size)); line = word
+            else:
+                line = candidate
+        if line:
+            rows.append((line, size))
+    spacing = 26 * scale
+    y = height * .5 + (len(rows) - 1) * spacing * .5
+    placements = []
+    for text, size in rows:
+        blf.size(0, size)
+        measured, _ = blf.dimensions(0, text)
+        x = x0 + (available - measured) * .5
+        blf.position(0, x, y, 0)
+        blf.color(0, 1, 1, 1, 1)
+        (draw or blf.draw)(0, text)
+        placements.append((text, x, y, measured, size))
+        y -= spacing
+    return placements
+
+
+def snap_first_output(context, scene, first_output, workspace):
+    if not first_output or getattr(context, 'scene', None) != scene or getattr(context, 'workspace', None) != workspace:
+        return 0
+    if workspace is None or workspace.get(WORKSPACE_TAG) != 1:
+        return 0
+    if any(a.type == 'VIEW_3D' and a.spaces.active.local_view is not None for a in context.screen.areas):
+        return 0  # Never hijack isolated/user-changed context.
+    return configure_source_camera_views(scene, (workspace,))
 
 
 def _scope(context):
@@ -298,6 +381,7 @@ def _draw_channels():
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
         _draw_gesture(context, shader, batch_for_shader)
+        _draw_hover(context)
     except Exception:
         # A presentation callback must never break stock Blender drawing.
         return
@@ -431,6 +515,7 @@ def _draw_window():
                     _line(shader, batch_for_shader, ((x - radius, y + radius),
                           (x + radius, y - radius)), color)
         _draw_gesture(context, shader, batch_for_shader)
+        _draw_hover(context)
     except Exception:
         return
 
@@ -512,6 +597,7 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         row = layout.row()
         row.enabled = ui._action_availability(context)['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+        ui.draw_operation_feedback(layout, context, 'tracking')
         layout.separator()
         ui.draw_cleanup_commands(layout, context, menu=True)
 
@@ -616,6 +702,61 @@ class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
             return {'CANCELLED'}
         vta_invalidation.request_redraw()
         return {'FINISHED'}
+
+
+def timeline_tooltip(context, point):
+    view, _keys, _active, offset, first, _current = _state(context)
+    if view is None:
+        return ''
+    metrics = _metrics(context)
+    if context.region.type == 'CHANNELS':
+        cid = hit_character(view, context.region.height, point[1], first, metrics=metrics)
+        return 'Character row — Selected rows target tracking, repairs and selected generation.' if cid else ''
+    if hit_review_key(view, context.region.view2d, context.region.height, point, offset, first, metrics=metrics):
+        return 'Hard review key — Explicit Character assignment or review decision at this frame.'
+    interval = hit_motion_interval(view, context.region.view2d, context.region.width,
+        context.region.height, point, offset, first, metrics=metrics)
+    if interval:
+        return ('Freeze repair — Hold the preceding trustworthy unrepaired pose.' if interval.mode == 'freeze'
+                else 'Interpolate repair — Blend raw anchors outside both endpoints; repaired frames never anchor.')
+    lanes = dict(character_lanes(view, context.region.height, first, metrics=metrics))
+    for mark in view.derived:
+        x = context.region.view2d.view_to_region(mark.source_frame + offset, 0, clip=False)[0]
+        if mark.character_id in lanes and abs(x - point[0]) <= 4 * metrics.ui_scale and abs(lanes[mark.character_id] - point[1]) <= 5 * metrics.ui_scale:
+            return 'Derived tracking mark — Automatic continuation, not a human review key or generated pose.'
+    return ''
+
+
+def _draw_hover(context):
+    if _hover is None or _hover[:2] != (context.area.as_pointer(), context.region.as_pointer()):
+        return
+    import blf
+    text = _hover[2]
+    blf.size(0, 12)
+    blf.position(0, 10, 8, 0)
+    blf.color(0, 1, .95, .8, 1)
+    blf.draw(0, text)
+
+
+class BLENDCAP_OT_vta_timeline_hover(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_timeline_hover'
+    bl_label = 'VTA Timeline Tooltip'
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return _scope(context)
+
+    def invoke(self, context, event):
+        global _hover
+        if _box_gesture is not None:
+            return {'PASS_THROUGH'}
+        text = timeline_tooltip(context, (event.mouse_region_x, event.mouse_region_y))
+        value = (context.area.as_pointer(), context.region.as_pointer(), text) if text else None
+        if value != _hover:
+            _hover = value
+            context.area.tag_redraw()
+        return {'PASS_THROUGH'}
 
 
 class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
@@ -729,7 +870,9 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
 
 
 def register():
-    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _camera_header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _camera_header_registered, _blank_handler
+    if _blank_handler is None:
+        _blank_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_blank_animation, (), 'WINDOW', 'POST_PIXEL')
     if _window_handler is None:
         _window_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_window, (), 'WINDOW', 'POST_PIXEL')
@@ -761,10 +904,15 @@ def register():
                                        ("LEFTMOUSE", {"shift": True}),
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
+            items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
 
 
 def unregister():
-    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture, _camera_header_registered
+    global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture, _camera_header_registered, _blank_handler, _hover
+    _hover = None
+    if _blank_handler is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_blank_handler, 'WINDOW')
+        _blank_handler = None
     _box_gesture = None
     for keymap, items in _keymaps:
         for item in items:

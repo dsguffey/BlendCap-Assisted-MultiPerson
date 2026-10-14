@@ -14,7 +14,7 @@ import blendcap_vta_reconstruct_worker as worker
 
 
 class RepairWorkerTests(unittest.TestCase):
-    def exercise(self, mode, missing_right=False, fov_mode='EVERY', failed_calibration=False):
+    def exercise(self, mode, missing_right=False, fov_mode='EVERY', failed_calibration=False, consent=None):
         private = Path(__file__).resolve().parents[2] / 'Video-to-Animation'
         if not (private/'vta_core').is_dir():
             self.skipTest('private core checkout is required for the worker integration contract')
@@ -26,7 +26,7 @@ class RepairWorkerTests(unittest.TestCase):
         samples = [dict(frame=f, mode='infer', repair_mode=mode if 23 <= f <= 25 else None,
                         continuity=0, reason='raw', evidence={'box_xyxy':[0,0,10,10]})
                    for f in range(22,27)]
-        plan = {'height':10, 'width':10, 'fps':24, 'version':3,
+        plan = {'height':10, 'width':10, 'fps':24, 'version':3, 'source_id':'source', 'source_range':[23,25],
                 'characters':[{'character_id':'white','display_name':'White',
                     'samples':samples[1:4], 'repair_context':[samples[0],samples[4]]}]}
         original = copy.deepcopy(plan)
@@ -51,12 +51,44 @@ class RepairWorkerTests(unittest.TestCase):
                 path = bundle/relative
                 path.parent.mkdir(parents=True,exist_ok=True)
                 path.write_text('test fixture')
-            project = SimpleNamespace(to_dict=lambda:{'active_analysis_revision_by_source':{'source':'revision'}})
+            project = SimpleNamespace(to_dict=lambda:{'active_analysis_revision_by_source':{'source':'revision'}},
+                repair_intervals=lambda *_: (SimpleNamespace(start_frame=23,end_frame=25,mode=mode),))
             source = vta_core.SourceReference('source',24.,0,30,'0'*64,10,10)
             def export(command, **kwargs):
                 Path(command[command.index('--output')+1]).write_text('synthetic raw BVH')
             args = SimpleNamespace(core_root=str(private),blendcap_root=str(bundle),
                 companion_root=str(root),video=str(video),start_frame=23,end_frame=25,fov_mode=fov_mode)
+            events=[]
+            def build_plan(*_a,**options):
+                result=copy.deepcopy(plan)
+                if options.get('frame_range') == [22,26]:
+                    result['source_range']=[22,26]
+                    result['characters'][0].update(samples=copy.deepcopy(samples),repair_context=[])
+                return result
+            import builtins
+            print_original=builtins.print
+            def print_event(*values,**kwargs):
+                if values and isinstance(values[0],str):
+                    if values[0].startswith('VTA_READY='):
+                        events.append('ready')
+                        self.assertEqual(json.loads(values[0].split('=',1)[1])['generation_id'],job['id'])
+                        # No pose inference occurs before the consent response.
+                        self.assertEqual(calls,[])
+                        if consent=='cancel':
+                            Path(args.stop_file).touch()
+                        else:
+                            ipc.publish_decision(job,[22,26])
+                    elif values[0].startswith('VTA_OUTPUT='):
+                        events.append(json.loads(Path(values[0].split('=',1)[1]).read_text())['plan']['source_range'])
+                print_original(*values,**kwargs)
+            if consent:
+                import blendcap_vta_generation_ipc as ipc
+                job=ipc.new_request(root,decision_required=True)
+                job.update(plan=plan,process=SimpleNamespace(poll=lambda:None))
+                args.generation_id=job['id']
+                args.previous_fingerprint=['legacy-per-frame-intrinsics']
+                args.decision_file=str(job['decision'])
+                args.stop_file=str(job['stop'])
             camera = mock.Mock(side_effect=RuntimeError('calibration failed') if failed_calibration else None,
                                return_value=np.asarray([[[100.,0,5],[0,100.,5],[0,0,1]]],dtype=np.float32))
             fake_runtime = SimpleNamespace(load_estimator_fast=lambda:SimpleNamespace(device='test-only',
@@ -67,7 +99,7 @@ class RepairWorkerTests(unittest.TestCase):
                         inference_mode=nullcontext,float32=np.float32,as_tensor=np.asarray)}), \
                     mock.patch.object(vta_core,'load_project_state',return_value=project), \
                     mock.patch.object(vta_core,'load_analysis_cache',return_value=object()), \
-                    mock.patch.object(vta_core,'build_skeletal_plan',side_effect=lambda *_a,**_k:copy.deepcopy(plan)), \
+                    mock.patch.object(vta_core,'build_skeletal_plan',side_effect=build_plan), \
                     mock.patch('blendcap_vta_analyze_worker._source_for_video',return_value=source), \
                     mock.patch.object(preflight,'preflight_source'), \
                     mock.patch.object(decode,'decode_source_frame',side_effect=lambda _v,r:
@@ -75,7 +107,15 @@ class RepairWorkerTests(unittest.TestCase):
                     mock.patch.object(worker,'infer_reviewed_pose',side_effect=infer), \
                     mock.patch.object(worker,'runtime_identity',return_value={
                         'test-provider':'unchanged','fov_checkpoint_sha256':'a'*64}), \
-                    mock.patch.object(worker.subprocess,'run',side_effect=export) as exporter:
+                    mock.patch.object(worker.subprocess,'run',side_effect=export) as exporter, \
+                    mock.patch.object(builtins,'print',side_effect=print_event if consent else print_original):
+                if consent=='cancel':
+                    self.assertIsNone(worker.run(args))
+                    self.assertEqual(events,['ready']); self.assertEqual(calls,[])
+                    self.assertFalse(list(root.rglob('output.json')))
+                    self.assertFalse(list(root.rglob('*.npz')))
+                    self.assertFalse((root/'analysis/vta-analysis.lock').exists())
+                    return
                 if failed_calibration:
                     with self.assertRaisesRegex(RuntimeError,'calibration failed'):
                         worker.run(args)
@@ -104,8 +144,14 @@ class RepairWorkerTests(unittest.TestCase):
                         self.assertEqual(raw['frame_indices'].tolist(),expected_frames)
                         # Rejected finite raw poses survive separately from repaired animation.
                         self.assertEqual(raw['joint_coords'][:,0,0].tolist(),expected_frames)
-                    if fov_mode=='FIRST':
+                    if consent=='accept':
+                        self.assertEqual(events,['ready',[22,26],[23,25]])
+                    elif fov_mode=='FIRST':
                         fingerprint=report['reconstruction']['fingerprint']
+                        args.previous_fingerprint=[fingerprint]
+                        # A compatible request must not inspect even a bogus,
+                        # missing decision path or enter the consent waiter.
+                        args.decision_file=str(root/'does-not-exist/old-request.decision')
                         again=json.loads(worker.run(args).read_text())
                         self.assertEqual(again['reconstruction']['fingerprint'],fingerprint)
                         camera.assert_called_once()
@@ -116,7 +162,7 @@ class RepairWorkerTests(unittest.TestCase):
                         self.assertTrue(all(matrix is None for matrix in matrices))
                 self.assertFalse((root/'analysis/vta-analysis.lock').exists())
                 self.assertEqual(plan,original)  # No implicit trust changes.
-                self.assertEqual(calls[:3],[23,24,25])  # Rejection did not suppress reconstruction.
+                self.assertEqual(calls[:3],[22,23,24] if consent=='accept' else [23,24,25])
                 self.assertIn(22,calls)
                 if mode=='interpolate':
                     self.assertIn(26,calls)
@@ -128,10 +174,18 @@ class RepairWorkerTests(unittest.TestCase):
         self.exercise('interpolate',missing_right=True)
 
     def test_first_interpolate_anchors_and_repeated_bounded_runs_reuse_source_zero(self):
-        self.exercise('interpolate',fov_mode='FIRST')
+        with mock.patch.object(worker,'await_generation_decision',side_effect=AssertionError('No decision required')) as decision:
+            self.exercise('interpolate',fov_mode='FIRST')
+        decision.assert_not_called()
 
     def test_first_freeze_anchor_reuses_source_zero(self):
         self.exercise('freeze',fov_mode='FIRST')
 
     def test_first_calibration_failure_never_publishes_pose_or_partial_output(self):
         self.exercise('interpolate',fov_mode='FIRST',failed_calibration=True)
+
+    def test_consent_cancel_precedes_pose_calls_and_releases_lock(self):
+        self.exercise('interpolate',fov_mode='FIRST',consent='cancel')
+
+    def test_accepted_migration_runs_before_request_with_one_source_calibration(self):
+        self.exercise('interpolate',fov_mode='FIRST',consent='accept')

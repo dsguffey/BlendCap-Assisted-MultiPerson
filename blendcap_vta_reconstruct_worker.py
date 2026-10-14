@@ -12,6 +12,16 @@ import subprocess
 import sys
 import time
 from uuid import uuid4
+if __package__:
+    from .blendcap_vta_generation_ipc import (
+        GenerationCancelled, filesystem_path, read_decision, requires_migration,
+        validate_marker, write_new_json, preflight_generation_paths, new_output_directory,
+    )
+else:
+    from blendcap_vta_generation_ipc import (
+        GenerationCancelled, filesystem_path, read_decision, requires_migration,
+        validate_marker, write_new_json, preflight_generation_paths, new_output_directory,
+    )
 
 
 def digest(path):
@@ -20,20 +30,6 @@ def digest(path):
         for block in iter(lambda: handle.read(1024 * 1024), b''):
             value.update(block)
     return value.hexdigest()
-
-
-def write_new_json(path, data):
-    path = Path(path)
-    temporary = path.with_name('.' + path.name + '.' + uuid4().hex + '.tmp')
-    try:
-        with temporary.open('x', encoding='utf-8', newline='\n') as handle:
-            json.dump(data, handle, indent=2, sort_keys=True, allow_nan=False)
-            handle.write('\n')
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.link(temporary, path)  # atomic no-replace; never fall back to overwrite
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def bbox_for_backend(box, height):
@@ -47,6 +43,22 @@ def export_command(python, bundle, pose_path, bvh_path):
             str(bundle / 'checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt'),
             '--export', 'body', '--rest-pose', 'tpose', '--root-motion', '--no-center',
             '--no-foot-lock', '--smooth', '0', '--smooth-root', '0', '--smooth-vertical', '0']
+
+
+def await_generation_decision(path, root, plan, reconstruction, check_stop, generation_id):
+    """Consent handshake before pose inference; one job, no Blender mutation."""
+    path = Path(path).resolve()
+    validate_marker(path, root, generation_id, 'decision')
+    print('VTA_READY=' + json.dumps({'generation_id':generation_id,'plan': plan,
+                                    'reconstruction': reconstruction}), flush=True)
+    deadline = time.monotonic() + 900  # Release the lock if the host closes while waiting.
+    while not os.path.exists(filesystem_path(path)):
+        check_stop()
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Animation update confirmation expired; retry generation')
+        time.sleep(.1)
+    check_stop()
+    return read_decision(path, root, generation_id, plan['source_range'])
 
 
 def infer_reviewed_pose(estimator, np, torch, rgb, evidence, height, cam_int=None):
@@ -151,17 +163,21 @@ def run(args):
     core = Path(args.core_root).resolve()
     bundle = Path(args.blendcap_root).resolve()
     root = Path(args.companion_root).resolve()
+    preflight_generation_paths(root)
     video = Path(args.video).resolve()
     stop = Path(args.stop_file).resolve() if getattr(args, 'stop_file', None) else None
     if stop is not None and (stop.parent != (root/'reconstruction').resolve()
             or not stop.name.startswith('generation-') or stop.suffix != '.stop'):
         raise RuntimeError('Animation stop request must belong to this generation directory')
+    generation_id = getattr(args, 'generation_id', None)
+    if generation_id is not None and stop is not None:
+        validate_marker(stop, root, generation_id, 'stop')
     def check_stop():
-        if stop is not None and stop.exists():
-            raise RuntimeError('Animation generation cancelled; prior output retained')
+        if stop is not None and os.path.exists(filesystem_path(stop)):
+            raise GenerationCancelled('Animation generation cancelled; prior output retained')
     sys.path.insert(0, str(core))
     from vta_core import load_project_state, load_analysis_cache, build_skeletal_plan, resolve_pose_schedule
-    from vta_core.skeletal_output import repair_anchor_requests
+    from vta_core.skeletal_output import repair_anchor_requests, validate_skeletal_repairs
     from vta_core.source_preflight import preflight_source
     from vta_core.source_decode import decode_source_frame
     from vta_core.provider_contract import ProviderFrameRequest
@@ -182,7 +198,10 @@ def run(args):
         if (start is None) != (end is None):
             raise RuntimeError('Animation range requires both start and end frames')
         options = {'frame_range': (start, end)} if start is not None else {}
+        if getattr(args, 'character_id', None):
+            options['character_ids'] = args.character_id
         plan = build_skeletal_plan(project, cache, **options)
+        validate_skeletal_repairs(project, plan, frame_offset=1)
         check_stop()
         checkpoint = bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt'
         mhr = bundle / 'checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt'
@@ -190,8 +209,7 @@ def run(args):
         for required in (checkpoint, mhr, config, bundle / 'save_mhr_data.py', bundle / 'npz_to_bvh.py'):
             if not required.is_file():
                 raise RuntimeError('Installed skeletal runtime is incomplete: ' + str(required))
-        output = root / 'reconstruction' / ('run-' + uuid4().hex)
-        output.mkdir(parents=True, exist_ok=False)
+        output = new_output_directory(root)
         write_new_json(output / 'plan.json', plan)
         provenance = {'backend': 'Fast-SAM-3D-Body', 'precision': 'fp32',
             'checkpoint_sha256': digest(checkpoint), 'mhr_sha256': digest(mhr),
@@ -238,95 +256,122 @@ def run(args):
         provenance['warnings'] = ([] if estimator.fov_estimator is not None else
                                   ['MoGe unavailable; existing backend default FOV used'])
         provenance['reconstruction'] = reconstruction
-        records = {c['character_id']: {'frames': [], 'poses': [], 'failures': []}
-                   for c in plan['characters']}
-        attempted = {cid: set() for cid in records}
-        by_frame = {}
-        for character in plan['characters']:
-            for sample in character['samples']:
-                if sample['mode'] == 'infer':
-                    by_frame.setdefault(sample['frame'], []).append((character['character_id'], sample))
-        for completed, (frame, requests) in enumerate(sorted(by_frame.items()), 1):
-            check_stop()  # Cooperative stop; never kill an in-flight model call.
-            rgb = decode_rgb(frame)
-            for character_id, sample in requests:
-                attempted[character_id].add(frame)
-                arrays = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
-                                             **({} if cam_int is None else {'cam_int': cam_int}))
-                if arrays is None:
-                    records[character_id]['failures'].append({'frame': frame, 'reason': 'nonfinite-pose'})
-                    continue
-                records[character_id]['frames'].append(frame)
-                records[character_id]['poses'].append(arrays)
-            print(f'VTA reconstruction source frame {frame} complete', flush=True)
-            print(f'VTA_PROGRESS={completed}/{len(by_frame)} requested inference frames complete', flush=True)
-        # Repair anchors use current raw inference, never previously repaired output.
-        for character in plan['characters']:
-            cid = character['character_id']
-            record = records[cid]
-            while True:
-                extra = repair_anchor_requests(character['samples'], record['frames'], attempted[cid],
-                                               repair_context=character.get('repair_context', ()))
-                if not extra:
-                    break
-                for sample in extra:
-                    check_stop()
-                    frame = sample['frame']
-                    attempted[cid].add(frame)
-                    rgb = decode_rgb(frame)
-                    pose = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
-                                              **({} if cam_int is None else {'cam_int': cam_int}))
-                    if pose is None:
-                        record['failures'].append({'frame': frame, 'reason': 'nonfinite-repair-anchor'})
-                    else:
-                        record['frames'].append(frame)
-                        record['poses'].append(pose)
-            ordered = sorted(zip(record['frames'], record['poses']))
-            record['frames'] = [f for f, _ in ordered]
-            record['poses'] = [p for _, p in ordered]
-        # Validate every Character before exporting or publishing final output.
-        schedules = {c['character_id']: resolve_pose_schedule(c['samples'], records[c['character_id']]['frames'],
-                      repair_context=c.get('repair_context', ())) for c in plan['characters']}
-        exported = []
-        for index, character in enumerate(plan['characters']):
+        decision = Path(args.decision_file).resolve() if getattr(args, 'decision_file', None) else None
+        migration = None
+        previous = getattr(args, 'previous_fingerprint', ()) or ()
+        if requires_migration(previous, reconstruction['fingerprint']):
+            if decision is None or generation_id is None:
+                raise ValueError('Existing animation needs explicit migration approval; retry from the VTA generation panel')
+            migration = await_generation_decision(decision, root, plan, reconstruction, check_stop, generation_id)
+            migration_plan = build_skeletal_plan(project, cache, frame_range=migration)
+            validate_skeletal_repairs(project, migration_plan, frame_offset=1)
+        else:
+            # No old output, or compatible existing output: no file read/write/wait.
+            print('VTA_CALIBRATION_READY=' + str(generation_id or 'standalone'), flush=True)
+
+        def generate(plan, options, output, provenance):
+            records = {c['character_id']: {'frames': [], 'poses': [], 'failures': []}
+                       for c in plan['characters']}
+            attempted = {cid: set() for cid in records}
+            by_frame = {}
+            for character in plan['characters']:
+                for sample in character['samples']:
+                    if sample['mode'] == 'infer':
+                        by_frame.setdefault(sample['frame'], []).append((character['character_id'], sample))
+            for completed, (frame, requests) in enumerate(sorted(by_frame.items()), 1):
+                check_stop()  # Cooperative stop; never kill an in-flight model call.
+                rgb = decode_rgb(frame)
+                for character_id, sample in requests:
+                    attempted[character_id].add(frame)
+                    arrays = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
+                                                 **({} if cam_int is None else {'cam_int': cam_int}))
+                    if arrays is None:
+                        records[character_id]['failures'].append({'frame': frame, 'reason': 'nonfinite-pose'})
+                        continue
+                    records[character_id]['frames'].append(frame)
+                    records[character_id]['poses'].append(arrays)
+                print(f'VTA reconstruction source frame {frame} complete', flush=True)
+                print(f'VTA_PROGRESS={completed}/{len(by_frame)} requested inference frames complete', flush=True)
+            # Repair anchors use current raw inference, never previously repaired output.
+            for character in plan['characters']:
+                cid = character['character_id']
+                record = records[cid]
+                while True:
+                    extra = repair_anchor_requests(character['samples'], record['frames'], attempted[cid],
+                                                   repair_context=character.get('repair_context', ()))
+                    if not extra:
+                        break
+                    for sample in extra:
+                        check_stop()
+                        frame = sample['frame']
+                        attempted[cid].add(frame)
+                        rgb = decode_rgb(frame)
+                        pose = infer_reviewed_pose(estimator, np, torch, rgb, sample['evidence'], plan['height'],
+                                                  **({} if cam_int is None else {'cam_int': cam_int}))
+                        if pose is None:
+                            record['failures'].append({'frame': frame, 'reason': 'nonfinite-repair-anchor'})
+                        else:
+                            record['frames'].append(frame)
+                            record['poses'].append(pose)
+                ordered = sorted(zip(record['frames'], record['poses']))
+                record['frames'] = [f for f, _ in ordered]
+                record['poses'] = [p for _, p in ordered]
+            # Validate every Character before exporting or publishing final output.
+            schedules = {c['character_id']: resolve_pose_schedule(c['samples'], records[c['character_id']]['frames'],
+                          repair_context=c.get('repair_context', ())) for c in plan['characters']}
+            exported = []
+            for index, character in enumerate(plan['characters']):
+                check_stop()
+                record = records[character['character_id']]
+                frames = record['frames']
+                item = {'character_id': character['character_id'], 'display_name': character['display_name'],
+                        'source_frames': frames, 'schedule': schedules[character['character_id']],
+                        'failures': record['failures'], 'bvh': None}
+                if frames:
+                    pose_path, bvh_path = output / f'character-{index}.npz', output / f'character-{index}.bvh'
+                    arrays = {name: np.asarray([p[key] for p in record['poses']])
+                        for name, key in [('global_rots','pred_global_rots'), ('joint_coords','pred_joint_coords'), ('cam_t','pred_cam_t')]}
+                    arrays.update(frame_indices=np.asarray(frames), fps=np.asarray(plan['fps']), blendcap_npz_version=np.asarray(1))
+                    arrays['focal_length'] = np.asarray([p['focal_length'] for p in record['poses']])
+                    arrays['reconstruction_fingerprint'] = np.asarray(reconstruction['fingerprint'])
+                    with pose_path.open('xb') as handle:
+                        np.savez_compressed(handle, **arrays)
+                    command = export_command(sys.executable, bundle, pose_path, bvh_path)
+                    subprocess.run(command, cwd=bundle, check=True)
+                    item.update(bvh=bvh_path.name, bvh_sha256=digest(bvh_path),
+                                npz=pose_path.name, npz_sha256=digest(pose_path), export_command=command)
+                    item['camera_registration'] = {'version': 1,
+                        'convention': 'camera-centred-metres; world=(cv-x,cv-z,-cv-y); centred-square-pixels',
+                        'samples': [source_camera_sample(f, (p['pred_joint_coords'][1] + p['pred_cam_t']).tolist(),
+                            p['focal_length'], plan['width'], plan['height'])
+                            for f, p in zip(frames, record['poses'])]}
+                exported.append(item)
+            if not any(s['state'] != 'unavailable' for c in exported for s in c['schedule']):
+                raise RuntimeError('Animation range has no successful trustworthy or repaired pose; prior output retained')
+            result = {'schema': 'vta-reviewed-skeletal-output', 'version': 4, 'plan': plan,
+                      'provenance': provenance, 'reconstruction': reconstruction, 'characters': exported,
+                      'runtime_seconds': time.monotonic()-started}
+            # Reject evidence edits even from writers not honoring the common lock.
+            current = build_skeletal_plan(load_project_state(root), load_analysis_cache(root, revision), **options)
+            if current != plan:
+                raise RuntimeError('Review/evidence changed during reconstruction; output was not published')
             check_stop()
-            record = records[character['character_id']]
-            frames = record['frames']
-            item = {'character_id': character['character_id'], 'display_name': character['display_name'],
-                    'source_frames': frames, 'schedule': schedules[character['character_id']],
-                    'failures': record['failures'], 'bvh': None}
-            if frames:
-                pose_path, bvh_path = output / f'character-{index}.npz', output / f'character-{index}.bvh'
-                arrays = {name: np.asarray([p[key] for p in record['poses']])
-                    for name, key in [('global_rots','pred_global_rots'), ('joint_coords','pred_joint_coords'), ('cam_t','pred_cam_t')]}
-                arrays.update(frame_indices=np.asarray(frames), fps=np.asarray(plan['fps']), blendcap_npz_version=np.asarray(1))
-                arrays['focal_length'] = np.asarray([p['focal_length'] for p in record['poses']])
-                arrays['reconstruction_fingerprint'] = np.asarray(reconstruction['fingerprint'])
-                with pose_path.open('xb') as handle:
-                    np.savez_compressed(handle, **arrays)
-                command = export_command(sys.executable, bundle, pose_path, bvh_path)
-                subprocess.run(command, cwd=bundle, check=True)
-                item.update(bvh=bvh_path.name, bvh_sha256=digest(bvh_path),
-                            npz=pose_path.name, npz_sha256=digest(pose_path), export_command=command)
-                item['camera_registration'] = {'version': 1,
-                    'convention': 'camera-centred-metres; world=(cv-x,cv-z,-cv-y); centred-square-pixels',
-                    'samples': [source_camera_sample(f, (p['pred_joint_coords'][1] + p['pred_cam_t']).tolist(),
-                        p['focal_length'], plan['width'], plan['height'])
-                        for f, p in zip(frames, record['poses'])]}
-            exported.append(item)
-        if not any(s['state'] != 'unavailable' for c in exported for s in c['schedule']):
-            raise RuntimeError('Animation range has no successful trustworthy or repaired pose; prior output retained')
-        result = {'schema': 'vta-reviewed-skeletal-output', 'version': 4, 'plan': plan,
-                  'provenance': provenance, 'reconstruction': reconstruction, 'characters': exported,
-                  'runtime_seconds': time.monotonic()-started}
-        # Reject evidence edits even from writers not honoring the common lock.
-        current = build_skeletal_plan(load_project_state(root), load_analysis_cache(root, revision), **options)
-        if current != plan:
-            raise RuntimeError('Review/evidence changed during reconstruction; output was not published')
-        check_stop()
-        write_new_json(output / 'output.json', result)
-        print('VTA_OUTPUT=' + str(output / 'output.json'), flush=True)
-        return output / 'output.json'
+            write_new_json(output / 'output.json', result)
+            print('VTA_OUTPUT=' + str(output / 'output.json'), flush=True)
+            return output / 'output.json'
+        if migration is not None:
+            migration_options = {'frame_range': migration}
+            migration_plan = build_skeletal_plan(project, cache, **migration_options)
+            migration_output = new_output_directory(root)
+            write_new_json(migration_output/'plan.json', migration_plan)
+            migration_provenance = {**provenance, 'plan_sha256': digest(migration_output/'plan.json'),
+                                    'stage': 'compatibility-migration'}
+            write_new_json(migration_output/'request.json', migration_provenance)
+            generate(migration_plan, migration_options, migration_output, migration_provenance)
+        return generate(plan, options, output, provenance)
+    except GenerationCancelled:
+        print('VTA_CANCELLED=' + str(generation_id or 'standalone'), flush=True)
+        return None
     finally:
         os.close(descriptor)
         lock.unlink()
@@ -339,6 +384,10 @@ def main():
     parser.add_argument('--start-frame', type=int)
     parser.add_argument('--end-frame', type=int)
     parser.add_argument('--stop-file')
+    parser.add_argument('--decision-file')
+    parser.add_argument('--generation-id')
+    parser.add_argument('--previous-fingerprint', action='append', default=[])
+    parser.add_argument('--character-id', action='append')
     parser.add_argument('--fov-mode', choices=('FIRST', 'EVERY'), default='FIRST')
     run(parser.parse_args())
 

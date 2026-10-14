@@ -123,8 +123,16 @@ class BlenderOutputTests(unittest.TestCase):
         ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
         view = object()
         process = SimpleNamespace(poll=lambda: None)
-        with tempfile.TemporaryDirectory() as directory, \
-             mock.patch.object(ui, '_reconstruction_stop', Path(directory)/'generation-unique.stop'), \
+        import blendcap_vta_generation_ipc as ipc
+        with tempfile.TemporaryDirectory() as directory:
+            job=ipc.new_request(directory)
+            job['stop'].parent.mkdir(parents=True)
+            job['process']=SimpleNamespace(poll=lambda:1)
+            self.check_cancel_job(ui,job,process,view)
+
+    def check_cancel_job(self,ui,job,process,view):
+        with mock.patch.object(ui, '_generation_job',job), \
+             mock.patch.object(ui, '_reconstruction_stop', job['stop']), \
              mock.patch.object(ui, '_reconstruction_process', process), \
              mock.patch.object(ui, '_view', view):
             operator = SimpleNamespace(action='CANCEL', report=mock.Mock())
@@ -172,11 +180,12 @@ class BlenderOutputTests(unittest.TestCase):
         wm = SimpleNamespace(blendcap_vta_animation_start=11, blendcap_vta_animation_end=15,
             blendcap_vta_motion_start=67, blendcap_vta_motion_end=90)
         context = SimpleNamespace(window_manager=wm, scene=SimpleNamespace(
-            blendcap_props=SimpleNamespace(fov_mode='FIRST')))
+            blendcap_props=SimpleNamespace(fov_mode='FIRST'),objects=[]))
         operator = SimpleNamespace(action='RANGE', report=mock.Mock())
-        plan = mock.Mock(return_value={})
-        backend = SimpleNamespace(_load_context=lambda _: ('project', 'cache', 'revision'),
-                                  _core=SimpleNamespace(build_skeletal_plan=plan))
+        plan = mock.Mock(return_value={'project_id':'p','source_id':'s'})
+        cache = SimpleNamespace(source=SimpleNamespace(start_frame=0, end_frame=162))
+        backend = SimpleNamespace(_load_context=lambda _: ('project', cache, 'revision'),
+                                  _core=SimpleNamespace(build_skeletal_plan=plan, validate_skeletal_repairs=mock.Mock()))
         with tempfile.TemporaryDirectory() as directory, \
              mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
                  Path(directory), Path(directory)/'video.mp4', 0, 1)), \
@@ -187,12 +196,17 @@ class BlenderOutputTests(unittest.TestCase):
              mock.patch.object(Path, 'is_file', return_value=True), \
              mock.patch.object(ui.subprocess, 'Popen', return_value=SimpleNamespace(poll=lambda: None)) as launch, \
              mock.patch.object(ui, '_reconstruction_process', None), \
+             mock.patch.object(ui, '_generation_job', None), \
              mock.patch.object(ui, '_backend_root', Path('private')), \
              mock.patch.object(bpy.app.timers, 'register'):
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'FINISHED'})
-            plan.assert_called_once_with('project', 'cache', frame_range=(10, 14))
+            plan.assert_called_once_with('project', cache, frame_range=(10, 14))
             require_loaded.assert_called_once_with(context)
             command = launch.call_args.args[0]
+            self.assertNotIn('--decision-file',command)
+            self.assertNotIn('--previous-fingerprint',command)
+            self.assertIsNone(ui._generation_job['decision'])
+            self.assertIn('--generation-id',command)
             self.assertEqual(command[command.index('--fov-mode')+1], 'FIRST')
             self.assertEqual(command[command.index('--start-frame')+1], '10')
             self.assertEqual(command[command.index('--end-frame')+1], '14')
@@ -202,7 +216,7 @@ class BlenderOutputTests(unittest.TestCase):
             wm.blendcap_vta_animation_start = 20
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'CANCELLED'})
             launch.assert_not_called()
-            self.assertIn('must not exceed', operator.report.call_args.args[1])
+            self.assertIn('must not exceed', ui._generation_details)
 
     def test_partial_actions_compose_overlap_hold_independence_and_reload(self):
         obj = self.rig('range-white', list(range(12)))

@@ -77,9 +77,9 @@ class ObjectPlacementTests(unittest.TestCase):
         bpy.context.scene.frame_set(self.frame_before)
         bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y = self.render_before
 
-    def make_report(self, bounded, displacement=0, unavailable=False):
+    def make_report(self, bounded, displacement=0, unavailable=False, source_frames=None):
         import numpy as np
-        frames = [2, 3] if bounded else list(range(6))
+        frames = list(source_frames) if source_frames is not None else [2, 3] if bounded else list(range(6))
         self.schedule = [{'frame':f, 'state':'unavailable' if unavailable else 'reconstructed',
                           'pose_source_frame':None if unavailable else f} for f in frames]
         self.plan = {'version':4, 'generation_scope':'range' if bounded else 'whole-source', 'project_id':self.pid, 'source_id':'s',

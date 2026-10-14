@@ -115,9 +115,9 @@ class BlenderCalibrationTests(unittest.TestCase):
         self.fixture.backend._core.reconstruction_fingerprint=calibration.reconstruction_fingerprint
         self.fixture.backend._core.require_compatible_reconstruction=calibration.require_compatible_reconstruction
 
-    def calibrated_report(self,bounded):
+    def calibrated_report(self,bounded,source_frames=None):
         import numpy as np
-        fixture=self.fixture;path=fixture.make_report(bounded)
+        fixture=self.fixture;path=fixture.make_report(bounded,source_frames=source_frames)
         report=json.loads(path.read_text())
         identity=calibration.calibration_identity(report['plan']['source_video_sha256'],1000,600,{'model':'one'})
         record,_=calibration.load_or_compute_calibration(fixture.root,identity,

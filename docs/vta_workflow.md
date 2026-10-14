@@ -3,7 +3,9 @@
 This guide describes the current Video-to-Animation (VTA) integration in the
 BlendCap-derived Blender host. VTA supports independent reviewed Characters
 from a source video; it does not guarantee correct automatic identity or pose
-through contact/occlusion. Final pre-1.0 QA is pending, not a feature-freeze claim.
+through contact/occlusion. Final Core 1.0 functional QA is pending, not a feature-freeze
+or public/commercial-release claim. Public 1.0 additionally requires commercial,
+licensing, security, packaging, installation/update, first-run and support readiness.
 
 ## Public component and runtime boundary
 
@@ -84,11 +86,23 @@ correct-frame overlays without repeatedly loading the project or model.
 
 ## Generation, repair and placement
 
-Generate reviewed animation explicitly, for the source or an inclusive range.
+Set Animation Start/End, optionally use the current-frame setters, then choose
+**Generate Animation Range** below them. This is the only normal generation
+command. The displayed source bounds are separate from the selected range,
+reviewed coverage and generated coverage. Set the range to the displayed source
+bounds to generate the full source; scene playback/preview bounds do not define it.
 Characters produce independent rigs. Bounded regeneration preserves generated
 motion outside the request, and both generation paths preserve supported user
-Object Mode transforms, keys, interpolation and handles. VTA owns generated
+Object Mode transforms, keys, interpolation and handles. Selecting a Character
+in Preview or the sidebar also activates its existing VTA Dope Sheet row without
+moving the playhead, changing filters or modifying project state. VTA owns generated
 skeletal/root-motion and availability channels, not arbitrary animator edits.
+
+The **Characters** scope is explicit: **All Reviewed** (default) or **Selected
+Rows** in the VTA Dope Sheet. Compatible selected-only updates preserve other
+Characters' Actions/transforms/availability. Shared calibration is still source-wide:
+an incompatible old result requires consent to update all existing Characters before
+the selected request; selected scope cannot bypass that gate.
 
 ProjectState **0.8** uses Character/source-bound **Freeze** and **Interpolate**
 repair ranges. Rejection is independent of identity/tracking and is never erased
@@ -96,6 +110,19 @@ by regeneration. Raw reconstruction is retained separately from repaired output:
 Freeze uses the latest eligible raw pose; Interpolate uses eligible raw endpoints,
 shortest-path quaternion interpolation and linear root translation. Missing
 required anchors fail explicitly; repaired output is not reused as raw evidence.
+Every frame inside an Interpolate range is rejected/replaced; good unrepaired
+anchor poses must be outside it. An identity assignment alone is not pose approval.
+
+Evidence-only Interpolate preflight runs before launching reconstruction and names
+the Character and inclusive repair range when either eligible unrepaired anchor is
+missing. Actual raw-pose success remains a final safety gate: eligible evidence is
+not a guarantee that inference produces a valid pose. Select a repair strip, edit
+Start/End, then **Apply Start / End** to resize it in place. Overlap with another
+repair fails rather than silently merging. **Freeze / Interpolate** create a repair
+when none is selected; otherwise they convert only the selected exact repair.
+Selected text shows the stored type/endpoints; the current type is disabled.
+Hover timeline keys, rows, repair strips and derived marks for short explanations.
+Derived marks are tracking results, not generated-pose keys.
 
 Camera-space reconstruction is registered through the calibrated source camera.
 An owned identity `VTA_SceneRoot` organizes camera and rigs only—it is not a motion
@@ -105,16 +132,73 @@ adoption/import is transactional.
 
 **Camera View** or **VTA Commands → Snap to Source Camera** restores the calibrated
 3D view after orbiting. It changes presentation, not camera/rig transforms.
+Before first generation, the implementation attempts to display UI-scaled guidance
+centred in the usable viewport, clear of the toolbar/sidebar, without creating
+fake objects. Its guards hide it when generated rigs are present or the Scene/workspace
+is unrelated; live visibility is not yet accepted (see below). First successful
+output snaps the relevant VTA workspace to Camera View;
+later updates preserve the user's orbit. A context change/Local View skips this
+convenience; explicit Camera View remains available.
+
+Checkpoint QA (2026-10-14): blank-state guidance is **still not visibly working**
+in live QA despite headless raster checks. This is non-blocking UI debt, deferred
+to the next/Public 1.0 UI pass; it is not an accepted visible feature yet.
+
+**Move Along Camera Depth** in the 3D VTA sidebar translates one selected generated
+rig object along the source camera's forward/back axis, independent of viewport
+orientation. It does not alter bones, source camera, reconstruction or animation
+curves. Drag along the projected screen axis; perpendicular motion is ignored;
+Shift is fine control; Enter/click confirms; Esc cancels. Orbit slightly if depth
+is nearly head-on. Ordinary Blender undo is supported. Keyframe Object Mode location
+explicitly if you want this adjustment animated; this tool does not propagate or
+insert correction keys. Locked/driven/NLA/unsupported-parent rigs fail safely.
+Camera-depth functionality passed manual QA. N-panel invocation obscures useful
+viewport area; placement/interaction refinement is deferred to Public 1.0 UX work.
 Deleting the source camera preserves finished animation and ordinary Blender
 exportability; regeneration can fail when its registration metadata is missing.
 
 For static-camera **FIRST** reconstruction, full-image source-index-0 intrinsics
 are derived once and reused across Characters, frames, bounded runs and repair
 anchors. Calibration/cache and output fingerprints prevent silently mixing
-incompatible policies. Incompatible bounded updates fail before Blender mutation;
-whole-source regeneration is required to migrate old output. Invalid FIRST
+incompatible policies. Before pose reconstruction, an incompatible existing result
+offers **Update Animation and Continue / Cancel**. Migration covers the smallest
+contiguous interval containing all old generated poses and visible output for all
+Characters sharing that source, excluding user Object Mode keys and hidden guards.
+The worker reconstructs migration first, then the requested range with the same
+calibration. Both publish in one transaction; failure or cancellation retains the
+old animation. If compatibility is unchanged, outside motion is preserved normally.
+New/compatible generation has no decision-file dependency. Only incompatible
+existing output waits for explicit consent. Replies and cancellation are keyed to
+one generation ID; late old dialogs cannot affect a new request. The host cleans
+only its stop/decision markers after worker exit, never an active writer's temp.
+Publication is Windows long-path-safe and duplicate identical consent is idempotent.
+Intentional cancellation is a normal result, not a worker crash.
+No whole-source prerequisite exists for a new project's first bounded generation.
+Expected failures appear near the operation that failed, without an interrupting
+error popup: generation by Generate Animation Range, tracking by Update Tracking,
+and repair edits by Repair Animation. The primary message states the failure and
+whether prior work was retained. Expand **Details** for Character/range, validation
+rule, recovery and whether reconstruction started; raw logs are not dumped there.
+**Go to Log** opens the containing folder and selects the relevant file in Windows
+Explorer, without changing the clipboard. Preflight failures can create a small
+diagnostic log; if no log exists, the button is disabled and Details says so. Invalid FIRST
 calibration fails without per-frame fallback. **EVERY** inference is unchanged.
 This does not solve general zoom/moving-camera calibration or physical depth truth.
+
+## Core polish checkpoint disposition — 2026-10-14
+
+Repair preflight PASS; suppression PASS / previously verified; camera-depth
+functionality PASS. Compact error / Details / Go to Log presentation is
+provisionally accepted, with final live verification required before Public 1.0
+completion. Blank 3D guidance and Camera Depth UI placement remain deferred as
+described above. Prior accepted Interpolate/SceneRoot/Camera View QA stays valid.
+
+Core 1.0 is moving toward a **soft freeze**, not a hard feature freeze. Architecture
+and core workflows are presumed stable; QA, bug fixes, documentation, release
+readiness and UI/UX refinement continue normally. Narrow features remain allowed
+when real use exposes a concrete need. Speculative features, broad redesigns and
+new technical subsystems are deferred by default. This is an accepted checkpoint,
+not Public 1.0, a release tag or a release publication.
 
 ## Supported limits
 
@@ -124,10 +208,26 @@ solving and automatic perfect overlap reconstruction are not VTA V1 promises.
 Monocular depth/pose errors can remain even with correct reviewed identity.
 Use human assignments and explicit repairs where evidence is insufficient.
 
+Suppress Candidate excludes that observation before automatic geometry ranking,
+including its runner-up margin. Removing a duplicate can therefore allow confident
+continuation to extend farther after Update Tracking. It is negative evidence for
+all Characters, not an assignment to another Character. Raw detector evidence stays
+unchanged and Restore remains available; no tracking thresholds are relaxed.
+
 Do not confuse inherited BlendCap capture/cleanup features with VTA guarantees.
 Respect source-footage rights and model/component licenses.
 
 ## Development and validation
+
+Windows path length is a first-class constraint. Keep generated trees and temp/IPC
+leaves short, avoid repeating parent context, and use compact collision-checked IDs
+where full hashes are unnecessary. Generation run leaves use a 16-hex ID with
+exclusive directory creation; IPC retains full request identity and short temps.
+Never assume Windows long-path opt-in. Test worst-case absolute paths in embedded
+Blender as well as the external worker. IPC uses extended paths; third-party
+model/export readers may not. Generation preflights their worst-case path budget
+and asks for a shorter project folder before model launch if it reaches 260 chars.
+Do not rename/refactor working paths merely for style or weaken request ownership.
 
 Use a Blender version compatible with `blender_manifest.toml` and the existing
 [installation](03-installation.md), [requirements](02-system-requirements.md) and
