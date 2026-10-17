@@ -76,6 +76,9 @@ class BLENDCAP_OT_vta_camera_depth(bpy.types.Operator):
                 raise ValueError('Character is behind this view. Frame it and retry.')
             self._screen_axis = (b - a) / .01  # pixels per world metre
             mouse_depth_delta((0, 0), self._screen_axis)
+            # Presentation change belongs only to the invoking viewport. Leave
+            # it closed on confirm/cancel; this is not editor-history restore.
+            context.space_data.show_region_ui = False
             self._area = context.area
             self._guide = (a, self._screen_axis.normalized())
             self._handle = bpy.types.SpaceView3D.draw_handler_add(self._draw_axis, (), 'WINDOW', 'POST_PIXEL')

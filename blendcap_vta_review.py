@@ -399,7 +399,7 @@ class SelectionState:
         self.observation_id = observation_id
         # An assigned candidate carries an authoritative Character relation.
         # Unassigned candidates do not change Character intent.
-        if selected.assigned_character_id is not None:
+        if selected.assigned_character_id in {c.character_id for c in view.characters}:
             self.character_id = selected.assigned_character_id
         return True
 
@@ -472,10 +472,12 @@ def user_message(error: BaseException) -> str:
 
 
 def tracking_update_success(result: object, *, frame_offset: int = 0) -> str:
+    scopes = getattr(result, 'scopes', ()) or (result.scope,)
     return (f"Tracking updated: {result.matched + result.unresolved} analyzed frames, "
             f"{result.matched} matched, {result.unresolved} unresolved. "
-            f"Blender frame bounds: {result.scope.left_boundary.frame + frame_offset}–"
-            f"{result.scope.right_boundary.frame + frame_offset}.")
+            f"Blender frame bounds: {min(s.left_boundary.frame for s in scopes) + frame_offset}–"
+            f"{max(s.right_boundary.frame for s in scopes) + frame_offset}." +
+            (f' Reconciled {len(scopes)} subintervals.' if len(scopes) > 1 else ''))
 
 
 def tracking_update_error(error: BaseException) -> str:
@@ -496,6 +498,8 @@ def character_name_exists(view: ReviewView, display_name: str) -> bool:
 
 
 class PrivateCoreBackend:
+    def restore_review_snapshot(self, companion_root, expected_sha256, snapshot):
+        return self._core.restore_review_snapshot(companion_root, expected_sha256, snapshot)
     """Late-bound adapter to the separately installed private ``vta_core``."""
 
     def __init__(
@@ -547,10 +551,10 @@ class PrivateCoreBackend:
         except self._core.StateModelError as exc:
             raise VtaReviewUiError(str(exc)) from exc
 
-    def apply_suppression(self, location, request, *, confirmed=False):
+    def apply_suppression(self, location, request, *, confirmed=False, **undo_guard):
         try:
             return self._core.apply_candidate_suppression_and_persist(
-                location.companion_root, request, confirmed=confirmed)
+                location.companion_root, request, confirmed=confirmed, **undo_guard)
         except self._core.StateModelError as exc:
             raise VtaReviewUiError(str(exc)) from exc
 
@@ -593,7 +597,7 @@ class PrivateCoreBackend:
             raise
         return result, self.query(location), self.query_timeline(location)
 
-    def update_tracking_for_characters(self, location, character_ids):
+    def update_tracking_for_characters(self, location, character_ids, **undo_guard):
         project, cache, revision_id = self._load_context(location)
         if (not isinstance(character_ids, (tuple, list)) or not character_ids
                 or any(not isinstance(cid, str) or not cid for cid in character_ids)
@@ -605,7 +609,7 @@ class PrivateCoreBackend:
             outcomes = self._core.update_tracking_many_and_persist(
                 location.companion_root, tuple(sorted(character_ids)), cache.source.source_id,
                 location.source_frame,
-                expected_project_sha256=hashlib.sha256(project.to_json().encode()).hexdigest())
+                expected_project_sha256=hashlib.sha256(project.to_json().encode()).hexdigest(), **undo_guard)
         except Exception as exc:
             if exc.__class__.__module__.startswith('vta_core'):
                 raise VtaReviewUiError(str(exc)) from exc
@@ -650,11 +654,11 @@ class PrivateCoreBackend:
             raise
         return receipt
 
-    def apply_management(self, location: ReviewLocation, request, *, confirmed: bool):
+    def apply_management(self, location: ReviewLocation, request, *, confirmed: bool, **undo_guard):
         self._load_context(location)
         try:
             receipt = self._core.apply_review_management_and_persist(
-                location.companion_root, request, confirmed=confirmed,
+                location.companion_root, request, confirmed=confirmed, **undo_guard,
             )
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):
@@ -668,6 +672,7 @@ class PrivateCoreBackend:
         *,
         observation_id: str,
         character_id: str,
+        **undo_guard,
     ) -> tuple[object, ReviewView]:
         project, cache, revision_id = self._load_context(location)
         try:
@@ -687,6 +692,7 @@ class PrivateCoreBackend:
                 location.companion_root,
                 cache,
                 request,
+                **undo_guard,
             )
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):
@@ -726,13 +732,13 @@ class PrivateCoreBackend:
         return request, present_review(review, dimensions)
 
     def apply_confirmed_reassignment(
-        self, location: ReviewLocation, request: object
+        self, location: ReviewLocation, request: object, **undo_guard
     ) -> tuple[object, ReviewView]:
         """Submit the already confirmed snapshot; private core revalidates it."""
         _project, cache, _revision_id = self._load_context(location)
         try:
             receipt = self._core.apply_confirmed_reassignment_and_persist(
-                location.companion_root, cache, request
+                location.companion_root, cache, request, **undo_guard
             )
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):
@@ -765,13 +771,13 @@ class PrivateCoreBackend:
         return request, present_review(review, dimensions)
 
     def apply_hard_state(
-        self, location: ReviewLocation, request: object, *, confirmed: bool
+        self, location: ReviewLocation, request: object, *, confirmed: bool, **undo_guard
     ) -> tuple[object, ReviewView]:
         """Persist via private authority, then reload the canonical review."""
         _project, cache, _revision_id = self._load_context(location)
         try:
             receipt = self._core.apply_hard_frame_decision_and_persist(
-                location.companion_root, cache, request, confirmed=confirmed
+                location.companion_root, cache, request, confirmed=confirmed, **undo_guard
             )
         except Exception as exc:
             if exc.__class__.__module__.startswith("vta_core"):

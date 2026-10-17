@@ -9,6 +9,18 @@ from .retarget.fcurves import _iter_action_fcurves
 LEGACY = 'legacy-per-frame-intrinsics'
 
 
+def worker_failure(code,lines):
+    """An abruptly stopped worker's final warning is not its exception."""
+    errors=[line for line in lines if line.startswith(('RuntimeError:','ValueError:','OSError:',
+        'FileNotFoundError:','MemoryError:','torch.OutOfMemoryError:','Fatal Python error:','Windows fatal exception:'))]
+    if errors:return errors[-1]
+    unsigned=code & 0xffffffff
+    detail=f'Generation worker exited unexpectedly (exit code {code}, 0x{unsigned:08X}).'
+    if unsigned in (0xC0000017,0xC000009A,0xC000012D):detail+=' System memory/commit limit was exhausted.'
+    elif unsigned==0xC0000005:detail+=' Native access violation; see the crash log.'
+    return detail+' Last diagnostic (not necessarily the cause): '+next((s for s in reversed(lines) if s.strip()),'No diagnostic output.')
+
+
 def source_bounds(cache, location):
     offset = location.blender_frame - location.source_frame
     return cache.source.start_frame + offset, cache.source.end_frame + offset
@@ -41,6 +53,12 @@ def migration_range(scene, plan, incoming, domain, offset):
     targets = owners(scene, plan['project_id'], plan['source_id'])
     if not any(fingerprint(o) != incoming for o in targets):
         return None
+    selected=plan.get('character_scope')
+    if selected is not None and any(o.type=='ARMATURE' and o.get('vta_character_id') not in selected for o in targets):
+        raise ValueError('Shared camera calibration needs an update. Select all existing Characters for this source and retry; unselected animation was not changed.')
+    from .vta_camera_cleanup import require_source_aligned
+    require_source_aligned(scene, [o.get('vta_character_id') for o in targets if o.type == 'ARMATURE'],
+                          plan['project_id'], plan['source_id'])
     frames = set()
     for obj in targets:
         if obj.type != 'ARMATURE':
@@ -67,9 +85,7 @@ def failure_message(detail, cancelled=False):
         return 'Update cancelled. Your existing animation is unchanged.'
     if 'animation start must not exceed' in detail.lower() or 'choose an animation range within' in detail.lower():
         reason = detail + ' Adjust the range and retry.'
-    elif 'project path is too long' in detail.lower() or 'select character rows' in detail.lower():
-        reason = detail
-    elif 'project path is too long' in detail.lower() or 'select character rows' in detail.lower():
+    elif any(message in detail.lower() for message in ('project path is too long','select character rows','select at least one character','select all existing characters')):
         reason = detail
     elif 'environment unavailable' in detail.lower() or 'runtime is incomplete' in detail.lower():
         reason = 'Install the body models/runtime in BlendCap Preferences, then retry.'

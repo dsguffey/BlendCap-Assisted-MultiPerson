@@ -105,8 +105,52 @@ class QaFollowupTests(unittest.TestCase):
             with mock.patch.object(ui.os,'name','nt'),mock.patch.object(ui.subprocess,'Popen') as launch:
                 result=ui.BLENDCAP_OT_vta_generation_details.execute(NS(operation='animation',report=mock.Mock()),context)
                 self.assertEqual(result,{'FINISHED'})
-                launch.assert_called_once_with(['explorer.exe','/select,'+str(path.resolve())])
+                launch.assert_called_once_with(['explorer.exe','/select,',str(path.resolve())])
             self.assertEqual(context.window_manager.clipboard,'unchanged')
+
+    def test_missing_or_relative_log_never_launches_documents(self):
+        with tempfile.TemporaryDirectory() as folder,mock.patch.object(self.ui.subprocess,'Popen') as launch, \
+                mock.patch.object(bpy.ops.wm,'path_open') as open_folder:
+            for path in (Path(folder)/'gone.log',Path('relative.log')):
+                with self.assertRaisesRegex(ValueError,'available|absolute'):
+                    self.ui.open_operation_log(path)
+            launch.assert_not_called();open_folder.assert_not_called()
+
+    def test_worker_warning_is_not_reported_as_blocking_exception(self):
+        from .test_blendcap_vta_core_polish import CorePolishTests
+        import importlib
+        generation=importlib.import_module(self.ui.__package__+'.vta_generation')
+        result=generation.worker_failure(-1073741819,["Ignored kwargs: {'drop_path': 0.1}"])
+        self.assertIn('0xC0000005',result);self.assertIn('not necessarily the cause',result)
+        self.assertTrue(result.startswith('Generation worker exited unexpectedly'))
+        self.assertEqual(generation.worker_failure(1,['warning','RuntimeError: actual failure']),'RuntimeError: actual failure')
+
+    def test_abrupt_generation_failure_releases_runtime_eligibility_and_keeps_animation(self):
+        ui=self.ui
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'worker.log';path.write_text("Ignored kwargs: {'drop_path': 0.1}\n")
+            process=NS(poll=lambda:27,returncode=27)
+            with mock.patch.object(ui,'_reconstruction_process',process),mock.patch.object(ui,'_generation_job',None), \
+                    mock.patch.object(ui,'_reconstruction_log',path),mock.patch.object(ui,'_reconstruction_stop',None), \
+                    mock.patch.object(ui,'_reconstruction_scene',None),mock.patch.object(ui,'_reconstruction_location',None), \
+                    mock.patch.object(ui,'_analysis_process',None), \
+                    mock.patch(ui.__package__+'.vta_skeletal_output.import_reviewed_output') as publish:
+                self.assertIsNone(ui._reconstruction_timer())
+                self.assertIsNone(ui._reconstruction_process);self.assertIsNone(ui._generation_job)
+                publish.assert_not_called()
+                self.assertIn('exit code 27',ui._generation_details)
+                self.assertIn('unchanged',ui._generation_status)
+
+    @unittest.skipUnless(__import__('os').name=='nt','Legacy empty-lock evaluation is Windows-specific')
+    def test_reopened_abandoned_empty_lock_is_not_permanent_ui_busy_state(self):
+        ui=self.ui
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'analysis/vta-analysis.lock';path.parent.mkdir();path.write_bytes(b'')
+            with mock.patch.object(ui,'_location',NS(companion_root=Path(folder))), \
+                    mock.patch.object(ui,'_analysis_process',None),mock.patch.object(ui,'_reconstruction_process',None), \
+                    mock.patch(ui.__package__+'.vta_camera_cleanup.busy',return_value=False):
+                self.assertFalse(ui._analysis_locked());self.assertTrue(path.exists(),'Poll must be read-only')
+                ui._require_analysis_idle();self.assertFalse(path.exists(),'Explicit command recovers it')
 
     def test_repair_validation_error_local_no_popup_and_preserved(self):
         ui=self.ui;context=NS(scene=NS(),window_manager=NS())

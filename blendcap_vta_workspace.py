@@ -99,6 +99,12 @@ def derived_mark_color(state):
     return TRACKING_COLOR if state in ('visible', 'partially-visible') else UNRESOLVED_COLOR
 
 
+def authoritative_key_style(key, color):
+    """Pending is valid human truth: cyan plus an underline, never a warning."""
+    pending = getattr(key, 'tracking_state', 'pending') == 'pending'
+    return ((.15, .92, .95, 1) if pending else color), pending
+
+
 def repair_range_colors(mode):
     """Categorical repair colors, independent of identity/selection/confidence."""
     if mode == 'freeze':

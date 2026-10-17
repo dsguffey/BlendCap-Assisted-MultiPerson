@@ -7,6 +7,7 @@ No native channel, strip, playhead, or project authority is created.
 from __future__ import annotations
 
 from ..blendcap_vta_timeline import hit_test_keys
+from ..blendcap_vta_workspace import authoritative_key_style
 if __package__ == 'blendcap':
     from blendcap_vta_area_mode import ROLE_PREVIEW, role_for
 else:
@@ -154,6 +155,9 @@ def _draw() -> None:
                 "no-valid-candidate": (.25, .8, 1, 1),
                 "not-visible": (1, .45, .45, 1),
             }[key.state]
+            color, pending = authoritative_key_style(key, color)
+            if pending:
+                line(((x-4,y-10),(x+4,y-10)),color)
             outline = selection_outline_style(key.keyframe_id, selected_ids, active_id)
             if outline is not None:
                 line(((x - 10, y - 10), (x + 10, y - 10), (x + 10, y + 10),

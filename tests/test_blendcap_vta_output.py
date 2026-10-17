@@ -190,6 +190,7 @@ class BlenderOutputTests(unittest.TestCase):
              mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
                  Path(directory), Path(directory)/'video.mp4', 0, 1)), \
              mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, 'tracking_character_ids', return_value=('selected-character',)), \
              mock.patch.object(ui, 'require_loaded_context') as require_loaded, \
              mock.patch.object(ui, '_edit_available', return_value=True), \
              mock.patch.object(ui, '_python_exe', return_value='managed-python.exe'), \
@@ -200,7 +201,7 @@ class BlenderOutputTests(unittest.TestCase):
              mock.patch.object(ui, '_backend_root', Path('private')), \
              mock.patch.object(bpy.app.timers, 'register'):
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'FINISHED'})
-            plan.assert_called_once_with('project', cache, frame_range=(10, 14))
+            plan.assert_called_once_with('project', cache, frame_range=(10, 14),character_ids=('selected-character',))
             require_loaded.assert_called_once_with(context)
             command = launch.call_args.args[0]
             self.assertNotIn('--decision-file',command)

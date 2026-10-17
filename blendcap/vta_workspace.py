@@ -15,8 +15,10 @@ from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
     motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color, repair_range_colors,
+    authoritative_key_style,
 )
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
+from ..blendcap_vta_tracking_hints import marker_positions, hit_marker
 from ..blendcap_vta_area_mode import (
     ROLE_PREVIEW, ROLE_TIMELINE, initialize_workspace_preset, role_for, set_role,
     configured_role_for,
@@ -343,6 +345,28 @@ def _timeline_text_size_changed(_self, _context):
     vta_invalidation.request_redraw()
 
 
+def tracking_hint_markers(context, view, first, metrics):
+    if context.region.type != 'WINDOW':
+        return ()
+    hints = _ui().tracking_hints(context)
+    if not hints:
+        return ()
+    return marker_positions(hints,
+        character_lanes(view, context.region.height, first, metrics=metrics),
+        lambda frame: context.region.view2d.view_to_region(frame, 0, clip=False)[0],
+        context.region.width, metrics.hit_radius)
+
+
+def _draw_tracking_hint_markers(context, view, first, metrics, shader, batch):
+    import blf
+    # An outlined triangle/question mark, never a filled human-key diamond.
+    for _hint,x,y in tracking_hint_markers(context, view, first, metrics):
+        r=8*metrics.ui_scale
+        _line(shader,batch,((x,y+r),(x+r,y-r),(x-r,y-r),(x,y+r)),(.98,.77,.28,1))
+        blf.position(0,x-3*metrics.ui_scale,y-5*metrics.ui_scale,0)
+        blf.size(0,11*metrics.ui_scale);blf.color(0,.98,.77,.28,1);blf.draw(0,'?')
+
+
 def _draw_channels():
     try:
         import blf, gpu
@@ -471,6 +495,7 @@ def _draw_window():
             if 0 <= x < region.width:
                 _line(shader, batch_for_shader, ((x, y - 3 * scale), (x, y + 3 * scale)),
                       derived_mark_color(mark.state))
+        _draw_tracking_hint_markers(context, view, first, metrics, shader, batch_for_shader)
         for key in view.keys:
             y = lanes.get(key.character_id)
             if y is None:
@@ -485,6 +510,9 @@ def _draw_window():
                 'no-valid-candidate': (.3, .8, 1, 1),
                 'not-visible': (1, .48, .48, 1),
             }[key.state]
+            color, pending = authoritative_key_style(key, color)
+            if pending:
+                _line(shader, batch_for_shader, ((x-4*scale,y-10*scale),(x+4*scale,y-10*scale)),color)
             if key.keyframe_id in selected:
                 radius = 10 * scale
                 _line(shader, batch_for_shader,
@@ -712,8 +740,16 @@ def timeline_tooltip(context, point):
     if context.region.type == 'CHANNELS':
         cid = hit_character(view, context.region.height, point[1], first, metrics=metrics)
         return 'Character row — Selected rows target tracking, repairs and selected generation.' if cid else ''
-    if hit_review_key(view, context.region.view2d, context.region.height, point, offset, first, metrics=metrics):
-        return 'Hard review key — Explicit Character assignment or review decision at this frame.'
+    key_id = hit_review_key(view, context.region.view2d, context.region.height, point, offset, first, metrics=metrics)
+    if key_id:
+        key = next((k for k in getattr(view, 'keys', ()) if k.keyframe_id == key_id), None)
+        label = getattr(key, 'tracking_label', 'Authoritative — not yet included in Update Tracking')
+        return 'Hard review key — Explicit Character assignment or review decision. ' + label
+    markers = tracking_hint_markers(context,view,first,metrics)
+    hint = hit_marker(markers,point,metrics.hit_radius) if markers else None
+    if hint:
+        return (f'Identity ambiguous at frame {hint.frame} — Non-authoritative hint. '
+                'Click: review / Right-click: dismiss. Assign only valid separate evidence; otherwise No Valid Candidate.')
     interval = hit_motion_interval(view, context.region.view2d, context.region.width,
         context.region.height, point, offset, first, metrics=metrics)
     if interval:
@@ -785,6 +821,11 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                                 context.region.height, point, offset, first, metrics=metrics)
                   )
         if key_id is None:
+            markers = tracking_hint_markers(context,view,first,metrics)
+            hint = hit_marker(markers,point,metrics.hit_radius) if markers else None
+            if hint is not None and event.type in {'LEFTMOUSE','RIGHTMOUSE'} and _box_gesture is None:
+                return bpy.ops.blendcap.vta_goto_tracking_hint(character_id=hint.character_id,
+                    frame=hint.frame,dismiss=event.type=='RIGHTMOUSE')
             if context.region.type == 'WINDOW' and event.type == 'LEFTMOUSE' and _box_gesture is None:
                 interval = hit_motion_interval(view, context.region.view2d,
                                                context.region.width, context.region.height,

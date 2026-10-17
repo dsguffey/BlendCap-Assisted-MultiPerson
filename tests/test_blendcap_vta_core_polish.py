@@ -44,6 +44,7 @@ class CorePolishTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(ui,'_location_from_context',return_value=ReviewLocation(Path(folder),Path('video.mp4'),0,1)), \
                 mock.patch.object(ui,'_get_backend',return_value=backend), mock.patch.object(ui,'_edit_available',return_value=True), \
                 mock.patch.object(ui,'_reconstruction_process',None), mock.patch.object(ui,'_python_exe') as python, \
+                mock.patch.object(ui,'tracking_character_ids',return_value=('yellow',)), \
                 mock.patch.object(ui.subprocess,'Popen') as launch:
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator,context),{'CANCELLED'})
             launch.assert_not_called(); python.assert_not_called()
@@ -73,7 +74,7 @@ class CorePolishTests(unittest.TestCase):
             self.assertFalse((root/'reconstruction').exists())
             self.assertFalse((root/'analysis/vta-analysis.lock').exists())
 
-    def test_selected_launch_passes_exact_ids_and_all_default_stays_available(self):
+    def test_selected_launch_passes_exact_ids_even_with_obsolete_all_setting(self):
         ui = self.ui
         with tempfile.TemporaryDirectory() as folder:
             location=ReviewLocation(Path(folder),Path(folder)/'video.mp4',0,1)
@@ -97,9 +98,15 @@ class CorePolishTests(unittest.TestCase):
                 ui._reconstruction_process=None; ui._generation_job=None
                 wm.blendcap_vta_generation_scope='ALL'; build.reset_mock()
                 self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
-                self.assertNotIn('character_ids',build.call_args.kwargs)
-                self.assertNotIn('--character-id',launch.call_args.args[0])
+                self.assertEqual(build.call_args.kwargs['character_ids'],('white',))
+                self.assertIn('--character-id',launch.call_args.args[0])
                 ui._reconstruction_process=None; ui._generation_job=None
+                build.reset_mock()
+                with mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')):
+                    self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
+                self.assertEqual(build.call_args.kwargs['character_ids'],('white','yellow'))
+                self.assertEqual(launch.call_args.args[0].count('--character-id'),2)
+                ui._reconstruction_process=None;ui._generation_job=None
 
     def test_selected_import_preserves_unrelated_action_curves_visibility_and_transform(self):
         from tests.test_blendcap_vta_source_calibration import BlenderCalibrationTests
@@ -214,6 +221,25 @@ class CorePolishTests(unittest.TestCase):
         for axis in ((0,0),(float('nan'),1)):
             with self.assertRaisesRegex(ValueError,'Orbit'):
                 self.depth.mouse_depth_delta((10,10),axis)
+
+    def test_depth_invoke_closes_only_invoking_sidebar_and_never_restores_it(self):
+        from tests.test_blendcap_vta_source_calibration import BlenderCalibrationTests
+        t=BlenderCalibrationTests();t.setUp();self.addCleanup(t.doCleanups)
+        obj=t.fixture.rigs[0];camera=bpy.context.scene.camera
+        other=NS(show_region_ui=True)
+        space=NS(show_region_ui=True,region_3d=NS())
+        area=NS(regions=[NS(type='WINDOW')],header_text_set=mock.Mock(),tag_redraw=mock.Mock())
+        context=NS(scene=bpy.context.scene,area=area,space_data=space,
+            window_manager=NS(modal_handler_add=mock.Mock()))
+        operator=NS(_draw_axis=lambda:None,report=mock.Mock())
+        operator._end_display=lambda ctx:self.depth.BLENDCAP_OT_vta_camera_depth._end_display(operator,ctx)
+        with mock.patch.object(self.depth,'depth_target',return_value=(obj,camera)), \
+                mock.patch('bpy_extras.view3d_utils.location_3d_to_region_2d',side_effect=[Vector((1,2)),Vector((2,3))]):
+            result=self.depth.BLENDCAP_OT_vta_camera_depth.invoke(operator,context,NS(mouse_x=0,mouse_y=0))
+        self.assertEqual(result,{'RUNNING_MODAL'})
+        self.assertFalse(space.show_region_ui);self.assertTrue(other.show_region_ui)
+        self.depth.BLENDCAP_OT_vta_camera_depth.cancel(operator,context)
+        self.assertFalse(space.show_region_ui);self.assertTrue(other.show_region_ui)
 
     def test_depth_modal_cancel_restores_object_and_confirm_changes_no_curves_or_camera(self):
         from tests.test_blendcap_vta_source_calibration import BlenderCalibrationTests

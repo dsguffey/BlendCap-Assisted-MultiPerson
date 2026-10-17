@@ -161,6 +161,8 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
     maps = [(s,s.get(MODE_KEY)) for s in workspace.screens]
     view = ws.source_camera_view_state()
     displays = [(a.spaces.active,a.spaces.active.display_channel) for _,a in seqs]
+    from . import vta_scene_characters as characters
+    membership_before=scene.get(characters.KEY)
     try:
         if info is not None:
             match_source_rate(scene,pid,source)
@@ -196,7 +198,9 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
         # A loaded source can legitimately have no analysis yet. Its controls
         # remain available for Analyze; this is not an empty/malformed Scene.
         if info is not None:
-            raw = (project or ui._get_backend(context)._core.load_project_state(location.companion_root)).to_dict()
+            canonical=project or ui._get_backend(context)._core.load_project_state(location.companion_root)
+            raw=canonical.to_dict()
+            if scene.get(characters.KEY) is None and hasattr(canonical,'characters'):characters.bind(scene,canonical)
             analyzed = bool(raw.get('active_analysis_revision_by_source',{}).get(source['source_id']))
             ui.record_scene_source(scene, info)
         else:
@@ -214,6 +218,8 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
         setattr(workspace,LAST,scene)  # Only after successful validation/setup.
         return scene
     except Exception:
+        if membership_before is None:scene.pop(characters.KEY,None)
+        else:scene[characters.KEY]=membership_before
         old_scene,old_workspace,pin,last,mode,active,source_mode,fps,base,sequencer = before
         workspace.sequencer_scene = pin  # Explicit command rollback, not enforcement.
         setattr(workspace,LAST,last);setattr(workspace,MODE,mode)

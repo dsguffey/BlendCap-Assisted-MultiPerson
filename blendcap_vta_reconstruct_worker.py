@@ -186,7 +186,12 @@ def run(args):
     from blendcap_vta_analyze_worker import _source_for_video
     lock = root / 'analysis/vta-analysis.lock'
     lock.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    if __package__:
+        from .blendcap_vta_operation_lock import acquire
+    else:
+        from blendcap_vta_operation_lock import acquire
+    ownership=acquire(lock,request_id=generation_id)
+    ownership.__enter__()
     started = time.monotonic()
     try:
         project = load_project_state(root)
@@ -263,7 +268,9 @@ def run(args):
             if decision is None or generation_id is None:
                 raise ValueError('Existing animation needs explicit migration approval; retry from the VTA generation panel')
             migration = await_generation_decision(decision, root, plan, reconstruction, check_stop, generation_id)
-            migration_plan = build_skeletal_plan(project, cache, frame_range=migration)
+            scene_ids=options.get('character_ids') or getattr(args,'scene_character_id',None)
+            migration_plan = build_skeletal_plan(project, cache, frame_range=migration,
+                **({'character_ids':scene_ids} if scene_ids else {}))
             validate_skeletal_repairs(project, migration_plan, frame_offset=1)
         else:
             # No old output, or compatible existing output: no file read/write/wait.
@@ -361,6 +368,8 @@ def run(args):
             return output / 'output.json'
         if migration is not None:
             migration_options = {'frame_range': migration}
+            migration_ids=options.get('character_ids') or getattr(args,'scene_character_id',None)
+            if migration_ids:migration_options['character_ids']=migration_ids
             migration_plan = build_skeletal_plan(project, cache, **migration_options)
             migration_output = new_output_directory(root)
             write_new_json(migration_output/'plan.json', migration_plan)
@@ -373,8 +382,7 @@ def run(args):
         print('VTA_CANCELLED=' + str(generation_id or 'standalone'), flush=True)
         return None
     finally:
-        os.close(descriptor)
-        lock.unlink()
+        ownership.__exit__(None,None,None)
 
 
 def main():
@@ -388,9 +396,12 @@ def main():
     parser.add_argument('--generation-id')
     parser.add_argument('--previous-fingerprint', action='append', default=[])
     parser.add_argument('--character-id', action='append')
+    parser.add_argument('--scene-character-id', action='append')
     parser.add_argument('--fov-mode', choices=('FIRST', 'EVERY'), default='FIRST')
     run(parser.parse_args())
 
 
 if __name__ == '__main__':
+    import faulthandler
+    faulthandler.enable()
     main()

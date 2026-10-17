@@ -9,6 +9,7 @@ from . import vta_scene_session as session
 from .vta_scene_timing import SCENE_TAG, SCENE_VERSION, source_rate
 from ..blendcap_vta_review import ReviewLocation, companion_root_for_blend
 
+from .vta_scene_characters import KEY as CHARACTER_MEMBERSHIP
 BINDING = (SCENE_TAG, 'vta_project_id', 'vta_source_id', 'vta_source_video_sha256')
 STRIP_TAG = 'vta_source_strip_version'
 
@@ -16,6 +17,8 @@ STRIP_TAG = 'vta_source_strip_version'
 def _require_session(context):
     from . import vta_review_ui as ui
     scene = session.main_scene(context)
+    from .vta_project_save import require_usable
+    require_usable(scene)
     if ui._analysis_locked() or not session.owned(scene) or not session.matches(context):
         raise ValueError('Load this VTA Scene first; unavailable during analysis/generation.')
     return scene
@@ -26,10 +29,10 @@ def _presentation_snapshot():
     names = ('_view', '_location', '_timeline', '_timeline_identity', '_project_signature',
              '_cache_signature', '_presentation_scene', '_active_review_scene', '_status',
              '_status_is_error', '_selection', '_review_key_selection', '_character_selections',
-             '_repair_selections', '_last_assignment_target', '_display_backend')
+             '_repair_selections', '_last_assignment_target', '_display_backend','_scene_character_ids')
     values = {name: getattr(ui, name) for name in names}
     maps = {name: dict(getattr(ui, name)) for name in
-            ('_validated_sources', '_scene_sessions', '_observer_tokens')}
+            ('_validated_sources', '_scene_sessions', '_observer_tokens','_object_selection_tokens')}
     display = dict(ui._display.__dict__)
     def restore():
         for name, value in values.items(): setattr(ui, name, value)
@@ -75,6 +78,7 @@ def configure(context, filename):
               scene.frame_start, scene.frame_end, scene.frame_current, scene.blendcap_props.video_source,
               scene.render.use_sequencer)
     restore_presentation = _presentation_snapshot()
+    membership_before=scene.get(CHARACTER_MEMBERSHIP)
     strip = None
     try:
         channel = max((s.channel for s in seq.strips), default=0) + 1
@@ -104,6 +108,8 @@ def configure(context, filename):
         scene['vta_project_id'] = project.project_id
         scene['vta_source_id'] = source['source_id']
         scene['vta_source_video_sha256'] = digest
+        from . import vta_scene_characters
+        vta_scene_characters.bind(scene,project,fresh=True)
         strip[STRIP_TAG] = 1
         strip['vta_project_id'], strip['vta_source_id'] = project.project_id, source['source_id']
         seq.active_strip = strip
@@ -127,6 +133,8 @@ def configure(context, filename):
         return scene
     except Exception:
         for key in BINDING: scene.pop(key, None)
+        if membership_before is None:scene.pop(CHARACTER_MEMBERSHIP,None)
+        else:scene[CHARACTER_MEMBERSHIP]=membership_before
         if strip is not None: seq.strips.remove(strip)
         (active, scene.render.fps, scene.render.fps_base,
          scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage,

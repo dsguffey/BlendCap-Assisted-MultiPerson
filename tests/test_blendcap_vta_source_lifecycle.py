@@ -87,7 +87,7 @@ class SourceLifecycleTests(unittest.TestCase):
         with mock.patch.object(self.ui,'_configured_analysis_paths',side_effect=AssertionError('inference')):
             self.configure()
         project=self.core.load_project_state(self.root).to_dict()
-        self.assertEqual(project['version'],'0.8')
+        self.assertEqual(project['version'],'0.9')
         self.assertEqual(len(project['sources']),1)
         source=project['sources'][0]
         self.assertEqual((source['fps'],source['start_frame'],source['end_frame'],source['width'],source['height']),

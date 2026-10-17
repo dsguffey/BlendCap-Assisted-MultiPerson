@@ -89,6 +89,7 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_generate_animation,
     BLENDCAP_OT_vta_update_animation,
     BLENDCAP_OT_vta_generation_details,
+    BLENDCAP_OT_vta_open_logs,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_analyze,
@@ -101,6 +102,7 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
+    BLENDCAP_OT_vta_goto_tracking_hint,
     BLENDCAP_OT_vta_motion_trust,
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
@@ -109,6 +111,7 @@ from .vta_review_ui import (
     VIEW3D_PT_blendcap_vta_current_frame,
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_animation,
+    VIEW3D_PT_blendcap_vta_animation_cleanup,
     VIEW3D_PT_blendcap_vta_display,
     VIEW3D_PT_blendcap_vta_advanced,
     register_properties as register_vta_review_properties,
@@ -128,6 +131,7 @@ from .vta_workspace import (
     unregister as unregister_vta_workspace,
 )
 from .vta_camera_depth import BLENDCAP_OT_vta_camera_depth
+from .vta_camera_cleanup import BLENDCAP_OT_vta_camera_cleanup
 from . import retarget
 
 
@@ -232,6 +236,7 @@ classes = (
     BLENDCAP_OT_open_vta_workspace,
     BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_vta_camera_depth,
+    BLENDCAP_OT_vta_camera_cleanup,
     BLENDCAP_OT_vta_new_scene,
     BLENDCAP_OT_vta_choose_clip,
     BLENDCAP_OT_vta_clear_source,
@@ -283,6 +288,7 @@ classes = (
     BLENDCAP_OT_vta_generate_animation,
     BLENDCAP_OT_vta_update_animation,
     BLENDCAP_OT_vta_generation_details,
+    BLENDCAP_OT_vta_open_logs,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_timeline_select,
@@ -298,6 +304,7 @@ classes = (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
+    BLENDCAP_OT_vta_goto_tracking_hint,
     BLENDCAP_OT_vta_motion_trust,
     BLENDCAP_MT_vta_commands,
     BLENDCAP_MT_vta_timeline_context,
@@ -309,6 +316,7 @@ classes = (
     VIEW3D_PT_blendcap_vta_current_frame,
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_animation,
+    VIEW3D_PT_blendcap_vta_animation_cleanup,
     VIEW3D_PT_blendcap_vta_display,
     VIEW3D_PT_blendcap_vta_advanced,
 )

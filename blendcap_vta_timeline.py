@@ -27,6 +27,12 @@ class TimelineKey:
     source_frame: int
     state: str
     observation_id: str | None
+    tracking_state: str = 'pending'
+
+    @property
+    def tracking_label(self):
+        return ('Authoritative — included in current tracking' if self.tracking_state == 'incorporated'
+                else 'Authoritative — not yet included in Update Tracking')
 
     @property
     def label(self) -> str:
@@ -69,7 +75,7 @@ def present_timeline(private_timeline) -> TimelineView:
                          item.character_id))
     keys = tuple(
         TimelineKey(item.keyframe_id, item.character_id, item.frame,
-                    item.state.value, item.observation_id)
+                    item.state.value, item.observation_id, getattr(item, 'tracking_state', 'pending'))
         for item in private_timeline.keys
     )
     if len({item.keyframe_id for item in keys}) != len(keys):

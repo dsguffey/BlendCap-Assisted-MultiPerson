@@ -396,6 +396,8 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
     reconstruction = report.get('reconstruction')
     fingerprint = backend._core.reconstruction_fingerprint(reconstruction, plan.get('source_video_sha256'))
     expected = {c['character_id']: c for c in plan['characters']}
+    from .vta_camera_cleanup import require_source_aligned
+    require_source_aligned(bpy.context.scene, expected, plan['project_id'], plan['source_id'])
     records = report['characters']
     if len(records) != len(expected) or {r['character_id'] for r in records} != set(expected):
         raise ValueError('Skeletal output Character set differs from reviewed plan')
@@ -677,6 +679,8 @@ def mark_stale_outputs(companion_root):
                and Path(o['vta_output_file']).resolve().is_relative_to((root / 'reconstruction').resolve())]
     if not outputs:
         return False
+    from .vta_camera_cleanup import observe_outputs
+    observe_outputs(outputs)
     current = _cached_hash(root / 'project_state.json')
     for obj in outputs:
         cache = root / 'analysis' / (obj['vta_analysis_revision_id'] + '.json')
