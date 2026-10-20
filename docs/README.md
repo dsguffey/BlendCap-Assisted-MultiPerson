@@ -16,7 +16,7 @@ For the current reviewed multi-Character integration, see the
 | 03 | [Installation](03-installation.md) | Installing the add-on and its dependencies |
 | 04 | [Quick Start](04-quick-start.md) | Your first capture, start to finish |
 | 05 | [Capturing](05-capturing.md) | Video sources, capture settings, Preview, the cache |
-| 06 | [Face Capture](06-face-capture.md) | Facial performance, ARKit shape keys, face bones, expression tuning |
+| 06 | [Facial scope](06-face-capture.md) | Facial capture is not supported in current VTA |
 | 07 | [Hand & Finger Tracking](07-hand-tracking.md) | How fingers are tracked, and the controls that refine them |
 | 08 | [BVH Generation and Post-Processing](08-bvh-generation-and-post-processing.md) | Generating the armature, then cleaning it up |
 | 09 | [Retargeting](09-retargeting.md) | Transferring motion onto your rig: presets, bone maps, FK → IK |

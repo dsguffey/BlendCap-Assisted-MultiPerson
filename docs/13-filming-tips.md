@@ -1,5 +1,8 @@
 # Filming Tips
 
+> Current VTA captures body/hands, not faces. Any inherited facial-filming advice
+> below is historical and does not describe a supported VTA workflow.
+
 BlendCap can only capture what the camera saw, so a few minutes of care when you record pays off more than any setting. This page is a practical checklist for shooting footage that captures cleanly, based on how BlendCap's tracking models actually behave.
 
 ![Good vs. poor capture framing](images/23-filming-framing.png)

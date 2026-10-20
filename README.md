@@ -18,7 +18,7 @@
 
 ---
 
-BlendCap reconstructs a full **performance**, body, hands, and face, from an ordinary video and retargets it onto your Blender rig. No motion-capture suit, no markers, no special hardware, and no second camera. Record on a phone or use footage you already have.
+This VTA integration reconstructs **body and hands** from ordinary video. Current VTA does not include facial capture/animation and does not require MediaPipe. Shared upstream existing-data/retarget helpers and attribution remain for compatibility; upstream marketing material is not a supported VTA feature list.
 
 > ### About this repository
 >
@@ -46,7 +46,6 @@ BlendCap reconstructs a full **performance**, body, hands, and face, from an ord
 
 - **Single-camera, markerless capture**: full body **and** hands from one ordinary clip.
 - **Finger tracking**: both general hand shape tracking and full finger pose tracking, with dedicated controls to tune finger curl or rebuild the finger motion from the tracked keypoints.
-- **Facial performance capture**: drives ARKit-style shape keys and face bones, captured from the same clip or its own.
 - **Retarget onto your rig**: Rigify, Auto-Rig Pro, CloudRig, Mixamo and custom rigs, in both **FK and IK**, with included presets and a visual bone-map editor.
 - **Capture cleanup built in**: foot grounding and locking, depth-noise filtering, smoothing, tracking-failure repair, and per-take camera-angle correction.
 - **Runs fully offline** after setup, your footage never leaves your machine.
@@ -54,20 +53,20 @@ BlendCap reconstructs a full **performance**, body, hands, and face, from an ord
 
 ## See it in action
 
-| Body capture | Face capture |
+| Body capture | Historical upstream demo (not included in VTA) |
 |:---:|:---:|
 | <img src="assets/sh-11-hero.webp" width="380"> | <img src="assets/sh-13-face-combine.webp" width="380"> |
-| Ordinary clip → retargeted character | Face clip → facial animation, combined with the body |
+| Ordinary clip → retargeted character | Historical face demo; no supported facial workflow |
 
 |                      Retargeting                      |                    Post-processing                     |
 | :---------------------------------------------------: | :----------------------------------------------------: |
 | <img src="assets/sh-14-retarget-ik.webp" width="380"> | <img src="assets/sh-15-foot-locking.webp" width="380"> |
 |     Finished motion transferred to any other rig      | The clip's full post-processing pass, before and after |
 
-|                 Finger tracking                 |          Combined body & face capture           |
+|                 Finger tracking                 |          Historical upstream demo           |
 | :---------------------------------------------: | :---------------------------------------------: |
 | <img src="assets/sh-12-hands.webp" width="380"> | <img src="assets/18_00090262.webp" width="380"> |
-|            Full finger pose tracking            |     Separate body and face clips, combined      |
+|            Full finger pose tracking            |     Historical face demo; not supported in VTA      |
 
 > **Watch the feature demo:** [YouTube](https://www.youtube.com/watch?v=hOW8U1goY8g)
 
@@ -113,13 +112,12 @@ The current reviewed multi-Character integration is described in the
 ```mermaid
 flowchart LR
     V1[video] --> Y[person detection<br/>YOLO11] --> S[body + hands<br/>SAM 3D Body] --> BVH[BVH]
-    V2[video] --> M[face landmarks<br/>MediaPipe] --> AK[ARKit shape keys<br/>/ bones] --> BVH
     BVH --> R[retarget onto your rig<br/>FK + IK]
 ```
 
-BlendCap runs Meta's **SAM 3D Body** (a 127-joint body+hand model with a **DINOv3** vision backbone, plus **MoGe** for camera field-of-view) to reconstruct the body, and **MediaPipe** for the face. Inference is accelerated by the **Fast-SAM-3D-Body** library on **PyTorch** / **ONNX Runtime**. The result is exported as a BVH and retargeted onto your character.
+The body path runs Meta's **SAM 3D Body** with a **DINOv3** backbone and **MoGe** for camera field-of-view, using **Fast-SAM-3D-Body** on **PyTorch** / **ONNX Runtime**. MediaPipe is not an active runtime dependency.
 
-Where it lives in the source: capture runs in [`save_mhr_data.py`](save_mhr_data.py) / [`save_face_data.py`](save_face_data.py); the post-processing passes (foot grounding, depth-noise filtering, hand solving, tracking-failure repair, face refinement) in [`pipeline/`](pipeline/); and the retargeting engine (FK bake, IK conversion, constraint simulation, bone-map matching) in [`blendcap/retarget/`](blendcap/retarget/).
+Capture runs in [`save_mhr_data.py`](save_mhr_data.py); shared export helpers live in [`pipeline/`](pipeline/) and existing-data retargeting in [`blendcap/retarget/`](blendcap/retarget/). The legacy face-capture worker has been removed.
 
 ## Roadmap
 
@@ -134,7 +132,7 @@ Directions actively being worked toward, not dated promises, priorities shift wi
 **Exploring**
 - **Remote GPU capture** — run capture on your own cloud GPU when you don't have a local NVIDIA card ("bring your own pod").
 - **Audio-assisted lip-sync** — use the clip's audio to sharpen mouth shapes during speech.
-- **Dedicated hand capture** — film the hands up close for finer finger detail and combine it with a wider body shot, the way separate face capture already works.
+- **Dedicated hand capture** — prospective closer-view hand detail; not a separate facial-capture workflow.
 
 ## Licensing
 
@@ -151,7 +149,7 @@ Bundled / redistributed components keep their own licenses; full texts are in [`
 | Ultralytics YOLO11 | Person detection | AGPL-3.0 |
 | Fast-SAM-3D-Body | Accelerated inference | MIT (over Meta-SAM code) |
 | MoGe (Microsoft) | Camera field-of-view | MIT (+ Apache-2.0 subcomponent) |
-| MediaPipe (Google) | Facial landmarks | Apache-2.0 |
+| MediaPipe (Google) | Retained legacy attribution, not a VTA runtime dependency | Apache-2.0 |
 | ICT-FaceKit (USC ICT) | Face expression basis (derived data asset) | MIT |
 | PyTorch / ONNX Runtime | Runtimes | BSD-3-Clause / MIT |
 

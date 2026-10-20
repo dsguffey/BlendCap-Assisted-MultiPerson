@@ -16,7 +16,7 @@ Ordinary video, a phone clip, a webcam recording, or existing footage. For best 
 BlendCap focuses on a **single subject** per capture and tracks the main person in frame (it warns you if it sees several). For multiple characters, capture each person's clip separately. Support for true multi-person-capture is currently planned as a feature for a future release, but is still under development.
 
 ### How long does a capture take?
-It depends on your GPU and the clip length. On a modern NVIDIA card it's roughly a third of a second per frame for the body; face capture is much lighter. The **CPU Only** backend should work on almost any machine but is much slower. Use **Capture Skip** to speed up captures in exchange for lower accuracy.
+It depends on your GPU and clip length. The **CPU Only** backend is much slower than GPU capture. Use **Capture Skip** to trade accuracy for speed. Current VTA does not include facial capture.
 
 ### Does BlendCap work on macOS?
 No, the paid build does not currently support macOS. See [System Requirements](02-system-requirements.md).
@@ -99,7 +99,7 @@ For poses on the floor (lying, rolling, crawling, kneeling), **Body Grounding** 
 An occasional quirk of single-camera capture. Use **Camera Angle Offset** to correct the body (and, if needed, the head separately). See [BVH Generation and Post-Processing](08-bvh-generation-and-post-processing.md).
 
 ### The face looks flat or barely moves
-Check that the expressions were clearly performed and the face was well lit and large in frame. Then raise the **Face Expression** strength (in Motion Scaling, the ARKit section, or Retargeting ▸ Advanced) to push the performance on your character. See [Face Capture](06-face-capture.md).
+Facial capture/animation is outside current VTA scope. The former Face capture and ARKit application controls are retired; see [facial scope](06-face-capture.md). Existing external animation/retarget helpers are separate from supported VTA capture.
 
 ---
 

@@ -9,6 +9,10 @@ licensing, security, packaging, installation/update, first-run and support readi
 
 ## Public component and runtime boundary
 
+Current VTA does not include facial capture/animation. MediaPipe is not an active
+runtime dependency. Legacy Face capture, its worker and ARKit application UI are
+not exposed. Shared existing-data/body export helpers remain for compatibility.
+
 The public component owns Blender presentation, commands, source decoding,
 workspace setup, camera/armature integration and transactional output import.
 The separately configured VTA runtime owns project/review persistence, detector

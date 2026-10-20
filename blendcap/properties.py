@@ -1393,8 +1393,6 @@ class BlendCapProperties(bpy.types.PropertyGroup):
     video_path: bpy.props.StringProperty(name="Video", description="Select the video to track", subtype='FILE_PATH')
     track_body: bpy.props.BoolProperty(name="Body Tracking", default=True,
         description="Track the body in the source video (pose, hands and root motion)")
-    track_face: bpy.props.BoolProperty(name="Face Tracking", default=False,
-        description="Track the face in the source video (blendshapes, landmarks, gaze)")
     preview_step: bpy.props.IntProperty(name="Preview Skip",
         description="How many frames to skip between checked preview frames (0 = check every frame; higher is faster but less thorough)",
         default=10, min=0, max=100)
@@ -1423,11 +1421,13 @@ class BlendCapProperties(bpy.types.PropertyGroup):
         default=True,
         description="Include horizontal locomotion so the armature travels "
                     "through world space as the actor did.")
-    export_face: bpy.props.BoolProperty(name="Face", default=False, update=update_export_face,
-        description="Include selected clip's face tracking data in the bvh armature")
-    use_separate_face: bpy.props.BoolProperty(name="Use Separate Face Data", default=False, update=update_use_separate_face,
-        description="Combine the selected clip's body data with another clip's face data.")
-    separate_face_data: bpy.props.EnumProperty(name="Face Data", description="Select cached face tracking data", items=get_face_data_items)
+    # Hidden compatibility fields: old .blends retain their stored values, but
+    # neither UI nor export commands enable the retired facial workflow.
+    export_face: bpy.props.BoolProperty(name="Legacy Face", default=False, options={'HIDDEN'}, update=update_export_face,
+        description="Retained old-file setting; facial export is unsupported")
+    use_separate_face: bpy.props.BoolProperty(name="Legacy Separate Face", default=False, options={'HIDDEN'}, update=update_use_separate_face,
+        description="Retained old-file setting; facial export is unsupported")
+    separate_face_data: bpy.props.EnumProperty(name="Legacy Face Data", options={'HIDDEN'}, description="Retained old-file selection", items=get_face_data_items)
     smoothing_enabled: bpy.props.BoolProperty(
         name="Enable Smoothing",
         default=True,

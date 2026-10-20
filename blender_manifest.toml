@@ -42,6 +42,7 @@ files = "Read input video and write capture caches, BVH files, and the bundled P
 # assembled by hand; this list also serves anyone building from a source
 # checkout.
 paths_exclude_pattern = [
+  "/save_face_data.py",
   "__pycache__/",
   "*.pyc",
   "/.git/",

@@ -26,7 +26,6 @@ onnxruntime-gpu==1.26.0
 
 onnx==1.21.0
 opencv-python==4.13.0.92
-mediapipe==0.10.32
 huggingface_hub==1.7.1
 safetensors==0.7.0
 timm==1.0.25
@@ -52,7 +51,7 @@ moge @ git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26b
 
 # Model assets are NOT included in this repository and are not pip-installable.
 # Place them under checkpoints/ at the paths below — the capture scripts read
-# these exact locations (see save_mhr_data.py / save_face_data.py):
+# these exact locations (see save_mhr_data.py):
 #
 #   sam-3d-body-dinov3/          SAM 3D Body — GATED by Meta. Accept the license at
 #                                https://huggingface.co/facebook/sam-3d-body-dinov3
@@ -66,9 +65,6 @@ moge @ git+https://github.com/microsoft/MoGe.git@07444410f1e33f402353b99d6ccd26b
 #                                (HF Ruicheng/moge-2-vits-normal). Recommended:
 #                                without it body capture still runs, but camera /
 #                                focal estimation is less accurate.
-#   mediapipe/*.task, *.tflite   MediaPipe face/pose models, public. Downloaded
-#                                automatically from Google's CDN on the first FACE
-#                                capture if absent (needed for face capture only).
 #   onnx/*.onnx                  OPTIONAL — only the non-NVIDIA / ONNX Runtime path
 #                                reads these; the default NVIDIA / PyTorch path never
 #                                does. Public mirror:

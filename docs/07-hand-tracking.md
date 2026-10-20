@@ -26,7 +26,7 @@ Once you have your hand data captured, you have a few options to build on that d
 
 **Rebuild Finger Motion** works best when the hand is reasonably large and clear in frame and roughly facing the camera. Frames where the hand is too small, blurred, or hidden fall back to the standard finger motion automatically, so it never makes those frames worse. Results are hard to predict and it struggles to reproduce certain poses and high levels of interaction, so give the results a look, and if Finger Curl Strength would leave you with less manual cleanup later, fall back to it instead.
 
-> Although the body needs to be visible in order to track the hands, you can get a lot closer than normal to squeeze some extra detail and accuracy out of the finger articulation. Combining these separate hand-detail shots with a full-body wide shot (the way a dedicated face clip can be combined with the body today) is being considered for a future update.
+> Although the body needs to be visible to track the hands, closer framing can improve finger detail. Combining separate hand-detail shots with a full-body wide shot is prospective work, not a current separate-source workflow. Facial capture is not supported by VTA.
 
 ![The Rebuild Finger Motion toggle and Finger Curl Strength slider](images/24-2-finger-controls.png)
 

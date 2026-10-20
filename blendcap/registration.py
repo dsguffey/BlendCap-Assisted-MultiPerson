@@ -68,9 +68,6 @@ from .operators_library import (
     BLENDCAP_OT_delete_lib_bvh,
     BLENDCAP_OT_clear_current_cache,
     BLENDCAP_OT_clear_all_caches,
-    BLENDCAP_OT_apply_arkit,
-    BLENDCAP_OT_cancel_arkit_apply,
-    BLENDCAP_OT_save_arkit_csv,
     BLENDCAP_OT_donate,
 )
 from .panels import (
@@ -278,9 +275,6 @@ classes = (
     BLENDCAP_OT_save_rest_pose_confirm,
     BLENDCAP_OT_delete_rest_pose_preset,
     BLENDCAP_OT_preview_rest_pose_preset,
-    BLENDCAP_OT_apply_arkit,
-    BLENDCAP_OT_cancel_arkit_apply,
-    BLENDCAP_OT_save_arkit_csv,
     BLENDCAP_OT_donate,
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,

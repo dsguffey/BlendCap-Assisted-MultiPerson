@@ -1,5 +1,9 @@
 # BVH Generation and Post-Processing
 
+> Current VTA exposes body/hands/root workflows only. Historical facial export,
+> separate-face and facial post-processing controls described below are retired;
+> those screenshots/settings are not a current VTA feature promise.
+
 A capture only produces tracking data. This is where you turn that data into an animated armature (a **BVH**) and clean it up: the **BVH Settings** section generates the armature, and the **BVH Post Processing** controls inside it shape the result.
 
 ---

@@ -192,7 +192,6 @@ def _draw_capture_section(layout, context, props, is_running, hide_clear_all):
     if props.capture_expanded:
         row = box.row()
         row.prop(props, "track_body", text="Body")
-        row.prop(props, "track_face", text="Face")
 
         # FOV / camera field-of-view (body tracking only). Plain dropdown.
         fov_col = box.column(align=True)
@@ -259,12 +258,8 @@ def _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_runnin
         row.prop(props, "export_body")
         row.prop(props, "export_hands")
         row = col.row()
-        row.prop(props, "export_face")
         row.prop(props, "export_root")
         col.separator()
-        col.prop(props, "use_separate_face")
-        if props.use_separate_face:
-            col.prop(props, "separate_face_data", text="")
 
         # Rebuild Finger Motion needs the finger bones exported, so it's
         # gated on Hands - it does nothing (and wastes time) otherwise.
@@ -341,7 +336,6 @@ def _draw_bvh_post_processing(box, context, props):
     _draw_bvh_smoothing(pp_col, props)
     _draw_bvh_depth_noise_filtering(pp_col, props)
     _draw_bvh_foot_locking(pp_col, props)
-    _draw_bvh_face_noise_filtering(pp_col, props)
     _draw_bvh_motion_scaling(pp_col, props)
 
 
@@ -424,7 +418,6 @@ def _draw_bvh_smoothing(pp_col, props):
         sm_col.prop(props, "smoothing_enabled")
         sm_sub = sm_col.column(align=True)
         sm_sub.enabled = props.smoothing_enabled
-        sm_sub.prop(props, "smooth_face", text="Face (s)")
         sm_sub.prop(props, "smooth_body", text="Body (s)")
         sm_sub.prop(props, "smooth_root", text="Root (s)")
         sm_sub.prop(props, "smooth_vertical", text="Vertical (s)")
@@ -558,30 +551,6 @@ def _draw_bvh_motion_scaling(pp_col, props):
         fc_row = ms_col.row()
         fc_row.enabled = not bool(props.bvh_hand_solver)
         fc_row.prop(props, "finger_curl_multiplier")
-        # Face Expression -- always-visible label + framed box
-        # holding global Strength plus per-region overrides.
-        # Matches the framed layout of the Retarget version. The
-        # face_expression_multiplier (Strength) and the per-region
-        # values are mutually exclusive to prevent compounding --
-        # when per-region is on, the BVH subprocess forces
-        # face_boost=1.0 (see _bvh_face_boost_value).
-        ms_col.separator()
-        ms_col.label(text="Face Expression")
-        fa_box = ms_col.box()
-        fa_col = fa_box.column(align=True)
-        # Global Strength -- greyed when per-region is on.
-        str_row = fa_col.row()
-        str_row.enabled = not bool(props.bvh_face_amp_enabled)
-        str_row.prop(props, "face_expression_multiplier",
-                     text="Strength")
-        fa_col.separator()
-        fa_col.prop(props, "bvh_face_amp_enabled",
-                    text="Use Per-Region")
-        fa_sub = fa_col.column(align=True)
-        fa_sub.enabled = bool(props.bvh_face_amp_enabled)
-        for _region in ("jaw", "gaze", "lids", "brows", "lips",
-                        "cheeks", "nose", "tongue"):
-            fa_sub.prop(props, f"bvh_face_amp_{_region}")
 
 
 def _draw_retargeting_section(layout, context, props):
@@ -1161,7 +1130,6 @@ def draw_blendcap_ui(self, context):
     _draw_capture_section(layout, context, props, is_running, hide_clear_all)
     _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_running)
     box = _draw_retargeting_section(layout, context, props)
-    _draw_arkit_section(layout, box, props)
     _draw_bvh_library_section(layout, context, props)
 
 # ============================================================

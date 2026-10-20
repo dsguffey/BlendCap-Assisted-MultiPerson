@@ -994,7 +994,7 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
             bpy.ops.blendcap.deps_missing('INVOKE_DEFAULT')
             return {'CANCELLED'}
         props = context.scene.blendcap_props
-        if props.track_body or props.track_face:
+        if props.track_body:
             resolved = _resolve_video_path(context)
             if resolved and resolved[0]:
                 video_path = resolved[0]
@@ -1098,8 +1098,8 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
             return {'CANCELLED'}
 
         props = context.scene.blendcap_props
-        if not props.track_body and not props.track_face:
-            self.report({'ERROR'}, "Enable at least one tracking type (Body or Face).")
+        if not props.track_body:
+            self.report({'ERROR'}, "Enable Body tracking. Facial capture is not supported by VTA.")
             return {'CANCELLED'}
 
         # Resolve video source
@@ -1335,10 +1335,7 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
         os.makedirs(output_dir, exist_ok=True)
 
         body_npz = os.path.join(output_dir, "mhr_frames.npz")
-        face_npz = os.path.join(output_dir, "face_frames.npz")
         body_preview = os.path.join(output_dir, "preview.mp4")
-        face_preview = os.path.join(output_dir, "face_preview.mp4")
-        combined_preview = os.path.join(output_dir, "combined_preview.mp4")
         overlay_mp4 = os.path.join(output_dir, "overlay.mp4")
 
         cmds = []
@@ -1385,44 +1382,14 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
             # same convention as Capture Skip; the subprocess --preview-step
             # flag keeps its check-every-Nth-frame meaning, so convert here.
             preview_cli_step = str(props.preview_step + 1)
-            # Combined body+face previews render ONE video: the body step
-            # writes its sampled detections to a JSON sidecar (no render of
-            # its own) and the face step draws body box + face markers
-            # together - one full-length encode instead of two.
-            both_previews = props.track_body and props.track_face
-            preview_boxes = os.path.join(output_dir, "preview_boxes.json")
             if props.track_body:
                 cmd = [python_exe, os.path.join(addon_dir, "save_mhr_data.py"),
                        "--video", actual_video, "--preview",
                        "--preview-step", preview_cli_step, "--output", body_preview]
                 _append_frame_args(cmd, start_frame, max_frames)
-                if both_previews:
-                    cmd.extend(["--boxes-out", preview_boxes])
                 cmds.append(cmd)
                 proxy_path = body_preview
 
-            if props.track_face:
-                # Preview Skip applies to the face preview too (all three
-                # modes: combined, standalone, and body-NPZ-cropped) - the
-                # sampled detections interpolate across the in-between
-                # frames, same as the body preview, which is what keeps
-                # previews quick on very long clips. CAPTURE is deliberately
-                # different: face capture always processes every frame -
-                # blinks and lip-sync events are only a few frames long and
-                # don't survive interpolation.
-                output_file = combined_preview if props.track_body else face_preview
-                cmd = [python_exe, os.path.join(addon_dir, "save_face_data.py"),
-                       "--video", actual_video, "--preview", "--output", output_file,
-                       "--preview-step", preview_cli_step]
-                _append_frame_args(cmd, start_frame, max_frames)
-                if both_previews:
-                    cmd.extend(["--body-boxes", preview_boxes])
-                elif os.path.exists(body_npz):
-                    cov, _, _ = check_npz_coverage(body_npz, start_frame, max_frames)
-                    if cov == 'covers':
-                        cmd.extend(["--body", body_npz])
-                cmds.append(cmd)
-                proxy_path = output_file
         else:
             # ===== CAPTURE MODE =====
             # Check cache: skip tracking steps whose params EXACTLY
@@ -1480,53 +1447,6 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
                                             "--project-root", addon_dir,
                                             "--ensure-backbone-onnx"])
 
-            face_cached = False
-            if props.track_face:
-                if params_match:
-                    cov_f, _, _ = check_npz_coverage(face_npz, start_frame, max_frames)
-                    if cov_f == 'covers':
-                        face_cached = True
-                        # The face refine's jaw gate needs mouth_stats
-                        # at version >= 2 (v2 added the central-band
-                        # histogram that tells a teeth-bare from an
-                        # open mouth). A cached capture without them
-                        # would silently run refine with a blind or
-                        # half-blind gate — treat it as stale and
-                        # re-track this clip once.
-                        try:
-                            import numpy as _np
-                            with _np.load(face_npz, allow_pickle=True) as _fnpz:
-                                _msv = (int(_fnpz["mouth_stats_version"])
-                                        if "mouth_stats_version" in _fnpz
-                                        else 1)
-                                if "mouth_stats" not in _fnpz or _msv < 3:
-                                    face_cached = False
-                                    print("[BlendCap] Cached face data predates "
-                                          "mouth-stats v3 capture; re-tracking face.")
-                        except Exception:
-                            pass
-                    if face_cached:
-                        print("[BlendCap] Face tracking data already cached, skipping.")
-                if not face_cached:
-                    cmd = [python_exe, os.path.join(addon_dir, "save_face_data.py"),
-                           "--video", actual_video, "--output", face_npz]
-                    use_body_crops = False
-                    if props.track_body and not body_cached:
-                        cmd.extend(["--body", body_npz])
-                        use_body_crops = True
-                    elif os.path.exists(body_npz):
-                        cov2, nf, nl = check_npz_coverage(body_npz, start_frame, max_frames)
-                        if cov2 == 'covers':
-                            cmd.extend(["--body", body_npz])
-                            _append_frame_args(cmd, start_frame, max_frames)
-                            use_body_crops = True
-                        else:
-                            self.report({'WARNING'},
-                                        f"Body data covers frames {nf}-{nl}, but clip needs more. Using standalone face tracking.")
-                    if not use_body_crops:
-                        _append_frame_args(cmd, start_frame, max_frames)
-                    cmds.append(cmd)
-
             # Always regenerate overlay (fast) to match the current trim
             overlay_cmd = [python_exe, os.path.join(addon_dir, "overlay_track.py"),
                            "--video", actual_video, "--output", overlay_mp4]
@@ -1534,20 +1454,17 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
             if props.track_body or os.path.exists(body_npz):
                 overlay_cmd.extend(["--input", body_npz])
                 has_input = True
-            if props.track_face or os.path.exists(face_npz):
-                overlay_cmd.extend(["--face", face_npz])
-                has_input = True
             if has_input:
                 cmds.append(overlay_cmd)
             proxy_path = overlay_mp4
 
         if not cmds:
-            self.report({'ERROR'}, "Nothing to run. Enable Body or Face tracking.")
+            self.report({'ERROR'}, "Nothing to run. Enable Body tracking.")
             return {'CANCELLED'}
 
         # Classify steps
         wmap = {"convert_source": (5, "convert"), "download_models": (10, "download"),
-                "save_mhr_data": (70, "body"), "save_face_data": (20 if not self.is_update_only else 30, "face"),
+                "save_mhr_data": (70, "body"),
                 "overlay_track": (10, "overlay")}
 
         # Prepend conversion step if needed (runs before tracking in the thread)
@@ -1561,7 +1478,7 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
             step_weights.append(w); step_labels.append(lbl); step_outputs.append(out)
 
         blendcap_state['track_body'] = props.track_body
-        blendcap_state['track_face'] = props.track_face
+        blendcap_state['track_face'] = False # Retired legacy flags never schedule facial work.
         blendcap_state['output_dir'] = output_dir
         blendcap_state['vid_name'] = vid_name
         blendcap_state['source_strip_name'] = clip_name
@@ -1604,7 +1521,6 @@ class BLENDCAP_OT_generate_mocap(bpy.types.Operator):
 
         parts = []
         if props.track_body: parts.append("body")
-        if props.track_face: parts.append("face")
         label = "preview" if self.is_update_only else "capture"
         self.report({'INFO'}, f"Running {' + '.join(parts)} {label}...")
         return {'FINISHED'}
@@ -1716,24 +1632,26 @@ class BLENDCAP_OT_cancel_cleanup(bpy.types.Operator):
 class BLENDCAP_OT_generate_bvh(bpy.types.Operator):
     bl_idname = "blendcap.generate_bvh"
     bl_label = "Generate & Import BVH"
-    bl_description = ("Generate a BVH (and/or hands/root/face variants) "
+    bl_description = ("Generate a BVH (and/or hands/root variants) "
                       "from the cached tracking data of the currently "
                       "selected clip and import it into the scene")
 
     def invoke(self, context, event):
         """Validate selection + tracking data, then check clip length."""
+        props = context.scene.blendcap_props
+        if props.export_face or props.use_separate_face:
+            self.report({'ERROR'}, "Legacy facial export is not supported. Use a body/hands/root-only Scene.")
+            return {'CANCELLED'}
         if blendcap_state['running'] or bvh_state['running']:
             return self.execute(context)
 
         props = context.scene.blendcap_props
 
         # ---- 1. Selection check -------------------------------------
-        if not (props.export_body or props.export_hands or props.export_root
-                or props.export_face or props.use_separate_face):
+        if not (props.export_body or props.export_hands or props.export_root):
             _show_warning_popup([
                 "Nothing selected to export.",
-                "Enable at least one of: Body, Hands, Root, Face, "
-                "or Use Separate Face Data.",
+                "Enable at least one of: Body, Hands or Root.",
             ])
             return {'CANCELLED'}
 
@@ -1821,6 +1739,9 @@ class BLENDCAP_OT_generate_bvh(bpy.types.Operator):
         props = context.scene.blendcap_props
 
         # Resolve video path (simplified — BVH only needs the cache folder name)
+        if props.export_face or props.use_separate_face:
+            self.report({'ERROR'}, "Legacy facial export is not supported. Use a body/hands/root-only Scene.")
+            return {'CANCELLED'}
         if props.video_source == 'FILE':
             video_path, _empty = _file_mode_source(context)
         else:
