@@ -9,6 +9,9 @@ licensing, security, packaging, installation/update, first-run and support readi
 
 ## Public component and runtime boundary
 
+For the optional same-source facial capture workflow, target requirements,
+offline assets and limitations, see [Facial animation V1](facial_animation.md).
+
 The public component owns Blender presentation, commands, source decoding,
 workspace setup, camera/armature integration and transactional output import.
 The separately configured VTA runtime owns project/review persistence, detector

@@ -146,6 +146,21 @@ class CopyPlan:
             if revision in required or exists(path):self.add(path,Path('analysis')/leaf)
         if any((self.source/'analysis').glob('evidence-*.json')):
             raise ValueError('Deferred Recovery evidence is unsupported; no VTA copy was made.')
+        facial_index=self.source/'facial/index.json'
+        if exists(facial_index):
+            face=read_json(facial_index)
+            if face.get('contract')!='vta-face-index-1' or face.get('project_id')!=raw['project_id']:
+                raise ValueError('Facial evidence index does not match the project.')
+            self.add(facial_index,Path('facial/index.json'))
+            for record in face['runs']:
+                h=record.get('sha256','')
+                if len(h)!=64 or any(c not in '0123456789abcdef' for c in h) or record.get('file')!=h+'.json':
+                    raise ValueError('Unsafe facial evidence copy reference.')
+                path=self.source/'facial'/record['file']
+                value=read_json(path)
+                canonical=hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+                if canonical!=h:raise ValueError('Facial evidence changed before Save As.')
+                self.add(path,Path('facial')/record['file'])
         return raw
 
     def output(self,path,expected=None):

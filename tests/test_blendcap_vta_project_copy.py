@@ -44,6 +44,27 @@ class ProjectCopyTests(unittest.TestCase):
         self.assertEqual((plan.destination/'sources'/self.media.name).exists(),False)
         self.assertTrue(next((plan.destination/'sources').iterdir()).is_file())
 
+    def test_facial_evidence_copy_is_independent_and_excludes_jobs(self):
+        root=self.source/'facial';root.mkdir()
+        value=dict(contract='vta-face-evidence-1',project_id='p',characters=[])
+        h=hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        (root/(h+'.json')).write_text(json.dumps(value))
+        (root/'index.json').write_text(json.dumps(dict(contract='vta-face-index-1',project_id='p',runs=[dict(file=h+'.json',sha256=h)])))
+        (root/'jobs').mkdir();(root/'jobs/transient.log').write_text('local only')
+        plan=self.plan();plan.publish()
+        self.assertEqual((plan.destination/'facial/index.json').read_bytes(),(root/'index.json').read_bytes())
+        self.assertEqual((plan.destination/'facial'/(h+'.json')).read_bytes(),(root/(h+'.json')).read_bytes())
+        self.assertFalse((plan.destination/'facial/jobs').exists())
+        (plan.destination/'facial'/(h+'.json')).write_text('copy edit')
+        self.assertEqual(json.loads((root/(h+'.json')).read_text()),value)
+
+    def test_facial_corrupt_or_escaping_reference_blocks_copy(self):
+        root=self.source/'facial';root.mkdir()
+        for entry in [dict(file='../escape.json',sha256='a'*64),dict(file='a'*64+'.json',sha256='a'*64)]:
+            (root/'index.json').write_text(json.dumps(dict(contract='vta-face-index-1',project_id='p',runs=[entry])))
+            (root/('a'*64+'.json')).write_text('{}')
+            with self.assertRaises(ValueError):self.plan()
+
     def test_cross_directory_unicode_and_same_filename(self):
         plan=self.plan(self.base/'different Å folder'/'Original_vta');plan.publish()
         self.assertTrue((plan.destination/'project_state.json').is_file())

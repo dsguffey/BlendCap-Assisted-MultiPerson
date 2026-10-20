@@ -132,6 +132,7 @@ from .vta_workspace import (
 )
 from .vta_camera_depth import BLENDCAP_OT_vta_camera_depth
 from .vta_camera_cleanup import BLENDCAP_OT_vta_camera_cleanup
+from .vta_facial import BLENDCAP_OT_vta_face_bind, BLENDCAP_OT_vta_face_generate
 from . import retarget
 
 
@@ -237,6 +238,8 @@ classes = (
     BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_vta_camera_depth,
     BLENDCAP_OT_vta_camera_cleanup,
+    BLENDCAP_OT_vta_face_bind,
+    BLENDCAP_OT_vta_face_generate,
     BLENDCAP_OT_vta_new_scene,
     BLENDCAP_OT_vta_choose_clip,
     BLENDCAP_OT_vta_clear_source,
@@ -881,6 +884,8 @@ def register():
 
 
 def unregister():
+    from .vta_facial import cancel_job as cancel_face_job
+    cancel_face_job()
     unregister_vta_workspace()
     unregister_vta_review_properties()
     if _clear_dangling_retarget_rigs in bpy.app.handlers.depsgraph_update_post:

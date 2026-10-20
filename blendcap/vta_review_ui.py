@@ -110,6 +110,8 @@ def _reset_repeat_assignment_session(_unused=None):
 
 @bpy.app.handlers.persistent
 def _cancel_generation_before_load(_unused=None):
+    from .vta_facial import cancel_job as cancel_face_job
+    cancel_face_job()
     from .vta_camera_cleanup import cancel_job
     cancel_job()
     if _reconstruction_process is not None and _reconstruction_process.poll() is None:
@@ -1051,7 +1053,8 @@ def _analysis_status_for(root: Path, source_id: str | None = None) -> dict | Non
 def _analysis_locked(root: Path | None = None) -> bool:
     """One conservative VTA mutation lock, including an external worker."""
     from .vta_camera_cleanup import busy
-    if busy():
+    from .vta_facial import busy as face_busy
+    if busy() or face_busy():
         return True
     if _analysis_process is not None and _analysis_process.poll() is None:
         return True
@@ -3585,6 +3588,8 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         if _reconstruction_process is not None and _reconstruction_process.poll() is None:
             self.layout.operator('blendcap.vta_generate_animation', text='Cancel Generation').action = 'CANCEL'
         draw_operation_feedback(self.layout, context, 'animation')
+        from .vta_facial import draw as draw_facial
+        draw_facial(self.layout,context)
 
 
 class VIEW3D_PT_blendcap_vta_animation_cleanup(_VtaReviewSubpanel,bpy.types.Panel):
