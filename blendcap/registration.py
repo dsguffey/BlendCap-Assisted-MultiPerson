@@ -114,6 +114,7 @@ from .vta_review_ui import (
     register_properties as register_vta_review_properties,
     unregister_properties as unregister_vta_review_properties,
 )
+from .vta_retarget import BLENDCAP_OT_vta_retarget
 from .vta_workspace import (
     BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_open_vta_workspace,
@@ -281,6 +282,7 @@ classes = (
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_generate_animation,
     BLENDCAP_OT_vta_update_animation,
+    BLENDCAP_OT_vta_retarget,
     BLENDCAP_OT_vta_generation_details,
     BLENDCAP_OT_vta_open_logs,
     BLENDCAP_OT_vta_candidate_select,
@@ -875,6 +877,8 @@ def register():
 
 
 def unregister():
+    from .vta_retarget import cancel_running
+    cancel_running(bpy.context)
     unregister_vta_workspace()
     unregister_vta_review_properties()
     if _clear_dangling_retarget_rigs in bpy.app.handlers.depsgraph_update_post:

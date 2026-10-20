@@ -6,6 +6,7 @@ New here? Start with the [Quick Start](04-quick-start.md).
 
 For the current reviewed multi-Character integration, see the
 [VTA public host workflow and technical guide](vta_workflow.md).
+Development-branch body retargeting: [VTA Mixamo FK V1](vta_retargeting.md).
 
 ## Contents
 

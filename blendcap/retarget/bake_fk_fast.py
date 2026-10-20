@@ -1098,7 +1098,7 @@ def _apply_leg_anchor_compensation(frame, comp_legs, comp_baseline,
 
 def _matrix_bake_pairs_iter_fast(pairs, src_rig, tgt_rig, frame_start, frame_end,
                                  mapped_bones=None, source_rest_override=None,
-                                 override_rotation_only=True):
+                                 override_rotation_only=True, *, settings=None):
     """Fcurve-direct FK bake. GENERATOR — same protocol as the classic
     engine: yields once per frame during the per-frame phase, then
     yields from `_bulk_write_keys` to drive the keyframe flush.
@@ -1110,14 +1110,15 @@ def _matrix_bake_pairs_iter_fast(pairs, src_rig, tgt_rig, frame_start, frame_end
     edit-bone translation but uses the snapshot's rotation.
     """
     scene = bpy.context.scene
-    compensation_on = bool(getattr(scene, 'blendcap_face_capture_compensation', False))
-    denoise_on = bool(getattr(scene, 'blendcap_face_denoise', False))
+    options = settings or {}
+    compensation_on = bool(options.get('face_compensation', getattr(scene, 'blendcap_face_capture_compensation', False)))
+    denoise_on = bool(options.get('face_denoise', getattr(scene, 'blendcap_face_denoise', False)))
     # World-space LOC toggle. Mirrors the classic engine. With the
     # fast engine the per-frame source arm-local matrix already comes
     # from src_arm_local[sname] (built without depsgraph), so
     # converting to world is just src_mw @ that matrix — no extra
     # cost beyond a 4x4 multiply.
-    use_world_loc = bool(getattr(scene, 'blendcap_retarget_use_world_location', False))
+    use_world_loc = bool(options.get('world_location', getattr(scene, 'blendcap_retarget_use_world_location', False)))
 
     _eval_pbs, _eff_influence = _settle_target_drivers_and_eval(scene, tgt_rig)
 
@@ -1147,6 +1148,8 @@ def _matrix_bake_pairs_iter_fast(pairs, src_rig, tgt_rig, frame_start, frame_end
      comp_legs) = _setup_leg_anchor_compensation(
          pairs, src_rig, tgt_rig, src_mw, tgt_mw, by_target, src_walk_set,
          target_meta)
+    if not options.get('leg_compensation', True):
+        comp_active = False
 
     (hl_src_name, hl_tgt_name, hl_motion_correction_q, src_sorted,
      src_fcurves) = _setup_head_local(
@@ -1189,7 +1192,9 @@ def _matrix_bake_pairs_iter_fast(pairs, src_rig, tgt_rig, frame_start, frame_end
                 parent_arm_rot_q = Quaternion()
             else:
                 parent_arm = computed_tgt_arm_local[parent_name]
-                parent_arm_rot_q = (tgt_mw @ parent_arm).to_quaternion()
+                # desired_arm_rot_q below is armature-space: its parent must
+                # be in that SAME frame, even for rotated FBX objects.
+                parent_arm_rot_q = parent_arm.to_quaternion()
 
             # Armature-carry-as-parent (see the setup comment at
             # carry_con detection): the basis math below — world-delta
@@ -1204,7 +1209,7 @@ def _matrix_bake_pairs_iter_fast(pairs, src_rig, tgt_rig, frame_start, frame_end
                     carry_con, computed_tgt_arm_local)
                 if D_carry is not None:
                     basis_parent_arm = D_carry
-                    parent_arm_rot_q = (tgt_mw @ D_carry).to_quaternion()
+                    parent_arm_rot_q = D_carry.to_quaternion()
 
             basis_rot_q = None
             basis_loc = Vector((0.0, 0.0, 0.0))

@@ -484,3 +484,7 @@ A correct fixture or passing synthetic suite is not independent 3D ground truth
 or completed manual release QA. Internal experiment machinery and real QA media
 are intentionally not part of this public maintenance guide.
 
+The development-branch [VTA Mixamo FK V1 guide](vta_retargeting.md) describes
+final evaluated motion baking, target requirements and transactional Action
+preservation. Owner visual acceptance is required before promotion.
+

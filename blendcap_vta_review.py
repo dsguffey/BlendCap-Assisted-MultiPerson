@@ -805,6 +805,11 @@ class PrivateCoreBackend:
             raise
         return character, self.query(location)
 
+    def export_retarget_motion(self, location: ReviewLocation, **snapshot):
+        """Return only the private-owned normalized final-motion contract."""
+        project, source = self._load_project_source(location)
+        return self._core.build_retarget_motion(project, source_id=source['source_id'], **snapshot)
+
     def _load_context(self, location: ReviewLocation) -> tuple[object, object, str]:
         project, source = self._load_project_source(location)
         active = project.to_dict().get("active_analysis_revision_by_source", {})
