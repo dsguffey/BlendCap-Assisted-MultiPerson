@@ -224,7 +224,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
             "blendcap.vta_analyze", "blendcap.vta_generate_animation",
             "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera",
-            "blendcap.vta_match_source_fps", "blendcap.vta_retarget"
+            "blendcap.vta_match_source_fps"
             })
             with mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=())):
                 disabled = ui._action_availability()

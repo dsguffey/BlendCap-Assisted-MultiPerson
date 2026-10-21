@@ -1,5 +1,12 @@
 # Retargeting
 
+**Current VTA workflow:** use [VTA FK retargeting](vta_retargeting.md), not the
+legacy interface described below. Mixamo is owner accepted; Unreal/Epic UE4 is
+automated/proof validated. Rigify/ARP/CloudRig control support remains pending;
+included legacy presets are not production VTA certification. See the
+[profile audit](vta_retarget_profiles.md). The underlying legacy tools are retained
+but hidden from the normal VTA sidebar.
+
 Retargeting is how the captured motion gets onto **your** character. BlendCap bakes the performance from the captured armature onto your rig's controls in FK, and can optionally convert the result onto your rig's IK controls.
 
 ---

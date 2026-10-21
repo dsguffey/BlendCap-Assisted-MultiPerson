@@ -3000,9 +3000,6 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
         animate = layout.row()
         animate.enabled = _source_actions_available(context)
         animate.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
-        retarget = layout.row()
-        retarget.operator_context = 'INVOKE_DEFAULT'
-        retarget.operator('blendcap.vta_retarget', text='Retarget Animation to Mixamo…', icon='ARMATURE_DATA')
         available = refresh(context)
         repeat = layout.row()
         repeat.enabled = available and BLENDCAP_OT_vta_repeat_assignment.poll(context)
@@ -3285,7 +3282,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'BlendCap'
+    bl_category = 'VTA'
     bl_parent_id = "VIEW3D_PT_blendcap_ui"
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -3321,7 +3318,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
 class _VtaReviewSubpanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'BlendCap'
+    bl_category = 'VTA'
     bl_parent_id = "VIEW3D_PT_blendcap_vta_review"
 
 

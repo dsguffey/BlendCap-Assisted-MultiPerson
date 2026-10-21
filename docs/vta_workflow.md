@@ -484,7 +484,12 @@ A correct fixture or passing synthetic suite is not independent 3D ground truth
 or completed manual release QA. Internal experiment machinery and real QA media
 are intentionally not part of this public maintenance guide.
 
-The development-branch [VTA Mixamo FK V1 guide](vta_retargeting.md) describes
+The development-branch [VTA FK V1 guide](vta_retargeting.md) describes
 final evaluated motion baking, target requirements and transactional Action
-preservation. Owner visual acceptance is required before promotion.
+preservation. Mixamo, including its 3D View UI/source alignment/frame-zero
+reference, is owner accepted. Unreal/Epic UE4 is automated/synthetic-proof
+validated only. The [profile expansion audit](vta_retarget_profiles.md) isolates
+Rigify/ARP/CloudRig control-adapter work; those families are not yet bake-supported
+or ready for owner QA. Owner visual acceptance is required before promoting any
+new target family. No Public 1.0 release or main promotion is implied.
 

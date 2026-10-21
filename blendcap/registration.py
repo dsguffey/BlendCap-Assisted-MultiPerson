@@ -73,6 +73,7 @@ from .operators_library import (
 from .panels import (
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,
+    VIEW3D_PT_vta_credits,
 )
 from .vta_review_ui import (
     BLENDCAP_OT_vta_new_scene,
@@ -114,7 +115,7 @@ from .vta_review_ui import (
     register_properties as register_vta_review_properties,
     unregister_properties as unregister_vta_review_properties,
 )
-from .vta_retarget import BLENDCAP_OT_vta_retarget
+from .vta_retarget import BLENDCAP_OT_vta_retarget, VtaRetargetSettings, VIEW3D_PT_vta_retarget
 from .vta_workspace import (
     BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_open_vta_workspace,
@@ -213,6 +214,7 @@ def _on_target_rig_change(scene, context):
 # REGISTRATION
 # ============================================================
 classes = (
+    VtaRetargetSettings,
     BlendCapBVHEntry,
     BlendCapBonePair,
     BlendCapIKChain,
@@ -279,6 +281,8 @@ classes = (
     BLENDCAP_OT_donate,
     VIEW3D_PT_blendcap_ui,
     OUTPUT_PT_blendcap_ui,
+    VIEW3D_PT_vta_retarget,
+    VIEW3D_PT_vta_credits,
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_generate_animation,
     BLENDCAP_OT_vta_update_animation,
@@ -528,6 +532,7 @@ def register():
                 pass
             bpy.utils.register_class(cls)
     bpy.types.Scene.blendcap_props = bpy.props.PointerProperty(type=BlendCapProperties)
+    bpy.types.Scene.blendcap_vta_retarget = bpy.props.PointerProperty(type=VtaRetargetSettings)
     bpy.types.Scene.blendcap_bvh_entries = bpy.props.CollectionProperty(type=BlendCapBVHEntry)
     bpy.types.Scene.blendcap_bvh_index = bpy.props.IntProperty(default=0)
 
@@ -879,6 +884,7 @@ def register():
 def unregister():
     from .vta_retarget import cancel_running
     cancel_running(bpy.context)
+    del bpy.types.Scene.blendcap_vta_retarget
     unregister_vta_workspace()
     unregister_vta_review_properties()
     if _clear_dangling_retarget_rigs in bpy.app.handlers.depsgraph_update_post:

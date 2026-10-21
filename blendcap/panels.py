@@ -6,6 +6,7 @@ the two big state dicts (for progress display) and the strip-position
 helpers (for the VSE source label).
 """
 import bpy
+from pathlib import Path
 
 from .helpers import (
     blendcap_state, bvh_state, retarget_progress_state, arkit_state,
@@ -129,8 +130,8 @@ def _draw_donate_section(layout, prefs):
     # with the honor-system prefs toggle (hide_donate_buttons), which stays
     # reachable in the prefs panel after the button is hidden. Boxed + labeled
     # like every other section so it reads as real BlendCap UI (a bare button
-    # at the very top read as disconnected); drawn just under Setup to stay
-    # prominent without being the disconnected first thing.
+    # at the very top read as disconnected). Now mounted only inside the
+    # dedicated bottom Credits panel; the existing visibility policy remains.
     if not SHOW_DONATE_BUTTON:
         return
     if prefs and getattr(prefs, "hide_donate_buttons", False):
@@ -1119,9 +1120,6 @@ def draw_blendcap_ui(self, context):
     hide_clear_all = bool(prefs and prefs.hide_clear_all)
 
     _draw_setup_section(layout, hide_setup)
-    # Donate goes right BELOW Setup, in its own labeled box (see
-    # _draw_donate_section): clearly part of BlendCap's UI yet still prominent.
-    _draw_donate_section(layout, prefs)
     _draw_source_section(layout, context, props)
 
     is_running = blendcap_state['running']
@@ -1129,24 +1127,52 @@ def draw_blendcap_ui(self, context):
 
     _draw_capture_section(layout, context, props, is_running, hide_clear_all)
     _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_running)
-    box = _draw_retargeting_section(layout, context, props)
+    # Legacy retarget UI is intentionally hidden, NOT removed. The public VTA
+    # panel uses the same GPL engine with its validated safety/calibration path.
     _draw_bvh_library_section(layout, context, props)
 
 # ============================================================
 # UI PANELS
 # ============================================================
 class VIEW3D_PT_blendcap_ui(bpy.types.Panel):
-    bl_label = "BlendCap"
+    bl_label = "VTA"
     bl_idname = "VIEW3D_PT_blendcap_ui"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'BlendCap'
+    bl_category = 'VTA'
     def draw(self, context): draw_blendcap_ui(self, context)
 
 class OUTPUT_PT_blendcap_ui(bpy.types.Panel):
-    bl_label = "BlendCap"
+    bl_label = "VTA"
     bl_idname = "OUTPUT_PT_blendcap_ui"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'output'
     def draw(self, context): draw_blendcap_ui(self, context)
+
+
+class VIEW3D_PT_vta_credits(bpy.types.Panel):
+    bl_idname = 'VIEW3D_PT_vta_credits'
+    bl_label = 'Credits'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'VTA'
+    bl_order = 10000
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='Built on BlendCap by Arcomade.')
+        layout.label(text='© 2026 Arcomade — BlendCap')
+        layout.label(text='Capture/integration foundation and FK engine.')
+        layout.label(text='VTA workflow and calibration are modifications.')
+        layout.separator()
+        layout.label(text='Public Blender integration: GPL-3.0-or-later.')
+        layout.label(text='No warranty. Redistribution permitted under GPL.')
+        root = Path(__file__).resolve().parents[1]
+        row = layout.row(align=True)
+        row.operator('wm.path_open', text='License').filepath = str(root / 'LICENSE')
+        row.operator('wm.path_open', text='Notices').filepath = str(root / 'NOTICE.txt')
+        layout.operator('wm.url_open', text='VTA integration source').url = 'https://github.com/dsguffey/BlendCap-Assisted-MultiPerson'
+        layout.operator('wm.url_open', text='Original BlendCap source').url = 'https://github.com/Arcomade/BlendCap'
+        _draw_donate_section(layout, addon_prefs(context))

@@ -6,7 +6,9 @@ New here? Start with the [Quick Start](04-quick-start.md).
 
 For the current reviewed multi-Character integration, see the
 [VTA public host workflow and technical guide](vta_workflow.md).
-Development-branch body retargeting: [VTA Mixamo FK V1](vta_retargeting.md).
+Development-branch body retargeting: [VTA FK V1](vta_retargeting.md) and
+[profile support/status](vta_retarget_profiles.md). Preset availability in legacy
+BlendCap documentation is not certification of VTA control-rig support.
 
 ## Contents
 

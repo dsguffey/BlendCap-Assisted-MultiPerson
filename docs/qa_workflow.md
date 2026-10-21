@@ -12,6 +12,24 @@ from the current QA.blend and its current companion, not an earlier clean fixtur
 or a derived annotation copy. An explicitly identified newer owner file takes
 precedence; confirm its provenance before replacing QA.blend.
 
+## Standing last-known-good recovery point
+
+The live QA file may be prepared for the owner's current test, preserving the
+latest imported assets, materials and manual edits. Maintain one separate,
+designated local last-known-good backup of both QA.blend and QA_vta, outside Git
+and separate from disposable experiments. Verify fresh/background opening and
+companion consistency before capturing it. Record timestamp, accepted public and
+private commit SHAs, and any distinction between the accepted baseline and the
+current test build in metadata beside the backup.
+
+Keep that recovery point unchanged while a new workflow is unaccepted. Once the
+owner accepts a code change and it is checkpointed/promoted, verify the then-current
+live project and replace the backup with that exact owner state, including all
+manual edits made during QA. Do not substitute an older derived fixture. QA data
+must never be committed. Installed-build rollback copies are separate from this
+owner-project recovery point. The locally designated backup and restore paths
+are recorded in the preparation notes/backup metadata; reuse that location.
+
 ## Safe update procedure
 
 1. Identify the latest saved owner state. Do not infer it from an internal copy's
