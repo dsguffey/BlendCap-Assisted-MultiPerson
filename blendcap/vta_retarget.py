@@ -11,6 +11,7 @@ from mathutils import Matrix, Vector
 from .retarget.bake_fk_fast import _matrix_bake_pairs_iter_fast
 from .retarget.fcurves import _iter_action_fcurves, _bulk_write_keys
 from .vta_target_profiles import MIXAMO, PARENTS, PROFILES, PROFILE_ITEMS, resolve_target
+from .vta_fingers import PARENTS as FINGER_PARENTS, resolve as finger_mapping
 
 
 # Compatibility name for existing scripts/tests; semantic keys are unchanged.
@@ -148,7 +149,8 @@ def _swing(a,b):
 def calibration(target,motion,mapping,*,world=None,match=None):
     match=match or target_profile(target)
     joints={j['id']:j for j in motion['joints']};world=target.matrix_world.copy() if world is None else world
-    references={s:match.prefix+match.profile.observations[s] if match.profile.observations else n for s,n in mapping.items()}
+    references={s:match.prefix+match.profile.observations[s] if match.profile.observations and s in match.profile.observations
+        else match.prefix+'DEF-'+n[len(match.prefix):] if s in FINGER_PARENTS and match.profile.id=='RIGIFY' else n for s,n in mapping.items()}
     rest={s:world@target.data.bones[n].matrix_local for s,n in references.items()}
     offsets={};overrides={}
     for s in mapping:
@@ -231,15 +233,17 @@ def _restore_properties(properties):
 def _validate_motion(motion):
     """Validate the public input envelope before allocating any Blender IDs."""
     if not isinstance(motion,dict) or any(motion.get(k)!=v for k,v in (
-            ('schema','vta-final-motion'),('version',1),('root_policy','composite-pelvis-once'),
+            ('schema','vta-final-motion'),('root_policy','composite-pelvis-once'),
             ('transform_space','global'),('coordinates','right-handed-z-up-metres'))):
         raise ValueError('Unsupported final-motion contract')
     try:
+        if motion.get('version') not in (1,2):raise ValueError()
         fps=motion['fps'];samples=motion['samples'];joints=motion['joints']
         if type(fps) not in (int,float) or not math.isfinite(fps) or not 0<fps<=1000:raise ValueError()
         if not samples or len(samples)>100001:raise ValueError()
         ids=[j['id'] for j in joints]
-        if len(ids)!=len(set(ids)) or set(ids)-set(PROFILE):raise ValueError()
+        if len(ids)!=len(set(ids)) or set(ids)-(set(PROFILE)|set(FINGER_PARENTS)):raise ValueError()
+        if motion['version']==1 and set(ids)&set(FINGER_PARENTS):raise ValueError()
         if any(j['parent']!=PARENTS[j['id']] for j in joints):raise ValueError()
         for joint in joints:
             _uniform(_matrix(joint['rest']))
@@ -251,7 +255,9 @@ def _validate_motion(motion):
             if type(sample['frame']) is not int or sample['frame']!=first+index:raise ValueError()
             if type(sample['available']) is not bool:raise ValueError()
             if not sample['available']:raise ValueError('Range includes unavailable motion; choose a continuously available frame range.')
-            if set(sample['poses'])!=set(ids):raise ValueError()
+            present=set(sample['poses']);required=set(ids)-set(FINGER_PARENTS)
+            if not required<=present or present-set(ids):raise ValueError()
+            if any(s in FINGER_PARENTS and FINGER_PARENTS[s] not in present for s in present):raise ValueError()
             for matrix in sample['poses'].values():_uniform(_matrix(matrix))
         if not isinstance(motion['provenance']['digest'],str) or not motion['provenance']['digest']:raise ValueError()
     except (KeyError,TypeError,AttributeError,ValueError) as exc:
@@ -306,12 +312,16 @@ class RetargetJob:
     def __init__(self,scene,target,motion,*,before_publish=None,profile_id='AUTO'):
         self.scene=scene;self.target=target;self.motion=motion;self.before_publish=before_publish
         self.mapping=validate_target(target,scene,profile_id);self.match=target_profile(target,profile_id)
+        _validate_motion(motion)
+        source_ids={j['id'] for j in motion['joints']}
+        self.finger_source_count=len(source_ids&set(FINGER_PARENTS))
+        self.fingers=finger_mapping(target,self.match,source_ids)
+        self.mapping.update(self.fingers)
         self.adapter=None
         if self.match.profile.id=='RIGIFY':
             from .vta_rigify_fk import RigifyFk
-            self.adapter=RigifyFk(target,self.match)
+            self.adapter=RigifyFk(target,self.match,self.fingers)
         self.temporary=[];self.published=None
-        _validate_motion(motion)
         if motion['frame_range'][0]<1:raise ValueError('Frame 0 is reserved for imported rest; choose animation frames starting at 1 or later.')
         ids={j['id'] for j in motion['joints']}
         for s in list(self.mapping):
@@ -351,8 +361,7 @@ class RetargetJob:
             if bpy.context.object and bpy.context.object.mode!='OBJECT':bpy.ops.object.mode_set(mode='OBJECT')
             for o in bpy.context.selected_objects:o.select_set(False)
             obj.select_set(True);bpy.context.view_layer.objects.active=obj;bpy.ops.object.mode_set(mode='EDIT')
-            for s in PROFILE:
-                if s not in self.mapping:continue
+            for s in self.mapping:
                 j=self.joints[s];m=_matrix(j['rest']);b=data.edit_bones.new(s)
                 b.head=m.translation;b.tail=m.translation+m.to_3x3().col[1]*.1;b.matrix=m;b.length=.1
                 if j['parent']:b.parent=data.edit_bones[j['parent']]
@@ -386,6 +395,7 @@ class RetargetJob:
             for sample in self.motion['samples']:
                 computed={}
                 for b in source.pose.bones:
+                    if b.name not in sample['poses']:continue
                     bone=b.bone;parent=computed.get(bone.parent.name) if bone.parent else None
                     base=parent@bone.parent.matrix_local.inverted()@bone.matrix_local if parent is not None else bone.matrix_local.copy()
                     pose=_matrix(sample['poses'][b.name]);p=pose.translation if b.name=='hips' else base.translation
@@ -400,6 +410,16 @@ class RetargetJob:
             first,last=self.motion['frame_range']
             for frame in _matrix_bake_pairs_iter_fast(rows,source,stage,first,last,set(),self.overrides,settings=dict(world_location=True,leg_compensation=False,face_compensation=False,face_denoise=False)):
                 yield ('Baking',frame)
+            # Key only actual optional observations. Native constant-key holding
+            # across an absent finger sample is not new evidence/interpolation.
+            for s,name in self.fingers.items():
+                missing={sample['frame'] for sample in self.motion['samples'] if s not in sample['poses']}
+                path=stage.pose.bones[name].path_from_id(_rotation_property(stage.pose.bones[name]))
+                for curve in _iter_action_fcurves(stage.animation_data.action):
+                    if curve.data_path==path:
+                        for key in list(curve.keyframe_points):
+                            if round(key.co.x) in missing:curve.keyframe_points.remove(key,fast=True)
+                        curve.update()
             # A new Action must not inherit unkeyed location/scale remnants
             # from the previous Action on the real object. Materialize neutral
             # body channels with the SAME existing bulk writer, only on stage.
@@ -446,7 +466,9 @@ class RetargetJob:
             if {(f.data_path,f.array_index) for f in _iter_action_fcurves(action)}!=required:
                 raise ValueError('Incomplete retarget channel set; no Action assigned.')
             for fc in _iter_action_fcurves(action):
-                if len(fc.keyframe_points)!=len(self.motion['samples'])+1:raise ValueError('Incomplete retarget curve')
+                semantic=next((s for s,n in self.fingers.items() if fc.data_path==stage.pose.bones[n].path_from_id(_rotation_property(stage.pose.bones[n]))),None)
+                count=sum(semantic in sample['poses'] for sample in self.motion['samples']) if semantic else len(self.motion['samples'])
+                if len(fc.keyframe_points)!=count+1:raise ValueError('Incomplete retarget curve')
                 for key in fc.keyframe_points:
                     if not all(math.isfinite(v) for v in key.co):raise ValueError('Nonfinite retarget key')
                     key.interpolation='CONSTANT'
@@ -472,6 +494,7 @@ class RetargetJob:
                     if max(abs(v-w) for a,b in zip(ev.matrix_world,self.frame_world[sample['frame']]) for v,w in zip(a,b))>1e-4:
                         raise ValueError('Retarget world scale/placement validation failed')
                     for s,name in self.mapping.items():
+                        if s not in sample['poses']:continue
                         got=ev.matrix_world@ev.pose.bones[name].matrix
                         q=_matrix(sample['poses'][s]).to_quaternion().normalized()@self.offsets[s]
                         if max(abs(a-b) for ra,rb in zip(got.to_quaternion().normalized().to_matrix(),q.to_matrix()) for a,b in zip(ra,rb))>1e-4:
@@ -495,6 +518,7 @@ class RetargetJob:
             if self.before_publish:self.before_publish()
             action.name='VTA '+self.match.profile.label+' — '+self.target.name
             action['vta_target_profile']=self.match.profile.id
+            if self.fingers:action['vta_finger_mapping']=json.dumps(self.fingers,sort_keys=True)
             action['vta_retarget_version']=1;action['vta_motion_digest']=self.motion['provenance']['digest']
             action['vta_alignment_version']=1
             action['vta_import_reference']=json.dumps(dict(channels=self.import_state,world=[list(r) for r in self.import_world]))
@@ -592,6 +616,13 @@ def draw_rig_choices(layout, context):
         return False
     layout.label(text=f'{len(rows)} body bones matched; automatic calibration.', icon='CHECKMARK')
     layout.label(text='Resolved: '+target_profile(settings.target,settings.target_profile).profile.label)
+    if settings.source:
+        from .vta_fingers import MAPS
+        source_names=MAPS['MIXAMO'] # BlendCap uses these unprefixed finger names.
+        available={s for s,n in source_names.items() if n in settings.source.data.bones}
+        if available:
+            count=len(finger_mapping(settings.target,target_profile(settings.target,settings.target_profile),available))
+            layout.label(text=f'Finger mapping: {count}/{len(available)} (optional source motion)')
     layout.prop(settings, 'show_mapping', icon='TRIA_DOWN' if settings.show_mapping else 'TRIA_RIGHT', emboss=False)
     if settings.show_mapping:
         table = layout.box()
@@ -599,7 +630,7 @@ def draw_rig_choices(layout, context):
         for source_name, target_name in rows:
             row = table.row();row.label(text=source_name);row.label(text=target_name)
         table.label(text='Composite pelvis motion applied once.')
-        table.label(text='Toes optional; fingers/IK/face not solved.')
+        table.label(text='Toes/fingers optional; no new finger, IK or face solve.')
     action = settings.target.animation_data.action if settings.target.animation_data else None
     layout.label(text='Previous Action: ' + (action.name if action else 'None'))
     layout.label(text='New Action; previous animation retained. Esc cancels.')
@@ -695,7 +726,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         fingerprint=action_fingerprint(source)
         properties=_animated_properties(target)
         try:
-            rest,samples=yield from capture_motion(source,backend._core.retarget_source_bindings(),self.start,self.end,preserve=(target,))
+            rest,samples=yield from capture_motion(source,backend._core.retarget_source_bindings(include_fingers=True),self.start,self.end,preserve=(target,))
         finally:_restore_properties(properties)
         motion=backend.export_retarget_motion(location,character_id=source['vta_character_id'],fps=scene.render.fps/scene.render.fps_base,rest=rest,samples=samples)
         token=motion['provenance']['state_token']
@@ -708,7 +739,8 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         try:yield from job.steps()
         finally:
             job.close();_restore_rig(source_state);_restore_properties(source_properties)
-        self.report({'INFO'},'Created '+job.published.name+'; previous Action retained.')
+        suffix=f'; fingers {len(job.fingers)}/{job.finger_source_count}' if job.finger_source_count else ''
+        self.report({'INFO'},'Created '+job.published.name+'; previous Action retained'+suffix+'.')
 
     def execute(self,context):
         global _running

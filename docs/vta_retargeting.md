@@ -4,7 +4,8 @@ This development-branch workflow bakes one generated VTA Character's **final
 evaluated motion** onto a compatible FK armature. Mixamo (including source-world
 size/placement and frame-zero reference) has passed owner QA. Unreal/Epic UE4 is
 automated/synthetic-proof validated only. Standard generated Rigify human body FK
-is automated/real-rig proof validated and awaiting owner visual QA. ARP and
+has passed owner body/workflow QA. Optional existing captured finger motion is
+now carried for Mixamo, Rigify and UE4; finger visual acceptance is pending. ARP and
 CloudRig adapters remain pending. See the [profile audit](vta_retarget_profiles.md).
 This is not a Public 1.0 release.
 
@@ -97,9 +98,13 @@ The original eleven values are recorded in `vta_rigify_reference` on the new
 Action; failure/cancellation restores the pre-operation values. Prior Actions
 are not rewritten. Switching to an older Action with unkeyed switches can require
 restoring its original settings; VTA does not add Action-switch observers.
-Unrelated properties, fingers/face/tweaks, all generated constraints, object/data
+Unrelated properties, unresolved fingers/face/tweaks, all generated constraints, object/data
 drivers, widgets, rest data and regeneration metadata are preserved. Frame 0
 neutralizes the owned body controls, not every generated mechanism/finger bone.
+
+Resolved finger FK chains also key their normal neutral master/tip controls; no
+DEF keys, finger IK switches or new finger solve are needed for the stock rig.
+Curvature properties and generated drivers remain untouched.
 
 This is **not** IK/contact locking, tweak solving, FK→IK conversion, custom
 Rigify feature-set support or regeneration. Similar character proportions remain
@@ -108,7 +113,7 @@ the expectation; contact/proportion cleanup is manual.
 ## Implementation boundary and motion policy
 
 The private core authorizes the Character/source and emits a JSON-compatible
-`vta-final-motion` v1 snapshot: opaque IDs, FPS, inclusive frame range, semantic
+`vta-final-motion` snapshot (v1 body-only, v2 with optional fingers): opaque IDs, FPS, inclusive frame range, semantic
 joint tree/rest directions, final global transforms and availability per frame,
 plus final-motion provenance/state digest. Matrices are row-major 4×4,
 right-handed Z-up metres, with proper unit rotations and evaluated translations.
@@ -155,6 +160,53 @@ validated and source/project/target safety guards still pass. Cancellation,
 mid-write failure and stale-state refusal remove staging resources and restore
 the previous target state. Unregister also cancels in-flight work.
 
+## Optional captured fingers
+
+The existing BlendCap body exporter already preserves three articulated joints
+per thumb/finger, five digits per side: **30 optional finger joints**. Nonrotating
+tip markers are not extra phalanges. In the existing wrestling source, both
+Characters have all 30 bones and 90 finger rotation curves; measured local finger
+motion varies by roughly 4–15 degrees. This does not certify tracking accuracy.
+
+Previously `retarget_source_bindings()` exported only the 22 body joints, the
+normalized contract rejected extra IDs, and profiles had no finger rows. Ordinary
+FK output neutralized the unmapped fingers. The fix samples **final evaluated**
+finger transforms with the body (including Object Mode corrections), normalizes
+opaque semantic IDs such as `left_thumb_1` through `left_thumb_3`, and feeds the
+same calibrated FK evaluator and staged Action transaction. No detector, hand
+solver, smoothing, amplification, contact/grasp inference or raw-evidence edit.
+
+Body-only snapshots retain v1 and their existing numeric representation. V2 adds
+optional joints in the same `joints`/`samples[].poses` containers. Missing/invalid
+finger rest or parent chains are omitted; missing/nonfinite optional samples are
+not fabricated or keyed, and descendants require a present parent. The standard
+constant-key evaluator holds the preceding keyed pose across an optional gap;
+there is no new gap interpolation or invented observation. Whole-Character/body
+availability refusal remains unchanged. Safe valid prefixes/partial hands bake;
+missing/unsupported optional mappings do not invalidate the body. Existing global
+target safety refusals (for example arbitrary constrained plain-FK rigs) remain.
+
+The generic panel shows a read-only finger mapping count when source bones exist;
+the completion message reports mapped/valid-source counts. No dedicated panel or
+per-finger settings. Unresolved fingers retain the profile's prior behavior:
+plain FK neutral/rest channels; Rigify's unowned current pose. Prior Actions and
+their keys stay unchanged/recoverable. Frame 0, source placement/uniform scale,
+repeat-bake reference, cancellation and transactional publication are unchanged.
+
+| Family | Finger convention | Current bake status |
+|---|---|---|
+| Mixamo | `LeftHandThumb1–3`, Index/Middle/Ring/Pinky; Right equivalent | 30 optional; real existing capture/model proof |
+| Rigify | `thumb.01–03.L/R`, `f_index`/`f_middle`/`f_ring`/`f_pinky` | 30 normal FK controls; real generated-rig proof |
+| Unreal UE4 | `thumb/index/middle/ring/pinky_01–03_l/r` | 30 optional; synthetic UE4 hierarchy proof |
+| UE5 Manny/Quinn | Separate catalog of the usual 01–03 phalanges; additional metacarpals not fabricated | Naming catalog only; existing UE5 body refusal remains |
+| ARP | `c_thumb1–3.l/r` etc., from preserved BlendCap presets | Naming catalog only; control adapter pending |
+| CloudRig | `FK-Finger_Thumb1–3.L/R` etc., from preserved presets | Naming catalog only; control adapter pending |
+| Godot Humanoid | Thumb Metacarpal/Proximal/Distal; other digits Proximal/Intermediate/Distal (`Little`, not Pinky) | Naming catalog only; no body adapter/runtime integration |
+
+Catalogs are not claims of target ecosystem support. Godot names follow its
+[standard Humanoid profile](https://docs.godotengine.org/en/stable/classes/class_skeletonprofilehumanoid.html),
+not arbitrary user bone names. New body/control adapters still need their own proofs.
+
 ## Scope and validation
 
 Automated tests cover final Object Mode corrections, A/T calibration, namespaces,
@@ -172,10 +224,17 @@ Mode corrections, fresh save/reopen, editable FK output and finite moving skinne
 geometry. The 163-frame wrestling proof preserves source pelvis placement within
 0.000003 m and keyed FK orientations within 0.0001 degrees. Known-motion deform
 comparison stays within 0.000002 m / 0.70 degrees (stock B-bone tangent differences).
-Full suites: **657 public + 425 private**, zero skips/failures/errors or MediaPipe
-imports; 62 focused retarget/Rigify tests. Owner Rigify visual acceptance is pending.
+The finger proof transfers 30/30 joints over 163 existing captured frames on a
+real Mixamo model, a standard Rigify target and a synthetic UE4 skeleton. Body
+matrices are **exactly unchanged** with/without fingers in that comparison.
+Finger orientation error is below 0.0004 degrees; all joints remain finite and
+show articulation. Save/reopen/repeat and multi-character isolation are checked.
+Full suites: **669 public + 428 private**, zero skips/failures/errors, including
+74 focused retarget/Rigify/finger tests and zero MediaPipe import attempts;
+proof receipts remain local QA evidence.
+owner Rigify body/workflow QA passed, finger visual acceptance remains pending.
 
 Not certified: arbitrary rigs, ARP/CloudRig, IK, finger/face solving,
 advanced twist distribution, foot/contact locking, collisions or a profile editor.
-Static fingers, proportion differences and source reconstruction artifacts are
-expected V1 limitations, not repaired by retargeting.
+Missing/damped source finger articulation, proportion differences and source
+reconstruction artifacts are not repaired by retargeting.

@@ -5,6 +5,9 @@ Rigify generation is fixture construction only. Production imports no Rigify API
 import importlib
 import json
 import math
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -12,6 +15,46 @@ try:
     import bpy
     from mathutils import Matrix,Vector
 except ImportError:bpy=None
+
+
+def multi_rig_state(rt,scene,rig,frames):
+    """Include generated ID/widget ownership, not only the keyed FK curves."""
+    adapter=importlib.import_module(rt.__package__+'.vta_rigify_fk')
+    for owner in (rig,rig.data):
+        for f in owner.animation_data.drivers if owner.animation_data else ():
+            assert all(t.id in (None,rig,rig.data) for v in f.driver.variables for t in v.targets)
+    for bone in rig.pose.bones:
+        for c in bone.constraints:
+            assert getattr(c,'target',None) in (None,rig)
+            assert not hasattr(c,'targets') or all(t.target in (None,rig) for t in c.targets)
+        assert bone.custom_shape_transform is None or bone.custom_shape_transform.id_data==rig
+    properties=lambda owner:{k:adapter._plain(owner[k],rig) for k in owner.keys()}
+    action=rig.animation_data.action
+    widgets={b.name:(b.custom_shape.name,b.custom_shape.data.name,
+        [tuple(v.co) for v in b.custom_shape.data.vertices],sorted(c.name for c in b.custom_shape.users_collection),
+        b.custom_shape_transform.name if b.custom_shape_transform else None) for b in rig.pose.bones if b.custom_shape}
+    frame,sub=scene.frame_current,scene.frame_subframe;motion={}
+    try:
+        for f in frames:
+            scene.frame_set(f);bpy.context.view_layer.update()
+            ev=rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            motion[str(f)]={'world':[list(r) for r in ev.matrix_world],
+                'bones':{n:[list(r) for r in ev.matrix_world@ev.pose.bones[n].matrix] for n in adapter.OBSERVATIONS.values()}}
+    finally:scene.frame_set(frame,subframe=sub);bpy.context.view_layer.update()
+    return json.loads(json.dumps(dict(graph=adapter.graph_signature(rig),data=rig.data.name,
+        action=action.name if action else None,curves=rt.action_fingerprint(rig),widgets=widgets,
+        object_properties=properties(rig),data_properties=properties(rig.data),
+        bone_properties={b.name:properties(b) for b in rig.pose.bones},
+        rest=[(b.name,b.parent.name if b.parent else None,[list(r) for r in b.matrix_local]) for b in rig.data.bones],motion=motion)))
+
+
+def assert_multi_rig_state(case,actual,expected):
+    case.assertEqual({k:v for k,v in actual.items() if k!='motion'},{k:v for k,v in expected.items() if k!='motion'})
+    case.assertEqual(actual['motion'].keys(),expected['motion'].keys())
+    for f,rows in expected['motion'].items():
+        current=actual['motion'][f]
+        pairs=[(rows['world'],current['world']),*[(m,current['bones'][n]) for n,m in rows['bones'].items()]]
+        for a,b in pairs:case.assertLess(max(abs(v-w) for x,y in zip(a,b) for v,w in zip(x,y)),2e-5)
 
 
 @unittest.skipUnless(bpy is not None,'Blender required')
@@ -237,3 +280,90 @@ class RigifyTests(unittest.TestCase):
             self.scene.frame_set(sample['frame']);bpy.context.view_layer.update()
             actual=self.target.matrix_world@self.target.pose.bones['DEF-spine'].matrix
             self.assertLess((actual.translation-Vector(sample['poses']['hips'][i][3] for i in range(3))).length,2e-5)
+
+    def test_optional_fingers_use_normal_controls_preserve_graph_and_repeat(self):
+        from tests.test_blendcap_vta_fingers import finger_motion
+        _,motion=finger_motion(self.helper)
+        graph=self.adapter.graph_signature(self.target);first=self.run_job(motion)
+        self.assertEqual(len(first.fingers),30);self.assertEqual(first.fingers['left_thumb_1'],'thumb.01.L')
+        self.assertEqual(self.adapter.graph_signature(self.target),graph)
+        paths={f.data_path for f in self.rt._iter_action_fcurves(first.published)}
+        self.assertTrue(any('f_index.02.L' in p for p in paths));self.assertFalse(any('DEF-' in p for p in paths))
+        second=self.run_job(motion);self.assertIs(second.published['vta_previous_action'],first.published)
+        self.assertEqual(self.adapter.graph_signature(self.target),graph)
+
+    def test_multiple_generated_rigs_isolate_bakes_properties_widgets_and_fresh_reopen(self):
+        # A is an independent copy of the genuinely generated class fixture.
+        # Generate B separately: distinct rig_id, UI Text and widget namespace.
+        a=self.target;a.name='Actor A (not rig)'
+        bpy.ops.object.armature_human_metarig_add();bpy.ops.pose.rigify_generate()
+        b=bpy.context.object;b.name='Actor B (not rig)'
+        self.assertIsNot(a.data,b.data);self.assertNotEqual(a.data['rig_id'],b.data['rig_id'])
+        self.assertIsNot(a['rig_ui'],b['rig_ui'])
+        # A third independent object/data copy also exercises legitimately shared
+        # widget/UI assets and duplicate generated rig_id values, without a cap
+        # or a special "other rig" pair in the invariant checks below.
+        c=self.template.copy();c.data=self.template.data.copy();self.scene.collection.objects.link(c)
+        self.adapter.RigifyFk.isolate_data_drivers(None,c,self.template);c.name='Actor C (not rig)'
+        targets=(a,b,c)
+        frames=(0,1,2,3);motions=[];imports=[]
+        for i,target in enumerate(targets):
+            target.location=(4-i*3.,i*2.,1-i*.2);target.scale=(.8+i*.25,)*3
+            target.pose.bones['upper_arm_parent.L']['FK_limb_follow']=.15+i*.25
+            target.pose.bones['torso']['neck_follow']=.2+i*.25
+            target.pose.bones['root']['owner_note']='Actor '+str(i)
+            bpy.context.view_layer.update();imports.append(target.matrix_world.copy())
+            self.assertEqual(len(self.rt.validate_target(target,self.scene)),22)
+            motion=self.helper.motion();motion['character_id']='character-'+str(i);motion['source_id']='same-clip'
+            factor=1.+i*.4;shift=Vector((i*3.,-i*2.,i*.3))
+            for joint in motion['joints']:
+                m=Matrix(joint['rest']);m.translation=m.translation*factor+shift;joint['rest']=[list(r) for r in m]
+                if joint['direction'] is not None:joint['direction']=list(Vector(joint['direction'])*factor)
+            for sample in motion['samples']:
+                for semantic,rows in sample['poses'].items():
+                    m=Matrix(rows);m.translation=m.translation*factor+shift;sample['poses'][semantic]=[list(r) for r in m]
+            motions.append(motion)
+        template=multi_rig_state(self.rt,self.template_scene,self.template,frames)
+        def bake(target,motion):
+            job=self.rt.RetargetJob(self.scene,target,motion)
+            for _ in job.steps():pass
+            return job
+        actions=[]
+        for _ in range(2):
+            for target,motion in zip(targets,motions):
+                others={o:multi_rig_state(self.rt,self.scene,o,frames) for o in targets if o!=target}
+                old=target.animation_data.action;job=bake(target,motion);actions.append(job.published)
+                if old:self.assertIs(job.published['vta_previous_action'],old)
+                for other,state in others.items():assert_multi_rig_state(self,multi_rig_state(self.rt,self.scene,other,frames),state)
+        self.assertEqual(len(set(actions)),len(actions))
+        assert_multi_rig_state(self,multi_rig_state(self.rt,self.template_scene,self.template,frames),template)
+        for target,motion,world in zip(targets,motions,imports):
+            self.scene.frame_set(0);bpy.context.view_layer.update();self.helper.assert_matrix_close(target.matrix_world,world)
+            for sample in motion['samples']:
+                self.scene.frame_set(sample['frame']);bpy.context.view_layer.update()
+                pelvis=(target.matrix_world@target.pose.bones['DEF-spine'].matrix).translation
+                self.assertLess((pelvis-Matrix(sample['poses']['hips']).translation).length,2e-5)
+        expected={t.name:multi_rig_state(self.rt,self.scene,t,frames) for t in targets}
+        with tempfile.TemporaryDirectory(prefix='vta-multi-rigify-') as tmp:
+            path=Path(tmp)/'multi.blend';receipt=Path(tmp)/'expected.json'
+            widgets={c for target in targets for bone in target.pose.bones if bone.custom_shape for c in bone.custom_shape.users_collection}
+            bpy.data.libraries.write(str(path),{self.scene,*widgets}) # No live file/owner binding changes.
+            receipt.write_text(json.dumps(dict(states=expected,scene=self.scene.name,rerun=b.name,motion=motions[1])))
+            script=f'''import sys,json,unittest,bpy
+sys.dont_write_bytecode=True;sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})
+from tests.test_blendcap_vta_retarget import RetargetTests
+from tests.test_blendcap_vta_rigify import multi_rig_state,assert_multi_rig_state
+RetargetTests.setUpClass();rt=RetargetTests.rt;case=unittest.TestCase()
+bpy.ops.wm.open_mainfile(filepath={str(path)!r},load_ui=False,use_scripts=False)
+data=json.loads(open({str(receipt)!r}).read());scene=bpy.data.scenes[data['scene']];bpy.context.window.scene=scene
+for name,state in data['states'].items():assert_multi_rig_state(case,multi_rig_state(rt,scene,scene.objects[name],(0,1,2,3)),state)
+others={{n:multi_rig_state(rt,scene,scene.objects[n],(0,1,2,3)) for n in data['states'] if n!=data['rerun']}}
+job=rt.RetargetJob(scene,scene.objects[data['rerun']],data['motion'])
+for _ in job.steps():pass
+for n,state in others.items():assert_multi_rig_state(case,multi_rig_state(rt,scene,scene.objects[n],(0,1,2,3)),state)
+RetargetTests.addon.unregister();print('MULTI_RIGIFY_FRESH_REOPEN_PASS')
+'''
+            result=subprocess.run([bpy.app.binary_path,'--background','--factory-startup','--python-exit-code','1',
+                '--python-expr',script],capture_output=True,text=True,timeout=120)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('MULTI_RIGIFY_FRESH_REOPEN_PASS',result.stdout)

@@ -5,6 +5,7 @@ strict FK adapter must not fall back from an identified control rig to an export
 skeleton just because that same object happens to contain deform bone names.
 """
 from dataclasses import dataclass
+from .vta_fingers import PARENTS as FINGER_PARENTS
 
 
 PARENTS={'hips':None,'spine_lower':'hips','spine_middle':'spine_lower','chest':'spine_middle',
@@ -14,6 +15,7 @@ for side in ('left','right'):
                          (('thigh','shin','foot','toe'),'hips')):
         for semantic in chain:
             PARENTS[side+'_'+semantic]=parent;parent=side+'_'+semantic
+PARENTS.update(FINGER_PARENTS)
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,7 @@ class TargetProfile:
     root: str | None = None
     layer: str = 'ordinary FK/deform skeleton'
     available: bool = True
-    limitation: str = 'Body FK only; no fingers, IK, contact locking or twist solve.'
+    limitation: str = 'Body FK and optional captured fingers; no new hand solver, IK, contact locking or twist solve.'
     hand_references: tuple = ()
     marker_keys: tuple = ()
     excluded_bones: tuple = ()
@@ -72,7 +74,7 @@ for side,suffix in (('left','.L'),('right','.R')):
 RIGIFY=TargetProfile('RIGIFY','Rigify',rigify,('torso','upper_arm_fk.L','thigh_fk.L'),
     layer='standard generated body FK controls',marker_keys=('rig_id',),observations=rigify_observations,
     hand_references=(('DEF-f_middle.01.L','DEF-f_index.01.L'),('DEF-f_middle.01.R','DEF-f_index.01.R')),
-    limitation='Standard generated human body only; no custom feature sets, IK/tweak/finger solving or regeneration.')
+    limitation='Standard generated human FK and optional captured fingers; no custom feature sets, IK/tweak solving or regeneration.')
 # Control adapters below remain unavailable; preserved legacy maps are not VTA support.
 ARP=TargetProfile('ARP','Auto-Rig Pro controls',{},('c_root_master.x','c_arm_fk.l','c_thigh_fk.l'),
     layer='FK controls with proprietary-generated mechanism/deform dependencies',available=False,

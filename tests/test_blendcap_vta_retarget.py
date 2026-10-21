@@ -271,7 +271,7 @@ class RetargetTests(unittest.TestCase):
                 row=snapshot['rest'][joint['id']];joint['rest']=row['matrix'];joint['direction']=row['direction']
             result['provenance']['state_token']=hashlib.sha256(b'unchanged private authority').hexdigest()
             return result
-        backend=SimpleNamespace(_core=SimpleNamespace(retarget_source_bindings=lambda:bindings),export_retarget_motion=mock.Mock(side_effect=export),
+        backend=SimpleNamespace(_core=SimpleNamespace(retarget_source_bindings=lambda **_options:bindings),export_retarget_motion=mock.Mock(side_effect=export),
             _load_project_source=lambda loc:(SimpleNamespace(to_json=lambda:'unchanged private authority'),None))
         self.scene.frame_set(0)
         location=ReviewLocation(Path('project_vta'),Path('clip.mp4'),-1,0)

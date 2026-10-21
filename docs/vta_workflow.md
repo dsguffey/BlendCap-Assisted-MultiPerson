@@ -488,10 +488,15 @@ The development-branch [VTA FK V1 guide](vta_retargeting.md) describes
 final evaluated motion baking, target requirements and transactional Action
 preservation. Mixamo, including its 3D View UI/source alignment/frame-zero
 reference, is owner accepted. Unreal/Epic UE4 is automated/synthetic-proof
-validated only. Standard generated Rigify human body FK is automated/real-rig
-proof validated and ready for owner QA through the same generic panel; no metarig
+validated only. Standard generated Rigify human body FK has passed owner QA
+through the same generic panel; no metarig
 or manual FK switch is needed. The [profile expansion audit](vta_retarget_profiles.md)
 records the bounded adapter and preservation guarantees. ARP/CloudRig remain
 unsupported pending their own proofs. Owner visual acceptance is required before promoting any
-new target family. No Public 1.0 release or main promotion is implied.
+new target family. Optional existing captured finger motion now passes through
+Mixamo/Rigify/UE4 retargeting without a new tracker or solver; finger visual
+acceptance is pending. Body-only captures remain compatible. The same panel may
+show a small read-only finger coverage count. See the
+[finger policy](vta_retargeting.md#optional-captured-fingers) for partial/missing
+data and deferred target-family limits. No Public 1.0 release or main promotion is implied.
 

@@ -138,10 +138,17 @@ def validate(rig,match):
 
 
 class RigifyFk:
-    def __init__(self,target,match):
+    def __init__(self,target,match,fingers=None):
         self.match=match;self.prefix=match.prefix;self.graph=graph_signature(target)
         self.owned=set(match.mapping.values())|{self.prefix+n for n in ('torso','hips','chest','root')}
         self.observations={s:self.prefix+n for s,n in OBSERVATIONS.items() if s in match.mapping}
+        self.controls={**match.mapping,**(fingers or {})}
+        for semantic,name in (fingers or {}).items():
+            self.owned.add(name);self.observations[semantic]=self.prefix+'DEF-'+name[len(self.prefix):]
+            stem,_segment,side=name[len(self.prefix):].split('.')
+            self.owned.add(self.prefix+stem+'.01_master.'+side)
+            tip=self.prefix+stem+'.01.'+side+'.001'
+            if tip in target.pose.bones:self.owned.add(tip)
         self.reference={}
         for name,props in PROPERTY_SPEC.items():
             self.reference[self.prefix+name]={key:target.pose.bones[self.prefix+name][key] for key in props}
@@ -200,12 +207,13 @@ class RigifyFk:
 
     def validate_deform(self,ev,sample,offsets):
         for semantic,name in self.observations.items():
+            if semantic not in sample['poses']:continue
             got=ev.matrix_world@ev.pose.bones[name].matrix
-            control=ev.matrix_world@ev.pose.bones[self.match.mapping[semantic]].matrix
+            control=ev.matrix_world@ev.pose.bones[self.controls[semantic]].matrix
             if not all(math.isfinite(v) for row in got for v in row):raise ValueError('Nonfinite Rigify deform pose: '+name)
             # Bendy spine segments introduce small tangent differences. A broad
             # refusal bound catches disconnected/flipped control/deform paths.
-            rest_control=ev.data.bones[self.match.mapping[semantic]].matrix_local.to_quaternion()
+            rest_control=ev.data.bones[self.controls[semantic]].matrix_local.to_quaternion()
             rest_deform=ev.data.bones[name].matrix_local.to_quaternion()
             expected=control.to_quaternion()@rest_control.inverted()@rest_deform
             # Rigify distributes roll along split B-bones. Validate direction

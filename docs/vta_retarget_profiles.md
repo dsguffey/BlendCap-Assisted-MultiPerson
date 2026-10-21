@@ -4,8 +4,9 @@ This is a **bounded profile expansion**, not completion/acceptance of all four
 requested families. Mixamo FK, its Object
 Mode UI and source-aligned/frame-zero behavior have passed owner QA. Unreal/Epic
 UE4 FK is automated/synthetic-proof validated only. Standard generated Rigify
-human body FK is implemented and real-rig/automated validated, awaiting owner
-visual QA. ARP/CloudRig remain diagnosed/refused, not bake-supported.
+human body FK has passed owner QA, including multi-rig automated isolation.
+Optional existing captured fingers are now supported on Mixamo/Rigify/UE4 and
+await finger visual acceptance. ARP/CloudRig remain diagnosed/refused, not bake-supported.
 
 ## Status and chosen target semantics
 
@@ -13,7 +14,7 @@ visual QA. ARP/CloudRig remain diagnosed/refused, not bake-supported.
 |---|---|---|---|
 | Mixamo | Ordinary local FK skeleton; owner accepted | Unambiguous Hips namespace; 20 required body bones, 2 optional toes | Hips has no parent; composite pelvis once |
 | Unreal/Epic UE4 | Local quaternion FK/deform skeleton; automated/proof only | pelvis, spine_01–03, neck_01, head; bilateral clavicle/upperarm/lowerarm/hand/thigh/calf/foot; ball toes optional | Required unparented root; pelvis child of root; root stays neutral, composite motion goes to pelvis once |
-| Rigify | Stock generated Blender 5.2 human body FK; real-rig proof, owner QA pending | Generated rig_id, torso/limb FK signatures, 22 controls, stock body dependency topology; no fallback to DEF-name matching | Reverse spine_fk rotations; anatomical DEF pelvis calibration; normal torso location gets composite pelvis translation once |
+| Rigify | Stock generated Blender 5.2 human body FK; owner accepted | Generated rig_id, torso/limb FK signatures, 22 controls, stock body dependency topology; no fallback to DEF-name matching | Reverse spine_fk rotations; anatomical DEF pelvis calibration; normal torso location gets composite pelvis translation once |
 | Auto-Rig Pro | Live generated FK control adapter **pending** | c_root_master.x + c_arm_fk.l + c_thigh_fk.l signature; known preset variant only | Legacy c_pos XY / c_root_master.x Z split not adopted |
 | CloudRig | Live generated FK control adapter **pending** | TORSO-Spine + FK-UpperArm.L + FK-Thigh.L or cloudrig marker; known preset variant only | Legacy root XY / TORSO-Spine Z split and automatic IK conversion not adopted |
 
@@ -88,8 +89,10 @@ state. Successful output intentionally stays FK-editable. Old Actions are retain
 unchanged; selecting an old Action that lacks switch keys does not automatically
 restore unkeyed properties. No Action-switch observer is introduced.
 
-Keys are restricted to 26 normal body controls plus those properties and object
-alignment. DEF/ORG/MCH bones are not keyed; unrelated fingers/face/tweaks and
+Body-only keys are restricted to 26 normal body controls plus those properties and object
+alignment. Optional captured fingers additionally use 30 normal finger FK controls
+and their neutral master/tip channels; curvature properties and drivers remain
+untouched. DEF/ORG/MCH bones are not keyed; unresolved fingers/face/tweaks and
 properties are preserved. Stock constraints, all 198 drivers, custom shapes,
 rest data and regeneration metadata remain intact. Customized body topology,
 external driver/constraint dependencies, driven FK controls, data Actions and
@@ -135,7 +138,7 @@ pelvis positions. Root stays neutral, repeat bake uses the imported reference,
 and source Object Mode corrections transfer without doubled translation.
 Similar proportions are assumed; exact contacts are manual cleanup.
 
-62 focused tests pass, including existing Mixamo regressions and 13 real Rigify
+At the body-adapter milestone, 62 focused tests passed, including existing Mixamo regressions and 13 real Rigify
 tests; full suites: **657 public + 425 private**, zero skips/failures/errors,
 zero MediaPipe imports.
 Epic tests cover namespace/detection, missing bones/hierarchy refusal, optional
@@ -163,7 +166,19 @@ authority/cache/media/output bytes are preserved; only the .blend ownership
 receipt is renewed at publication. The standing last-known-good QA backup remains
 unchanged until owner acceptance. Use normal Object Mode → N → VTA → Retargeting,
 target **VTA Rigify QA**, source **yellow**, frames **1–163**. Inspect frame 0
-after baking for the imported neutral reference. Manual visual acceptance is pending.
+after baking for the imported neutral reference. Owner body/workflow QA passed;
+optional finger visual acceptance is pending. The finger pass does not rewrite
+the live owner file; the already-present targets can be re-baked normally.
+
+## Optional finger follow-up
+
+See [captured finger policy and coverage](vta_retargeting.md#optional-captured-fingers).
+Active Mixamo, Rigify and UE4 maps carry up to 30 optional articulated joints.
+ARP/CloudRig names are preserved from the existing local BlendCap maps; separate
+UE5 and Godot naming catalogs are not activated body/control adapters. No new
+ecosystem certification is implied. Runtime lookup stays object-scoped with no
+two-character cap; the three-target regression covers sequential/repeated bakes,
+shared and separate widget/UI data, and fresh reopening without cross-rig changes.
 
 All code/profile changes are public/GPL. Private repository unchanged. No new
 licensing conclusion, proprietary dependency, facial work, main promotion, tag
