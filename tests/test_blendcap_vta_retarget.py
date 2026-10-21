@@ -607,10 +607,13 @@ class RetargetTests(unittest.TestCase):
 
     def test_control_rig_signatures_fail_instead_of_falling_back_to_fk_export_names(self):
         profiles=importlib.import_module(self.addon.__name__+'.blendcap.vta_target_profiles')
-        for control in (profiles.RIGIFY,profiles.ARP,profiles.CLOUDRIG):
+        for control in (profiles.ARP,profiles.CLOUDRIG):
             names=set(profiles.MIXAMO.bones.values())|set(control.signatures)
             with self.assertRaisesRegex(ValueError,'adapter'):profiles.resolve_target(names)
             with self.assertRaisesRegex(ValueError,'adapter'):profiles.resolve_target(names,'MIXAMO')
+        names=set(profiles.MIXAMO.bones.values())|set(profiles.RIGIFY.signatures)
+        for profile in ('AUTO','MIXAMO','RIGIFY'):
+            with self.assertRaisesRegex(ValueError,'Ambiguous/customized'):profiles.resolve_target(names,profile)
 
     def test_ambiguous_profiles_require_explicit_selection_and_namespaces_never_guess(self):
         profiles=importlib.import_module(self.addon.__name__+'.blendcap.vta_target_profiles')

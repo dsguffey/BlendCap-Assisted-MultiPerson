@@ -30,6 +30,7 @@ class TargetProfile:
     marker_keys: tuple = ()
     excluded_bones: tuple = ()
     variant_refusal: str = ''
+    observations: dict | None = None
 
     @property
     def required(self):return tuple(s for s in self.bones if not s.endswith('_toe'))
@@ -57,11 +58,22 @@ EPIC_UE4=TargetProfile('EPIC_UE4','Unreal/Epic UE4 FK',epic,('pelvis',),root='ro
     excluded_bones=('spine_04','spine_05','neck_02'),
     variant_refusal='UE5 Manny/Quinn spine/neck variants are not supported by the UE4 profile.')
 
-# These are deliberately not maps accepted by the FK adapter. Existing legacy
-# preset rows and unsafe switch mutation are retained, not promoted as VTA V1.
-RIGIFY=TargetProfile('RIGIFY','Rigify controls',{},('torso','upper_arm_fk.L','thigh_fk.L'),
-    layer='FK controls with ORG/MCH/DEF dependencies',available=False,marker_keys=('rig_id',),
-    limitation='Rigify requires an isolated control-rig adapter for drivers, FK switches and torso/hips evaluation; not yet bake-supported.')
+rigify={'hips':'spine_fk','spine_lower':'spine_fk.001','spine_middle':'spine_fk.002',
+        'chest':'spine_fk.003','neck':'neck','head':'head'}
+rigify_observations={'hips':'DEF-spine','spine_lower':'DEF-spine.001','spine_middle':'DEF-spine.002',
+                     'chest':'DEF-spine.003','neck':'DEF-spine.004','head':'DEF-spine.006'}
+for side,suffix in (('left','.L'),('right','.R')):
+    for semantic,control,deform in (
+            ('clavicle','shoulder','shoulder'),('upper_arm','upper_arm_fk','upper_arm'),
+            ('forearm','forearm_fk','forearm'),('hand','hand_fk','hand'),
+            ('thigh','thigh_fk','thigh'),('shin','shin_fk','shin'),
+            ('foot','foot_fk','foot'),('toe','toe_fk','toe')):
+        rigify[side+'_'+semantic]=control+suffix;rigify_observations[side+'_'+semantic]='DEF-'+deform+suffix
+RIGIFY=TargetProfile('RIGIFY','Rigify',rigify,('torso','upper_arm_fk.L','thigh_fk.L'),
+    layer='standard generated body FK controls',marker_keys=('rig_id',),observations=rigify_observations,
+    hand_references=(('DEF-f_middle.01.L','DEF-f_index.01.L'),('DEF-f_middle.01.R','DEF-f_index.01.R')),
+    limitation='Standard generated human body only; no custom feature sets, IK/tweak/finger solving or regeneration.')
+# Control adapters below remain unavailable; preserved legacy maps are not VTA support.
 ARP=TargetProfile('ARP','Auto-Rig Pro controls',{},('c_root_master.x','c_arm_fk.l','c_thigh_fk.l'),
     layer='FK controls with proprietary-generated mechanism/deform dependencies',available=False,
     limitation='Auto-Rig Pro control adapter and real-rig validation are pending; no proprietary API or asset is bundled.')
@@ -97,6 +109,9 @@ def resolve_target(names,profile_id='AUTO',*,control_markers=()):
     if controls:raise ValueError('; '.join(p.limitation for p in controls))
     candidates=[(p,prefix) for p in PROFILES if p.available for prefix in _prefixes(names,p)
                 if profile_id in ('AUTO',p.id)]
+    if ('RIGIFY' in control_markers or any(True for _ in _prefixes(names,RIGIFY))) and any(
+            True for p in (MIXAMO,EPIC_UE4) for _ in _prefixes(names,p)):
+        raise ValueError('Ambiguous/customized Rigify target; do not combine target skeletons on one object.')
     if not candidates:raise ValueError('Target profile/namespace is missing or unsupported; use a supported FK skeleton.')
     if len(candidates)>1:raise ValueError('Target profile or namespace is ambiguous; choose an explicit target profile (or separate the namespaces).')
     profile,prefix=candidates[0]

@@ -102,13 +102,14 @@ def validate_target(target,scene,profile_id='AUTO'):
     if target.data.pose_position!='POSE':
         raise ValueError('Show the target in Pose Position before retargeting.')
     match=target_profile(target,profile_id);mapping=match.mapping;profile=match.profile
-    if target.parent or target.constraints or any(b.constraints for b in target.pose.bones):
+    rigify=profile.id=='RIGIFY'
+    if target.parent or target.constraints or (not rigify and any(b.constraints for b in target.pose.bones)):
         raise ValueError('V1 requires an unparented FK target without constraints or a control rig.')
     anim=target.animation_data
-    if anim and (anim.drivers or anim.nla_tracks or anim.use_tweak_mode):
+    if anim and ((anim.drivers and not rigify) or anim.nla_tracks or anim.use_tweak_mode):
         raise ValueError('Target drivers, NLA and tweak mode are unsupported in FK V1.')
     _import_reference(target)
-    if target.data.animation_data:
+    if target.data.animation_data and not rigify:
         raise ValueError('Animated/driven target armature data is unsupported in FK V1.')
     # Check authored values too: matrix_world can lag an RNA edit until the
     # next dependency-graph update. This preflight must also be safe in draw().
@@ -116,6 +117,10 @@ def validate_target(target,scene,profile_id='AUTO'):
         if any(not math.isfinite(v) for v in scale) or min(scale)<=0 or max(scale)/min(scale)>1.0002:
             raise ValueError('Use positive uniform object scale; mirrored/nonuniform transforms are unsupported.')
     _uniform(target.matrix_world)
+    if rigify:
+        from .vta_rigify_fk import validate
+        validate(target,match)
+        return mapping
     if profile.root:
         root=target.data.bones[match.prefix+profile.root]
         if root.parent is not None:raise ValueError('Unsupported '+profile.label+' root hierarchy: '+root.name)
@@ -143,10 +148,12 @@ def _swing(a,b):
 def calibration(target,motion,mapping,*,world=None,match=None):
     match=match or target_profile(target)
     joints={j['id']:j for j in motion['joints']};world=target.matrix_world.copy() if world is None else world
-    rest={s:world@target.data.bones[n].matrix_local for s,n in mapping.items()}
+    references={s:match.prefix+match.profile.observations[s] if match.profile.observations else n for s,n in mapping.items()}
+    rest={s:world@target.data.bones[n].matrix_local for s,n in references.items()}
     offsets={};overrides={}
     for s in mapping:
-        source=_matrix(joints[s]['rest']);q_source=source.to_quaternion().normalized();q_target=rest[s].to_quaternion().normalized()
+        source=_matrix(joints[s]['rest']);q_source=source.to_quaternion().normalized()
+        q_target=(world@target.data.bones[mapping[s]].matrix_local).to_quaternion().normalized()
         direction=joints[s]['direction'];endpoint=ENDPOINTS.get(s);target_direction=None
         if endpoint in rest:target_direction=rest[endpoint].translation-rest[s].translation
         if s.endswith('_hand'):
@@ -299,6 +306,10 @@ class RetargetJob:
     def __init__(self,scene,target,motion,*,before_publish=None,profile_id='AUTO'):
         self.scene=scene;self.target=target;self.motion=motion;self.before_publish=before_publish
         self.mapping=validate_target(target,scene,profile_id);self.match=target_profile(target,profile_id)
+        self.adapter=None
+        if self.match.profile.id=='RIGIFY':
+            from .vta_rigify_fk import RigifyFk
+            self.adapter=RigifyFk(target,self.match)
         self.temporary=[];self.published=None
         _validate_motion(motion)
         if motion['frame_range'][0]<1:raise ValueError('Frame 0 is reserved for imported rest; choose animation frames starting at 1 or later.')
@@ -357,13 +368,21 @@ class RetargetJob:
 
     def steps(self):
         try:
-            source=self._source();stage=self.target.copy();stage.animation_data_clear();stage.name='.VTA retarget staging';self.scene.collection.objects.link(stage);self.temporary.append(stage)
+            source=self._source();stage=self.target.copy()
+            if self.adapter:
+                stage.data=self.target.data.copy()
+                stage.animation_data.action=None # Preserve generated drivers; Blender remaps self IDs on copy.
+                self.adapter.isolate_data_drivers(stage,self.target)
+            else:stage.animation_data_clear()
+            stage.name='.VTA retarget staging';self.scene.collection.objects.link(stage);self.temporary.append(stage)
             stage.hide_render=True;stage.hide_viewport=False;stage.hide_set(True)
             _restore_transform(stage,self.import_state)
             stage.delta_location=(0,0,0);stage.delta_rotation_euler=(0,0,0);stage.delta_rotation_quaternion=(1,0,0,0);stage.delta_scale=(1,1,1)
             stage.matrix_world=self.aligned_world
             bpy.context.view_layer.update()
-            for b in stage.pose.bones:b.matrix_basis=Matrix.Identity(4)
+            owned=self.adapter.owned if self.adapter else set(stage.pose.bones.keys())
+            for name in owned:stage.pose.bones[name].matrix_basis=Matrix.Identity(4)
+            if self.adapter:self.adapter.prepare(stage)
             for sample in self.motion['samples']:
                 computed={}
                 for b in source.pose.bones:
@@ -377,7 +396,7 @@ class RetargetJob:
                     if b.name=='hips':b.keyframe_insert('location',frame=sample['frame'])
                 yield ('Preparing',sample['frame'])
             rows=[SimpleNamespace(source=s,target=n,channels='ROT',axes='XYZ',loc_scale=1.,loc_scale_residual=False) for s,n in self.mapping.items()]
-            rows.append(SimpleNamespace(source='hips',target=self.mapping['hips'],channels='LOC',axes='XYZ',loc_scale=self.scale,loc_scale_residual=False))
+            if not self.adapter:rows.append(SimpleNamespace(source='hips',target=self.mapping['hips'],channels='LOC',axes='XYZ',loc_scale=self.scale,loc_scale_residual=False))
             first,last=self.motion['frame_range']
             for frame in _matrix_bake_pairs_iter_fast(rows,source,stage,first,last,set(),self.overrides,settings=dict(world_location=True,leg_compensation=False,face_compensation=False,face_denoise=False)):
                 yield ('Baking',frame)
@@ -388,29 +407,42 @@ class RetargetJob:
             for name in self.mapping.values():
                 bone=stage.pose.bones[name]
                 for prop in ('location','scale'):
-                    if prop=='location' and name==self.mapping['hips']:continue
+                    if prop=='location' and name==self.mapping['hips'] and not self.adapter:continue
                     primed.add((name,prop));path=bone.path_from_id(prop)
                     for index in range(3):neutral[path,index]=[v for f in range(first,last+1) for v in (f,1. if prop=='scale' else 0.)]
             for _ in _bulk_write_keys(stage,neutral,primed,first):yield ('Writing neutral channels',None)
-            # Own all pose channels, including unmapped fingers: frame zero is
-            # true bind/rest, not an inherited pose from a previous target Action.
+            # Plain FK owns every pose bone, including unmapped fingers. Rigify
+            # owns only its enumerated body controls, not unrelated mechanisms.
             for bone in stage.pose.bones:
-                if bone.name not in self.mapping.values():
+                if bone.name in owned and bone.name not in self.mapping.values():
                     for frame in range(first,last+1):
                         for prop in ('location',_rotation_property(bone),'scale'):bone.keyframe_insert(prop,frame=frame)
             for frame in range(first,last+1):
                 stage.matrix_world=self.frame_world[frame]
                 for prop in OBJECT_CHANNELS:stage.keyframe_insert(prop,frame=frame)
+            if self.adapter:
+                self.adapter.property_keys(stage,[0,*range(first,last+1)])
+                saved_frame=self.scene.frame_current;saved_subframe=self.scene.frame_subframe
+                try:
+                    for sample in self.motion['samples']:
+                        self.scene.frame_set(sample['frame']);stage.hide_set(False);bpy.context.view_layer.update()
+                        self.adapter.correct_pelvis(stage,sample)
+                        stage.hide_set(True)
+                        yield ('Aligning Rigify pelvis',sample['frame'])
+                finally:self.scene.frame_set(saved_frame,subframe=saved_subframe)
             _restore_transform(stage,self.import_state)
             for prop in OBJECT_CHANNELS:stage.keyframe_insert(prop,frame=0)
-            for bone in stage.pose.bones:
+            for name in owned:
+                bone=stage.pose.bones[name]
                 bone.matrix_basis=Matrix.Identity(4)
                 for prop in ('location',_rotation_property(bone),'scale'):bone.keyframe_insert(prop,frame=0)
             action=stage.animation_data.action
             if action is None:raise ValueError('Retarget produced no Action')
-            required={(bone.path_from_id(_rotation_property(bone)),index) for bone in stage.pose.bones for index in range(len(getattr(bone,_rotation_property(bone))))}
-            required.update((bone.path_from_id(prop),index) for bone in stage.pose.bones for prop in ('location','scale') for index in range(3))
+            required={(stage.pose.bones[name].path_from_id(_rotation_property(stage.pose.bones[name])),index) for name in owned for index in range(len(getattr(stage.pose.bones[name],_rotation_property(stage.pose.bones[name]))))}
+            required.update((stage.pose.bones[name].path_from_id(prop),index) for name in owned for prop in ('location','scale') for index in range(3))
             required.update((prop,index) for prop in OBJECT_CHANNELS for index in range(len(getattr(stage,prop))))
+            if self.adapter:
+                required.update((stage.pose.bones[name].path_from_id('['+json.dumps(key)+']'),0) for name,props in self.adapter.values.items() for key in props)
             if {(f.data_path,f.array_index) for f in _iter_action_fcurves(action)}!=required:
                 raise ValueError('Incomplete retarget channel set; no Action assigned.')
             for fc in _iter_action_fcurves(action):
@@ -426,7 +458,8 @@ class RetargetJob:
                 ev=stage.evaluated_get(bpy.context.evaluated_depsgraph_get())
                 if max(abs(v-w) for a,b in zip(ev.matrix_world,self.import_world) for v,w in zip(a,b))>1e-4:
                     raise ValueError('Imported frame-zero placement validation failed')
-                for bone in ev.pose.bones:
+                for name in (self.adapter.observations.values() if self.adapter else ev.pose.bones.keys()):
+                    bone=ev.pose.bones[name]
                     if max(abs(v-w) for a,b in zip(bone.matrix,bone.bone.matrix_local) for v,w in zip(a,b))>1e-4:
                         raise ValueError('Frame-zero rest pose validation failed: '+bone.name)
             finally:
@@ -443,8 +476,10 @@ class RetargetJob:
                         q=_matrix(sample['poses'][s]).to_quaternion().normalized()@self.offsets[s]
                         if max(abs(a-b) for ra,rb in zip(got.to_quaternion().normalized().to_matrix(),q.to_matrix()) for a,b in zip(ra,rb))>1e-4:
                             raise ValueError('Retarget rotation validation failed: '+name)
-                    expected=_matrix(sample['poses']['hips']).translation
-                    if ((ev.matrix_world@ev.pose.bones[self.mapping['hips']].head)-expected).length>1e-4:raise ValueError('Retarget pelvis validation failed')
+                    if self.adapter:self.adapter.validate_deform(ev,sample,self.offsets)
+                    else:
+                        expected=_matrix(sample['poses']['hips']).translation
+                        if ((ev.matrix_world@ev.pose.bones[self.mapping['hips']].head)-expected).length>1e-4:raise ValueError('Retarget pelvis validation failed')
                 finally:
                     self.scene.frame_set(old,subframe=sub);stage.hide_set(True);bpy.context.view_layer.update()
                 yield ('Validating',sample['frame'])
@@ -454,6 +489,9 @@ class RetargetJob:
             if (self.target.animation_data.action if self.target.animation_data else None)!=self.original or action_fingerprint(self.target)!=self.fingerprint:
                 raise ValueError('Target animation changed during retarget; no Action assigned.')
             validate_target(self.target,self.scene,self.match.profile.id)
+            if self.adapter:
+                from .vta_rigify_fk import graph_signature
+                if graph_signature(self.target)!=self.adapter.graph:raise ValueError('Rigify graph changed; no Action assigned.')
             if self.before_publish:self.before_publish()
             action.name='VTA '+self.match.profile.label+' — '+self.target.name
             action['vta_target_profile']=self.match.profile.id
@@ -461,12 +499,14 @@ class RetargetJob:
             action['vta_alignment_version']=1
             action['vta_import_reference']=json.dumps(dict(channels=self.import_state,world=[list(r) for r in self.import_world]))
             action['vta_object_curve_digest']=_object_curve_digest(action)
+            if self.adapter:self.adapter.finish_action(action)
             # An ID reference keeps the previous Action saved/recoverable WITHOUT
             # modifying its curves, flags or adding NLA to the target.
             if self.original:action['vta_previous_action']=self.original
             self.target.animation_data_create()
             try:
                 self.target.animation_data.action=action;self.target.animation_data.action_slot=action.slots[0]
+                if self.adapter:self.adapter.prepare(self.target)
                 self.scene.frame_set(self.scene.frame_current,subframe=self.scene.frame_subframe)
                 self.published=action
             except Exception:
@@ -487,9 +527,10 @@ class RetargetJob:
                 if action and action is not self.published and action.users==0:bpy.data.actions.remove(action)
                 if data and data.users==0:bpy.data.armatures.remove(data)
         self.temporary=[]
-        _restore_properties(self.properties)
+        _restore_properties([p for p in self.properties if not (self.published and self.adapter and self.adapter.owns_property(p[0],p[1]))])
+        if self.adapter and not self.published:self.adapter.restore(self.target)
         for name,values in self.pose.items():
-            if name in self.target.pose.bones and not self.published:
+            if name in self.target.pose.bones and (not self.published or (self.adapter and name not in self.adapter.owned)):
                 _restore_transform(self.target.pose.bones[name],values)
 
 
@@ -554,10 +595,10 @@ def draw_rig_choices(layout, context):
     layout.prop(settings, 'show_mapping', icon='TRIA_DOWN' if settings.show_mapping else 'TRIA_RIGHT', emboss=False)
     if settings.show_mapping:
         table = layout.box()
-        header = table.row();header.label(text='VTA source');header.label(text='Mixamo target')
+        header = table.row();header.label(text='VTA source');header.label(text='Target control')
         for source_name, target_name in rows:
             row = table.row();row.label(text=source_name);row.label(text=target_name)
-        table.label(text='Root + Hips motion → Hips, once.')
+        table.label(text='Composite pelvis motion applied once.')
         table.label(text='Toes optional; fingers/IK/face not solved.')
     action = settings.target.animation_data.action if settings.target.animation_data else None
     layout.label(text='Previous Action: ' + (action.name if action else 'None'))
@@ -602,7 +643,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
     bl_description='Bake final VTA motion to a new supported FK Action; keep previous animation'
     bl_options={'REGISTER','UNDO'}
     source_name:bpy.props.StringProperty(name='VTA Character')
-    target_name:bpy.props.StringProperty(name='Mixamo target')
+    target_name:bpy.props.StringProperty(name='Target armature')
     start:bpy.props.IntProperty(name='Start Frame',default=1)
     end:bpy.props.IntProperty(name='End Frame',default=1)
     use_scene_selection:bpy.props.BoolProperty(default=False,options={'HIDDEN','SKIP_SAVE'})
