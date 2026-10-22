@@ -33,6 +33,9 @@ class TargetProfile:
     excluded_bones: tuple = ()
     variant_refusal: str = ''
     observations: dict | None = None
+    # Exact native skeleton parents, including neutral intermediate bones.
+    # None retains the original semantic-parent contract for existing targets.
+    hierarchy: dict | None = None
 
     @property
     def required(self):return tuple(s for s in self.bones if not s.endswith('_toe'))
@@ -53,12 +56,32 @@ for side in ('left','right'):
         epic[side+'_'+semantic]=bone+'_'+suffix
 
 MIXAMO=TargetProfile('MIXAMO','Mixamo FK',mixamo,('Hips',),
-    hand_references=(('LeftHandMiddle1','LeftHandIndex1'),('RightHandMiddle1','RightHandIndex1')))
+    hand_references=(('LeftHandMiddle1','LeftHandIndex1'),('RightHandMiddle1','RightHandIndex1')),
+    excluded_bones=('UpperChest',),variant_refusal='Godot Humanoid naming is not the Mixamo profile.')
 EPIC_UE4=TargetProfile('EPIC_UE4','Unreal/Epic UE4 FK',epic,('pelvis',),root='root',
     limitation='UE4 three-spine/one-neck naming only. UE5 Manny/Quinn, Control Rig, twist and IK are not supported.',
     hand_references=(('middle_01_l','index_01_l'),('middle_01_r','index_01_r')),
     excluded_bones=('spine_04','spine_05','neck_02'),
     variant_refusal='UE5 Manny/Quinn spine/neck variants are not supported by the UE4 profile.')
+
+ue5={**epic,'spine_middle':'spine_03','chest':'spine_05'}
+ue5_parents={name:ue5[parent] if parent else 'root' for semantic,name in ue5.items()
+             for parent in (PARENTS[semantic],) if not semantic.endswith('_toe')}
+ue5_parents.update(spine_02='spine_01',spine_03='spine_02',spine_04='spine_03',
+                   spine_05='spine_04',neck_02='neck_01',head='neck_02')
+EPIC_UE5=TargetProfile('EPIC_UE5','Unreal Engine 5 Manny/Quinn',ue5,
+    ('pelvis','spine_04','spine_05','neck_02'),root='root',hierarchy=ue5_parents,
+    hand_references=(('middle_01_l','index_01_l'),('middle_01_r','index_01_r')),
+    limitation='Five-spine/two-neck skeleton FK with neutral intermediate bones/metacarpals. No Control Rig, corrective or twist distribution solve.')
+
+godot={'hips':'Hips','spine_lower':'Spine','spine_middle':'Chest','chest':'UpperChest','neck':'Neck','head':'Head'}
+for side in ('left','right'):
+    for semantic,bone in (('clavicle','Shoulder'),('upper_arm','UpperArm'),('forearm','LowerArm'),('hand','Hand'),
+                          ('thigh','UpperLeg'),('shin','LowerLeg'),('foot','Foot'),('toe','Toes')):
+        godot[side+'_'+semantic]=side.title()+bone
+GODOT_HUMANOID=TargetProfile('GODOT_HUMANOID','Godot Humanoid',godot,('Hips','UpperChest','LeftUpperArm'),root='Root',
+    hand_references=(('LeftMiddleProximal','LeftIndexProximal'),('RightMiddleProximal','RightIndexProximal')),
+    limitation='Exact SkeletonProfileHumanoid naming/hierarchy in Blender only; no arbitrary BoneMap, Godot runtime or export integration.')
 
 rigify={'hips':'spine_fk','spine_lower':'spine_fk.001','spine_middle':'spine_fk.002',
         'chest':'spine_fk.003','neck':'neck','head':'head'}
@@ -76,13 +99,13 @@ RIGIFY=TargetProfile('RIGIFY','Rigify',rigify,('torso','upper_arm_fk.L','thigh_f
     hand_references=(('DEF-f_middle.01.L','DEF-f_index.01.L'),('DEF-f_middle.01.R','DEF-f_index.01.R')),
     limitation='Standard generated human FK and optional captured fingers; no custom feature sets, IK/tweak solving or regeneration.')
 # Control adapters below remain unavailable; preserved legacy maps are not VTA support.
-ARP=TargetProfile('ARP','Auto-Rig Pro controls',{},('c_root_master.x','c_arm_fk.l','c_thigh_fk.l'),
+ARP=TargetProfile('ARP','Auto-Rig Pro',{},('c_root_master.x','c_arm_fk.l','c_thigh_fk.l'),
     layer='FK controls with proprietary-generated mechanism/deform dependencies',available=False,
     limitation='Auto-Rig Pro control adapter and real-rig validation are pending; no proprietary API or asset is bundled.')
-CLOUDRIG=TargetProfile('CLOUDRIG','CloudRig controls',{},('TORSO-Spine','FK-UpperArm.L','FK-Thigh.L'),
-    layer='FK controls with IK-switch-driven constraints',available=False,marker_keys=('cloudrig',),
+CLOUDRIG=TargetProfile('CLOUDRIG','CloudRig',{},('TORSO-Spine','FK-UpperArm.L','FK-Thigh.L'),
+    layer='FK controls with IK-switch-driven constraints',available=False,marker_keys=('cloudrig','is_generated_cloudrig'),
     limitation='CloudRig control adapter and real-rig validation are pending; legacy automatic IK conversion is not enabled.')
-PROFILES=(MIXAMO,EPIC_UE4,RIGIFY,ARP,CLOUDRIG)
+PROFILES=(MIXAMO,EPIC_UE4,EPIC_UE5,GODOT_HUMANOID,RIGIFY,ARP,CLOUDRIG)
 PROFILE_ITEMS=(('AUTO','Automatic','Strict detection; ambiguous targets require explicit selection'),)+tuple(
     (p.id,p.label,('Supported: ' if p.available else 'Detected only: ')+p.limitation) for p in PROFILES)
 
@@ -110,9 +133,13 @@ def resolve_target(names,profile_id='AUTO',*,control_markers=()):
     controls=[p for p in PROFILES if not p.available and (p.id in control_markers or any(True for _ in _prefixes(names,p)))]
     if controls:raise ValueError('; '.join(p.limitation for p in controls))
     candidates=[(p,prefix) for p in PROFILES if p.available for prefix in _prefixes(names,p)
-                if profile_id in ('AUTO',p.id)]
+                if profile_id in ('AUTO',p.id)
+                if profile_id!='AUTO' or not any(prefix+n in names for n in p.excluded_bones)]
+    if profile_id=='AUTO' and not any(p.id.startswith('EPIC_') for p,_ in candidates) and any(
+            prefix+n in names for prefix in _prefixes(names,EPIC_UE4) for n in EPIC_UE4.excluded_bones):
+        raise ValueError('Incomplete or unsupported UE5 Manny/Quinn spine/neck skeleton.')
     if ('RIGIFY' in control_markers or any(True for _ in _prefixes(names,RIGIFY))) and any(
-            True for p in (MIXAMO,EPIC_UE4) for _ in _prefixes(names,p)):
+            True for p in (MIXAMO,EPIC_UE4,EPIC_UE5,GODOT_HUMANOID) for _ in _prefixes(names,p)):
         raise ValueError('Ambiguous/customized Rigify target; do not combine target skeletons on one object.')
     if not candidates:raise ValueError('Target profile/namespace is missing or unsupported; use a supported FK skeleton.')
     if len(candidates)>1:raise ValueError('Target profile or namespace is ambiguous; choose an explicit target profile (or separate the namespaces).')

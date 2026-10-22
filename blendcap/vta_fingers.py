@@ -35,6 +35,15 @@ def resolve(target,match,available=None):
             if master not in target.pose.bones or match.prefix+'DEF-'+base not in target.pose.bones:continue
         else:
             expected=result.get(parent,match.mapping.get(parent))
+            if match.profile.id=='EPIC_UE5' and s.endswith('_1') and '_thumb_' not in s:
+                side,finger,_=s.split('_')
+                metacarpal=target.pose.bones.get(match.prefix+finger+'_metacarpal_'+('l' if side=='left' else 'r'))
+                if (not metacarpal or not metacarpal.parent or metacarpal.parent.name!=expected
+                        or metacarpal.constraints or not metacarpal.bone.use_inherit_rotation
+                        or metacarpal.bone.inherit_scale!='FULL' or not metacarpal.bone.use_local_location
+                        or any(not math.isfinite(v) or abs(v-1)>1e-5 for v in metacarpal.scale)
+                        or any(path.startswith(metacarpal.path_from_id()+'.') for path in driven)):continue
+                expected=metacarpal.name
             if not bone.bone.use_inherit_rotation or bone.bone.inherit_scale!='FULL' or not bone.bone.use_local_location:continue
         if not bone.parent or bone.parent.name!=expected:continue
         result[s]=name

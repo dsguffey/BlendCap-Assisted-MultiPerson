@@ -5,8 +5,9 @@ evaluated motion** onto a compatible FK armature. Mixamo (including source-world
 size/placement and frame-zero reference) has passed owner QA. Unreal/Epic UE4 is
 automated/synthetic-proof validated only. Standard generated Rigify human body FK
 has passed owner body/workflow QA. Optional existing captured finger motion is
-now carried for Mixamo, Rigify and UE4; finger visual acceptance is pending. ARP and
-CloudRig adapters remain pending. See the [profile audit](vta_retarget_profiles.md).
+now carried for Mixamo, Rigify, UE4, UE5 and Godot Humanoid; finger visual acceptance
+is pending. UE5/Godot are structural-proof validated, not owner accepted. ARP and
+CloudRig remain blocked, not bake-supported. See the [current adapter audit](vta_native_adapter_audit.md).
 This is not a Public 1.0 release.
 
 ## Use
@@ -48,8 +49,11 @@ Mixamo requirements below remain unchanged. The additional **Unreal/Epic UE4 FK*
 profile requires the common three-spine/one-neck naming and exact hierarchy,
 including an unparented `root` above `pelvis`, 20 required body bones and optional
 `ball_l`/`ball_r`. Root stays neutral; composite motion is applied only to pelvis.
-The same scale/rest/Action safeguards apply. UE5 Manny/Quinn and arbitrary control
-rigs are not accepted. Full names, validation status and limitations are listed
+The same scale/rest/Action safeguards apply. A distinct **UE5 Manny/Quinn** profile
+handles five spine bones, two neck bones and neutral metacarpals; it does not use
+the UE4 mapping. **Godot Humanoid** supports exact standard bone names/hierarchy
+in Blender, without a Godot runtime. Arbitrary control rigs are not accepted.
+Full names, validation status and limitations are listed
 in the [profile audit](vta_retarget_profiles.md).
 
 Local, editable, unparented Mixamo FK armature; positive uniform object scale,
@@ -198,14 +202,15 @@ repeat-bake reference, cancellation and transactional publication are unchanged.
 | Mixamo | `LeftHandThumb1–3`, Index/Middle/Ring/Pinky; Right equivalent | 30 optional; real existing capture/model proof |
 | Rigify | `thumb.01–03.L/R`, `f_index`/`f_middle`/`f_ring`/`f_pinky` | 30 normal FK controls; real generated-rig proof |
 | Unreal UE4 | `thumb/index/middle/ring/pinky_01–03_l/r` | 30 optional; synthetic UE4 hierarchy proof |
-| UE5 Manny/Quinn | Separate catalog of the usual 01–03 phalanges; additional metacarpals not fabricated | Naming catalog only; existing UE5 body refusal remains |
+| UE5 Manny/Quinn | 01–03 phalanges; non-thumb chains require their native metacarpal parent | 30 optional; extended skeleton structural proof, metacarpals neutral |
 | ARP | `c_thumb1–3.l/r` etc., from preserved BlendCap presets | Naming catalog only; control adapter pending |
 | CloudRig | `FK-Finger_Thumb1–3.L/R` etc., from preserved presets | Naming catalog only; control adapter pending |
-| Godot Humanoid | Thumb Metacarpal/Proximal/Distal; other digits Proximal/Intermediate/Distal (`Little`, not Pinky) | Naming catalog only; no body adapter/runtime integration |
+| Godot Humanoid | Thumb Metacarpal/Proximal/Distal; other digits Proximal/Intermediate/Distal (`Little`, not Pinky) | 30 optional; standard skeleton structural proof, no runtime integration |
 
 Catalogs are not claims of target ecosystem support. Godot names follow its
 [standard Humanoid profile](https://docs.godotengine.org/en/stable/classes/class_skeletonprofilehumanoid.html),
-not arbitrary user bone names. New body/control adapters still need their own proofs.
+not arbitrary user bone names. ARP/CloudRig catalogs remain detection/research
+only; their generated control graphs are not certified by skeleton proofs.
 
 ## Scope and validation
 
@@ -229,7 +234,7 @@ real Mixamo model, a standard Rigify target and a synthetic UE4 skeleton. Body
 matrices are **exactly unchanged** with/without fingers in that comparison.
 Finger orientation error is below 0.0004 degrees; all joints remain finite and
 show articulation. Save/reopen/repeat and multi-character isolation are checked.
-Full suites: **669 public + 428 private**, zero skips/failures/errors, including
+The finger milestone passed **669 public + 428 private**, zero skips/failures/errors, including
 74 focused retarget/Rigify/finger tests and zero MediaPipe import attempts;
 proof receipts remain local QA evidence.
 owner Rigify body/workflow QA passed, finger visual acceptance remains pending.
@@ -238,3 +243,10 @@ Not certified: arbitrary rigs, ARP/CloudRig, IK, finger/face solving,
 advanced twist distribution, foot/contact locking, collisions or a profile editor.
 Missing/damped source finger articulation, proportion differences and source
 reconstruction artifacts are not repaired by retargeting.
+
+The subsequent UE5/Godot pass adds extended native hierarchies, neutral extra
+bones, independent structural skins, four-target isolation and fresh-process
+save/reopen/repeat tests. It leaves the private motion contract and BlendCap
+engine unchanged. Current results and the ARP/CloudRig decision boundary are
+recorded in the [adapter audit](vta_native_adapter_audit.md). Named-profile
+retargeting is **not yet feature-complete** for the requested 1.0 list.

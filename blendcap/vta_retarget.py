@@ -128,6 +128,8 @@ def validate_target(target,scene,profile_id='AUTO'):
     for s,name in mapping.items():
         bone=target.data.bones[name];parent=PARENTS[s]
         expected_parent=mapping[parent] if parent else match.prefix+profile.root if profile.root else None
+        if profile.hierarchy and name[len(match.prefix):] in profile.hierarchy:
+            expected_parent=match.prefix+profile.hierarchy[name[len(match.prefix):]]
         if (bone.parent.name if bone.parent else None)!=expected_parent:
             raise ValueError('Unsupported '+profile.label+' hierarchy at '+name)
         if not bone.use_inherit_rotation or bone.inherit_scale!='FULL' or not bone.use_local_location:
@@ -136,6 +138,12 @@ def validate_target(target,scene,profile_id='AUTO'):
             raise ValueError('Scaled target pose bones are unsupported; use a neutral target.')
         if target.pose.bones[name].rotation_mode!='QUATERNION':
             raise ValueError('V1 requires quaternion FK body bone rotation modes.')
+    for name,parent in (profile.hierarchy or {}).items():
+        bone=target.data.bones.get(match.prefix+name)
+        if bone is None or not bone.parent or bone.parent.name!=match.prefix+parent:
+            raise ValueError('Unsupported '+profile.label+' hierarchy at '+match.prefix+name)
+        if not bone.use_inherit_rotation or bone.inherit_scale!='FULL' or not bone.use_local_location:
+            raise ValueError('Unsupported inheritance options on '+bone.name)
     return mapping
 
 
@@ -615,7 +623,10 @@ def draw_rig_choices(layout, context):
         layout.label(text=str(exc), icon='INFO')
         return False
     layout.label(text=f'{len(rows)} body bones matched; automatic calibration.', icon='CHECKMARK')
-    layout.label(text='Resolved: '+target_profile(settings.target,settings.target_profile).profile.label)
+    resolved=target_profile(settings.target,settings.target_profile).profile
+    layout.label(text='Resolved: '+resolved.label)
+    if resolved.id=='EPIC_UE5':layout.label(text='No Control Rig, corrective or twist solve.',icon='INFO')
+    if resolved.id=='GODOT_HUMANOID':layout.label(text='Standard names only; no Godot runtime needed.',icon='INFO')
     if settings.source:
         from .vta_fingers import MAPS
         source_names=MAPS['MIXAMO'] # BlendCap uses these unprefixed finger names.

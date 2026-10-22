@@ -494,9 +494,13 @@ or manual FK switch is needed. The [profile expansion audit](vta_retarget_profil
 records the bounded adapter and preservation guarantees. ARP/CloudRig remain
 unsupported pending their own proofs. Owner visual acceptance is required before promoting any
 new target family. Optional existing captured finger motion now passes through
-Mixamo/Rigify/UE4 retargeting without a new tracker or solver; finger visual
+Mixamo/Rigify/UE4/UE5/Godot retargeting without a new tracker or solver; finger visual
 acceptance is pending. Body-only captures remain compatible. The same panel may
 show a small read-only finger coverage count. See the
 [finger policy](vta_retargeting.md#optional-captured-fingers) for partial/missing
-data and deferred target-family limits. No Public 1.0 release or main promotion is implied.
+data and deferred target-family limits. UE5/Godot support is currently independent
+structural-skeleton proof, not real asset visual acceptance. The
+[native adapter audit](vta_native_adapter_audit.md) records the remaining ARP/
+CloudRig blockers; native retargeting is not yet feature-complete for the requested
+1.0 list. No Public 1.0 release or main promotion is implied.
 

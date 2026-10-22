@@ -1,4 +1,4 @@
-# Retarget profile expansion — 2026-10-21
+# Retarget profile expansion — updated 2026-10-22
 
 This is a **bounded profile expansion**, not completion/acceptance of all four
 requested families. Mixamo FK, its Object
@@ -6,7 +6,10 @@ Mode UI and source-aligned/frame-zero behavior have passed owner QA. Unreal/Epic
 UE4 FK is automated/synthetic-proof validated only. Standard generated Rigify
 human body FK has passed owner QA, including multi-rig automated isolation.
 Optional existing captured fingers are now supported on Mixamo/Rigify/UE4 and
-await finger visual acceptance. ARP/CloudRig remain diagnosed/refused, not bake-supported.
+await finger visual acceptance. UE5 Manny/Quinn and Godot Humanoid now have
+native skeleton adapters with body/finger structural proofs. ARP/CloudRig remain
+diagnosed/refused, not bake-supported. The [follow-up audit](vta_native_adapter_audit.md)
+records real control-rig findings, current verification and remaining blockers.
 
 ## Status and chosen target semantics
 
@@ -14,6 +17,8 @@ await finger visual acceptance. ARP/CloudRig remain diagnosed/refused, not bake-
 |---|---|---|---|
 | Mixamo | Ordinary local FK skeleton; owner accepted | Unambiguous Hips namespace; 20 required body bones, 2 optional toes | Hips has no parent; composite pelvis once |
 | Unreal/Epic UE4 | Local quaternion FK/deform skeleton; automated/proof only | pelvis, spine_01–03, neck_01, head; bilateral clavicle/upperarm/lowerarm/hand/thigh/calf/foot; ball toes optional | Required unparented root; pelvis child of root; root stays neutral, composite motion goes to pelvis once |
+| UE5 Manny/Quinn | Extended local quaternion FK skeleton; structural proof only | Separate five-spine/two-neck hierarchy; 20 required body joints, 2 optional toes, up to 30 fingers with native metacarpals | Neutral root, extra spine/neck and metacarpals; composite pelvis once; no twist/corrective solve |
+| Godot Humanoid | Exact conventional local FK skeleton; structural proof only | Standard Root/Hips/Spine/Chest/UpperChest hierarchy; 20 required body joints, 2 optional toes, up to 30 fingers | Neutral Root; composite Hips once; Blender only, no Godot runtime |
 | Rigify | Stock generated Blender 5.2 human body FK; owner accepted | Generated rig_id, torso/limb FK signatures, 22 controls, stock body dependency topology; no fallback to DEF-name matching | Reverse spine_fk rotations; anatomical DEF pelvis calibration; normal torso location gets composite pelvis translation once |
 | Auto-Rig Pro | Live generated FK control adapter **pending** | c_root_master.x + c_arm_fk.l + c_thigh_fk.l signature; known preset variant only | Legacy c_pos XY / c_root_master.x Z split not adopted |
 | CloudRig | Live generated FK control adapter **pending** | TORSO-Spine + FK-UpperArm.L + FK-Thigh.L or cloudrig marker; known preset variant only | Legacy root XY / TORSO-Spine Z split and automatic IK conversion not adopted |
@@ -119,10 +124,12 @@ control framework. A normal user should see only target/profile/mapping/action
 and limitations. The adapter hooks may be reusable for other generated targets,
 but do not establish ARP/CloudRig compatibility or justify a generic framework.
 
-ARP and CloudRig live assets were not available in the scoped QA assets. Their
+In the earlier Rigify pass, ARP and CloudRig live assets were not available in the scoped QA assets. Their
 presets and switch behavior were audited; their generated graphs were **not**
-assumed identical to Rigify. No commercial add-on/API/code/model was installed,
-downloaded or bundled. They need their own isolated control-adapter proofs.
+assumed identical to Rigify. That pass installed/downloaded/bundled no commercial
+add-on/API/code/model. The follow-up audit inspected a local ARP stock asset and
+generated an official CloudRig 2.2.31 human in isolated factory startup, without
+installing either into the owner environment. Neither graph is certified for baking.
 
 ## Unreal/Epic scope and verification
 
@@ -173,10 +180,10 @@ the live owner file; the already-present targets can be re-baked normally.
 ## Optional finger follow-up
 
 See [captured finger policy and coverage](vta_retargeting.md#optional-captured-fingers).
-Active Mixamo, Rigify and UE4 maps carry up to 30 optional articulated joints.
-ARP/CloudRig names are preserved from the existing local BlendCap maps; separate
-UE5 and Godot naming catalogs are not activated body/control adapters. No new
-ecosystem certification is implied. Runtime lookup stays object-scoped with no
+Active Mixamo, Rigify, UE4, UE5 and Godot maps carry up to 30 optional articulated joints.
+ARP/CloudRig names are preserved from the existing local BlendCap maps, not
+activated control adapters. UE5/Godot structural proof is not real asset visual
+acceptance. Runtime lookup stays object-scoped with no
 two-character cap; the three-target regression covers sequential/repeated bakes,
 shared and separate widget/UI data, and fresh reopening without cross-rig changes.
 
