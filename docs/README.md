@@ -5,6 +5,8 @@ User documentation for BlendCap — markerless performance capture for Blender.
 For current VTA, start with the [VTA workflow guide](vta_workflow.md).
 The [accepted pre-refactor checkpoint](vta_pre_refactor_checkpoint_20261027.md)
 records the Fixed Depth/native-key baseline and process-separation preparation.
+The [Milestone 1 engine boundary](vta_engine_boundary.md) describes the first
+production read-only process route and its remaining isolation limits.
 The inherited Capture/Preview quick start and capture settings below are historical:
 that workflow was retired on 2026-10-23. It is not a fallback for missing review data.
 

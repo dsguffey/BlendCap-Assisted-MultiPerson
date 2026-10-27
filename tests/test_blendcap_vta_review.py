@@ -581,7 +581,7 @@ class ReviewPresentationTests(unittest.TestCase):
         self.assertEqual(review_ui.map_visible_analysis_range(
             shifted, 0, 162, 104, 110), (4, 10))
 
-    def test_source_coverage_does_not_require_an_existing_cache(self):
+    def test_legacy_source_validation_does_not_require_an_existing_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'source.mp4'
             source.write_bytes(b'video')
@@ -593,7 +593,8 @@ class ReviewPresentationTests(unittest.TestCase):
             core = SimpleNamespace(load_project_state=lambda _root: project)
             backend = review_ui.PrivateCoreBackend(core=core)
             location = review_ui.ReviewLocation(Path(directory), source, 0, 1)
-            self.assertEqual(backend.source_coverage(location), (0, 162))
+            _project, resolved = backend._load_project_source(location)
+            self.assertEqual((resolved['start_frame'],resolved['end_frame']), (0, 162))
 
     def test_companion_root_is_exactly_beside_saved_blend(self):
         self.assertEqual(

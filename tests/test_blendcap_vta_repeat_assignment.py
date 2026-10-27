@@ -82,6 +82,8 @@ class RepeatOperatorTests(unittest.TestCase):
             self.stack.enter_context(mock.patch.object(ui, name, value))
         self.stack.enter_context(mock.patch.object(ui, '_analysis_locked', return_value=False))
         self.stack.enter_context(mock.patch.object(ui, '_get_backend', return_value=self.backend))
+        self.stack.enter_context(mock.patch.object(ui, '_source_coverage',
+            side_effect=lambda _context, location: self.backend.source_coverage(location)))
         self.stack.enter_context(mock.patch.object(ui, 'role_for', return_value='preview'))
         self.stack.enter_context(mock.patch.object(ui, '_active_video_strip', return_value=object()))
         self.stack.enter_context(mock.patch.object(ui, '_strip_visible_end', return_value=11))
@@ -384,6 +386,10 @@ class RepeatOperatorTests(unittest.TestCase):
         core.save_analysis_cache(cache, root)
         backend = self.ui.PrivateCoreBackend(core=core)
         self.stack.enter_context(mock.patch.object(self.ui, '_get_backend', return_value=backend))
+        from blendcap_vta_engine import SourceCoverageClient, EngineClient, resolve_engine
+        client = SourceCoverageClient(EngineClient(resolve_engine(ROOT.parent/'Video-to-Animation')))
+        self.stack.enter_context(mock.patch.object(self.ui, '_source_coverage',
+            side_effect=lambda _context, location: client.source_coverage(location)))
         def refresh(context, **kw):
             self.ui._location = ReviewLocation(root, source_path,
                 context.scene.frame_current-1, context.scene.frame_current)

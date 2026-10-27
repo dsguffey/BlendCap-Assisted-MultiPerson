@@ -558,11 +558,6 @@ class PrivateCoreBackend:
         except self._core.StateModelError as exc:
             raise VtaReviewUiError(str(exc)) from exc
 
-    def source_coverage(self, location: ReviewLocation) -> tuple[int, int]:
-        """Read authoritative project coverage without requiring an analysis cache."""
-        _project, source = self._load_project_source(location)
-        return source["start_frame"], source["end_frame"]
-
     def query_timeline(self, location: ReviewLocation):
         """Read all authoritative keys once per project change, never per draw."""
         return self.timeline_from_context(self._load_context(location))

@@ -91,7 +91,8 @@ from types import SimpleNamespace as NS
 from blendcap_vta_review import PrivateCoreBackend, ReviewLocation
 raw=json.loads((Path(sys.argv[1])/'project_state.json').read_text(encoding='utf-8'))
 backend=PrivateCoreBackend(core=NS(load_project_state=lambda root:NS(to_dict=lambda:raw)))
-print(json.dumps(backend.source_coverage(ReviewLocation(Path(sys.argv[1]),Path(sys.argv[2]),0,1))))
+_,source=backend._load_project_source(ReviewLocation(Path(sys.argv[1]),Path(sys.argv[2]),0,1))
+print(json.dumps([source['start_frame'],source['end_frame']]))
 ''',root,video)
             self.assertEqual(response['result'],baseline)
 
@@ -204,8 +205,11 @@ def fixture_proof(arguments):
         # Execute the ORIGINAL public adapter method using a test-only JSON
         # facade for its loader. This baseline needs no private import in any
         # GPL/Blender process; the candidate child performs real core validation.
-        baseline=PrivateCoreBackend(core=SimpleNamespace(
-            load_project_state=lambda _root:SimpleNamespace(to_dict=lambda:raw))).source_coverage(location)
+        # Frozen pre-M1 coverage composition over the original public loader.
+        backend=PrivateCoreBackend(core=SimpleNamespace(
+            load_project_state=lambda _root:SimpleNamespace(to_dict=lambda:raw)))
+        _,source=backend._load_project_source(location)
+        baseline=(source['start_frame'],source['end_frame'])
         client=SourceCoverageProcessClient(python,LAUNCHER)
         for _ in range(5):
             assert client.source_coverage(location)==baseline

@@ -32,6 +32,7 @@ from ..blendcap_vta_review import (
     validate_output_mapping,
 )
 from ..blendcap_vta_runtime import discover_vta_core
+from ..blendcap_vta_engine import EngineClient, EngineError, SourceCoverageClient, resolve_engine
 from ..blendcap_vta_tracking_hints import TrackingHints
 from ..blendcap_vta_analysis_runtime import (
     AnalysisRuntimeUnavailable, resolve_analysis_runtime,
@@ -422,6 +423,17 @@ def _configured_core_location(context) -> str:
         return ""
     value = getattr(prefs, "vta_core_location", "") or ""
     return bpy.path.abspath(value) if value else ""
+
+
+def _source_coverage(context, location):
+    """Explicit read-only IPC query; never called by a draw/poll/observer."""
+    try:
+        python = Path(_python_exe())
+        endpoint = resolve_engine(_configured_core_location(context),
+                                  python=python if python.is_file() else None)
+        return SourceCoverageClient(EngineClient(endpoint)).source_coverage(location)
+    except EngineError as exc:
+        raise VtaReviewUiError(f'VTA engine [{exc.code}]: {exc}') from exc
 
 
 def _get_backend(context, *, force: bool = False):
@@ -1197,7 +1209,7 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
             source_root = _backend_root
             if source_root is None:
                 raise VtaReviewUiError("Configure the private VTA core location.")
-            first_source, last_source = backend.source_coverage(location)
+            first_source, last_source = _source_coverage(context, location)
             scope = context.window_manager.blendcap_vta_analyze_scope
             if scope == 'RANGE':
                 start, end = map_visible_analysis_range(
@@ -2466,7 +2478,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
             strip = _active_video_strip(scene.sequence_editor)
             if strip is None:
                 raise VtaReviewUiError('Select the matching movie strip in the Video Sequencer.')
-            _first, last = _get_backend(context).source_coverage(_location)
+            _first, last = _source_coverage(context, _location)
             final_frame = min(visible_frame(_location, last), _strip_visible_end(strip) - 1)
             if not _location.blender_frame <= final_frame:
                 raise VtaReviewUiError('The current frame is outside the source review range.')
@@ -3403,9 +3415,14 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
             row.prop(wm, "blendcap_vta_analyze_start", text="Start Frame")
             row.prop(wm, "blendcap_vta_analyze_end", text="End Frame")
         expected = None
-        if location is not None and _backend is not None:
+        info = cached_scene_source(context)
+        if (location is not None and info is not None
+                and info[2].companion_root == location.companion_root
+                and info[2].source_path == location.source_path):
             try:
-                first, last = _backend.source_coverage(location)
+                # Immutable source metadata validated by explicit Load/observer.
+                # No subprocess, private call, hashing or project read in draw.
+                first, last = info[1]['start_frame'], info[1]['end_frame']
                 if wm.blendcap_vta_analyze_scope == 'RANGE':
                     start, end = map_visible_analysis_range(
                         location, first, last,

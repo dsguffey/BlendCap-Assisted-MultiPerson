@@ -518,6 +518,7 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
              mock.patch.object(ui, "_location_from_context", return_value=
                                SimpleNamespace(companion_root=root)), \
              mock.patch.object(ui, "_get_backend", return_value=backend), \
+             mock.patch.object(ui, "_source_coverage", return_value=(0, 162)), \
              mock.patch.object(ui, "_backend_root", root), \
              mock.patch.object(ui, "_configured_analysis_paths", side_effect=
                                ui.VtaReviewUiError("Analysis environment unavailable. "
@@ -567,6 +568,7 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                  mock.patch.object(ui, "_location_from_context", return_value=location), \
                  mock.patch.object(ui, "_get_backend", return_value=
                                    SimpleNamespace(source_coverage=lambda _location: (0, 162))), \
+                 mock.patch.object(ui, "_source_coverage", return_value=(0, 162)), \
                  mock.patch.object(ui, "_backend_root", root), \
                  mock.patch.object(ui, "_configured_analysis_paths",
                                    return_value=(python, kinesia, checkpoint)), \
