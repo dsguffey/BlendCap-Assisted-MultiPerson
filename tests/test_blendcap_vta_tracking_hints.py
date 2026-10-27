@@ -124,7 +124,8 @@ class HintBlenderTests(unittest.TestCase):
         with mock.patch.object(ws,'_ui',return_value=NS(tracking_hints=lambda _:(hint,))),\
                 mock.patch.object(ws,'_state',return_value=(view,(),None,1,0,'grey')),\
                 mock.patch.object(ws,'_metrics',return_value=metrics),\
-                mock.patch.object(ws,'bpy',NS(ops=NS(blendcap=NS(vta_goto_tracking_hint=dispatch)))):
+                mock.patch.object(ws,'bpy',NS(types=__import__('bpy').types,
+                    ops=NS(blendcap=NS(vta_goto_tracking_hint=dispatch)))):
             self.assertIn('Non-authoritative',ws.timeline_tooltip(context,(212,y)))
             for button in ('LEFTMOUSE','RIGHTMOUSE'):
                 event=NS(mouse_region_x=212,mouse_region_y=y,type=button)

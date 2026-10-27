@@ -71,26 +71,51 @@ def is_review_region(workspace, screen, area, region):
             and getattr(region, "type", None) in {"WINDOW", "CHANNELS"})
 
 
-def character_lanes(view, height, first=0, *, metrics=TimelineMetrics()):
+@dataclass(frozen=True)
+class ChannelRow:
+    character_id: str
+    kind: str
+    y: float
+
+
+def channel_rows(view, height, first=0, *, metrics=TimelineMetrics(), expanded=()):
+    """One shared geometry for painting and hit tests; first remains a Character index."""
     if view is None:
         return ()
+    expanded = frozenset(expanded)
+    rows = [(c.character_id, kind) for c in view.characters
+            for kind in (('character', 'depth') if c.character_id in expanded else ('character',))]
+    if not rows:
+        return ()
     visible = max(1, int((height - metrics.top_padding) // metrics.row_height))
-    first = min(max(0, first), max(0, len(view.characters) - visible))
-    subset = type("VisibleRows", (), {"characters": view.characters[first:first + visible]})()
-    return lane_layout(subset, top=height - metrics.top_padding,
-                       row_height=metrics.row_height)
+    first = min(max(0, first), len(view.characters)-1)
+    cid = view.characters[first].character_id
+    start = next(i for i, (identity, kind) in enumerate(rows) if identity == cid and kind == 'character')
+    start = min(start, max(0, len(rows)-visible))
+    if rows[start][1] == 'depth':
+        # Prefer the next complete Character group over backfilling an orphan.
+        # Backtracking can otherwise hide the focused Character's Depth row
+        # in a viewport with room for three rows but two expanded Characters.
+        start += 1
+    return tuple(ChannelRow(cid, kind, height-metrics.top_padding-metrics.row_height*(i+.5))
+                 for i, (cid, kind) in enumerate(rows[start:start+visible]))
 
 
-def hit_character(view, height, y, first=0, *, metrics=TimelineMetrics()):
+def character_lanes(view, height, first=0, *, metrics=TimelineMetrics(), expanded=()):
+    return tuple((r.character_id, r.y) for r in channel_rows(
+        view, height, first, metrics=metrics, expanded=expanded) if r.kind == 'character')
+
+
+def hit_character(view, height, y, first=0, *, metrics=TimelineMetrics(), expanded=()):
     return next((character_id for character_id, center in
-                 character_lanes(view, height, first, metrics=metrics)
+                 character_lanes(view, height, first, metrics=metrics, expanded=expanded)
                  if abs(center - y) <= metrics.row_height / 2), None)
 
 
-def characters_in_box(view, height, start, end, first=0, *, metrics=TimelineMetrics()):
+def characters_in_box(view, height, start, end, first=0, *, metrics=TimelineMetrics(), expanded=()):
     """Channel-region marquee selects displayed row centers, never timeline keys."""
     low, high = sorted((start[1], end[1]))
-    return tuple(cid for cid, center in character_lanes(view, height, first, metrics=metrics)
+    return tuple(cid for cid, center in character_lanes(view, height, first, metrics=metrics, expanded=expanded)
                  if low <= center <= high)
 
 
@@ -115,9 +140,9 @@ def repair_range_colors(mode):
 
 
 def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
-                          *, metrics=TimelineMetrics(), include_interval=False):
+                          *, metrics=TimelineMetrics(), include_interval=False, expanded=()):
     """Inclusive frame cells shared by painting and exact interval hit-testing."""
-    lanes = dict(character_lanes(view, height, first, metrics=metrics))
+    lanes = dict(character_lanes(view, height, first, metrics=metrics, expanded=expanded))
     rectangles = []
     for interval in getattr(view, 'repair_ranges', ()):
         y = lanes.get(interval.character_id)
@@ -135,21 +160,21 @@ def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
 
 
 def hit_motion_interval(view, view2d, width, height, point, offset=0, first=0,
-                        *, metrics=TimelineMetrics()):
+                        *, metrics=TimelineMetrics(), expanded=()):
     # Keys take precedence at their local symbol hit area, even inside a repair range.
-    if hit_review_key(view, view2d, height, point, offset, first, metrics=metrics) is not None:
+    if hit_review_key(view, view2d, height, point, offset, first, metrics=metrics, expanded=expanded) is not None:
         return None
     return next((interval for interval, x0, x1, y0, y1 in motion_interval_rects(
-        view, view2d, width, height, offset, first, metrics=metrics, include_interval=True)
+        view, view2d, width, height, offset, first, metrics=metrics, include_interval=True, expanded=expanded)
         if x0 <= point[0] <= x1 and y0 <= point[1] <= y1), None)
 
 
 def hit_review_key(view, view2d, height, point, offset=0, first=0,
-                   *, metrics=TimelineMetrics()):
+                   *, metrics=TimelineMetrics(), expanded=()):
     if view is None:
         return None
     return hit_test_keys(
-        view, character_lanes(view, height, first, metrics=metrics),
+        view, character_lanes(view, height, first, metrics=metrics, expanded=expanded),
         frame_to_x=lambda frame: view2d.view_to_region(frame + offset, 0, clip=False)[0],
         point=point,
         radius=metrics.hit_radius,
@@ -157,13 +182,13 @@ def hit_review_key(view, view2d, height, point, offset=0, first=0,
 
 
 def review_keys_in_box(view, view2d, width, height, start, end, offset=0, first=0,
-                       *, metrics=TimelineMetrics()):
+                       *, metrics=TimelineMetrics(), expanded=()):
     """Select visible durable-key centers, in either drag direction."""
     if view is None:
         return ()
     x0, x1 = sorted((start[0], end[0]))
     y0, y1 = sorted((start[1], end[1]))
-    lanes = dict(character_lanes(view, height, first, metrics=metrics))
+    lanes = dict(character_lanes(view, height, first, metrics=metrics, expanded=expanded))
     selected = []
     for key in view.keys:
         y = lanes.get(key.character_id)

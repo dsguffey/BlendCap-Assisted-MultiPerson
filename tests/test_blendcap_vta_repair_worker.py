@@ -47,7 +47,7 @@ class RepairWorkerTests(unittest.TestCase):
             for relative in ('checkpoints/sam-3d-body-dinov3/model.ckpt',
                              'checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt',
                              'checkpoints/sam-3d-body-dinov3/model_config.yaml',
-                             'checkpoints/yolo/yolo11m-pose.pt', 'save_mhr_data.py','npz_to_bvh.py'):
+                             'save_mhr_data.py','npz_to_bvh.py'):
                 path = bundle/relative
                 path.parent.mkdir(parents=True,exist_ok=True)
                 path.write_text('test fixture')
@@ -91,8 +91,9 @@ class RepairWorkerTests(unittest.TestCase):
                 args.stop_file=str(job['stop'])
             camera = mock.Mock(side_effect=RuntimeError('calibration failed') if failed_calibration else None,
                                return_value=np.asarray([[[100.,0,5],[0,100.,5],[0,0,1]]],dtype=np.float32))
-            fake_runtime = SimpleNamespace(load_estimator_fast=lambda:SimpleNamespace(device='test-only',
+            loader = mock.Mock(return_value=SimpleNamespace(device='test-only',
                 fov_estimator=SimpleNamespace(get_cam_intrinsics=camera) if fov_mode=='FIRST' else None))
+            fake_runtime = SimpleNamespace(load_estimator_fast=loader)
             fake_cv = SimpleNamespace(COLOR_BGR2RGB=1,cvtColor=lambda pixels,_:pixels)
             with mock.patch.dict(os.environ, {}), mock.patch.dict(sys.modules,
                     {'save_mhr_data':fake_runtime,'cv2':fake_cv,'torch':SimpleNamespace(
@@ -111,6 +112,7 @@ class RepairWorkerTests(unittest.TestCase):
                     mock.patch.object(builtins,'print',side_effect=print_event if consent else print_original):
                 if consent=='cancel':
                     self.assertIsNone(worker.run(args))
+                    loader.assert_called_once_with()
                     self.assertEqual(events,['ready']); self.assertEqual(calls,[])
                     self.assertFalse(list(root.rglob('output.json')))
                     self.assertFalse(list(root.rglob('*.npz')))
@@ -134,7 +136,10 @@ class RepairWorkerTests(unittest.TestCase):
                     exporter.assert_not_called()
                 else:
                     report = json.loads(worker.run(args).read_text())
+                    loader.assert_called_once_with()
                     self.assertEqual(report['version'],4)
+                    self.assertNotIn('yolo_checkpoint_sha256', report['provenance'])
+                    self.assertFalse(report['provenance']['detector_inference_used'])
                     record = report['characters'][0]
                     expected_frames=list(range(22,27 if mode=='interpolate' else 26))
                     self.assertEqual(record['source_frames'],expected_frames)

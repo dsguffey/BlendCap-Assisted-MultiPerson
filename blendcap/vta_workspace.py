@@ -15,7 +15,7 @@ from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
     motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color, repair_range_colors,
-    authoritative_key_style,
+    authoritative_key_style, channel_rows,
 )
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_tracking_hints import marker_positions, hit_marker
@@ -35,6 +35,82 @@ _keymaps = []
 _box_gesture = None
 _blank_handler = None
 _hover = None
+_collapsed_depth = {}
+_depth_focus = set()  # Editor/domain focus only; actual key selection lives in FCurves.
+
+
+def _expansion_key(context):
+    scene = getattr(context, 'scene', None)
+    workspace = getattr(context, 'workspace', None)
+    area = getattr(context, 'area', None)
+    if not isinstance(scene, bpy.types.Scene) or workspace is None or area is None:
+        return None
+    return (getattr(scene, 'session_uid', scene.as_pointer()),
+            scene.get('vta_project_id'), scene.get('vta_source_id'),
+            workspace.as_pointer(), area.as_pointer())
+
+
+def expanded_characters(context, view):
+    """Presentation only: stable IDs, Scene/source/editor local; no animation writes."""
+    key = _expansion_key(context)
+    if key is None:
+        return ()
+    collapsed = _collapsed_depth.get(key, ())
+    return tuple(c.character_id for c in getattr(view, 'characters', ())
+                 if c.character_id not in collapsed)
+
+
+@bpy.app.handlers.persistent
+def _clear_channel_presentation(*_args):
+    _collapsed_depth.clear()
+    _depth_focus.clear()
+
+
+def _rows(context, view, first, metrics):
+    return channel_rows(view, context.region.height, first, metrics=metrics,
+                        expanded=expanded_characters(context, view))
+
+
+def _row_at(context, view, first, metrics, y):
+    return next((row for row in _rows(context, view, first, metrics)
+                 if abs(row.y-y) < metrics.row_height/2), None)
+
+
+def _depth_interaction(context, view, first, metrics, point, event):
+    """Select native child keys/scrub or toggle disclosure; no review authority edits."""
+    row = _row_at(context, view, first, metrics, point[1])
+    if row is None:
+        return None
+    if (context.region.type == 'CHANNELS' and row.kind == 'character'
+            and event.type == 'LEFTMOUSE' and 6*metrics.ui_scale <= point[0] <= 26*metrics.ui_scale):
+        key = _expansion_key(context)
+        if key is not None:
+            collapsed = _collapsed_depth.setdefault(key, set())
+            if row.character_id in collapsed:
+                collapsed.remove(row.character_id)
+            else:
+                collapsed.add(row.character_id)
+            vta_invalidation.request_redraw()
+            return {'FINISHED'}
+    if row.kind != 'depth':
+        return None
+    if context.region.type == 'WINDOW' and event.type == 'LEFTMOUSE':
+        from .vta_depth_keys import scene_rigs, select_frame, clear_selection
+        rigs = scene_rigs(context.scene, [c.character_id for c in view.characters])
+        positions = depth_key_markers(context, {row.character_id:row.y}, metrics.ui_scale)
+        hit = min(positions, key=lambda value:abs(value[2]-point[0]), default=None)
+        frame = (hit[1] if hit and abs(hit[2]-point[0]) <= metrics.hit_radius else
+                 round(context.region.view2d.region_to_view(point[0], point[1])[0]))
+        if hit and abs(hit[2]-point[0]) <= metrics.hit_radius:
+            select_frame(rigs, row.character_id, frame,
+                         extend=bool(event.ctrl or getattr(event, 'shift', False)))
+        elif not (event.ctrl or getattr(event, 'shift', False)):
+            clear_selection(rigs)
+        _depth_focus.add(_expansion_key(context))
+        context.scene.frame_set(math.floor(frame), subframe=frame-math.floor(frame))
+        vta_invalidation.request_redraw()
+    # Never select hidden pose channels or alter review-key/identity selection.
+    return {'FINISHED'}
 
 
 def _ui():
@@ -352,7 +428,8 @@ def tracking_hint_markers(context, view, first, metrics):
     if not hints:
         return ()
     return marker_positions(hints,
-        character_lanes(view, context.region.height, first, metrics=metrics),
+        character_lanes(view, context.region.height, first, metrics=metrics,
+                        expanded=expanded_characters(context, view)),
         lambda frame: context.region.view2d.view_to_region(frame, 0, clip=False)[0],
         context.region.width, metrics.hit_radius)
 
@@ -365,6 +442,15 @@ def _draw_tracking_hint_markers(context, view, first, metrics, shader, batch):
         _line(shader,batch,((x,y+r),(x+r,y-r),(x-r,y-r),(x,y+r)),(.98,.77,.28,1))
         blf.position(0,x-3*metrics.ui_scale,y-5*metrics.ui_scale,0)
         blf.size(0,11*metrics.ui_scale);blf.color(0,.98,.77,.28,1);blf.draw(0,'?')
+
+
+def depth_key_markers(context, lanes, scale):
+    """Live native keys, in Blender time (not source time). No metadata cache."""
+    from .vta_depth_keys import scene_keyed_frames
+    return tuple((cid, frame, context.region.view2d.view_to_region(frame, 0, clip=False)[0],
+                  lanes[cid])
+                 for cid, frames in scene_keyed_frames(context.scene, lanes).items()
+                 for frame in frames)
 
 
 def _draw_channels():
@@ -393,14 +479,28 @@ def _draw_channels():
         blf.size(0, metrics.font_size)
         blf.color(0, .75, .75, .75, 1)
         blf.draw(0, 'Characters')
-        for character_id, y in character_lanes(view, region.height, first, metrics=metrics):
+        expanded = expanded_characters(context, view)
+        for channel in _rows(context, view, first, metrics):
+            character_id, y = channel.character_id, channel.y
+            if channel.kind == 'depth':
+                _fill(shader, batch_for_shader, 0, y-half_row, region.width, y+half_row, (.12,.12,.12,1))
+                _line(shader, batch_for_shader, ((20*scale,y+half_row),(20*scale,y),(32*scale,y)),(.4,.4,.4,1))
+                blf.position(0, 40*scale, y-metrics.font_size*.35, 0)
+                blf.size(0,metrics.font_size);blf.color(0,.8,.8,.8,1);blf.draw(0,'Depth')
+                continue
             background, text, border = _row_style(context, character_id, current)
             _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
                   background)
             if border is not None:
                 _fill(shader, batch_for_shader, 0, y - half_row, 4 * scale, y + half_row,
                       border)
-            blf.position(0, 10 * scale, y - metrics.font_size * .35, 0)
+            # Blender-style disclosure, independent of row/Character selection.
+            points = (((12*scale,y+3*scale),(20*scale,y+3*scale),(16*scale,y-3*scale))
+                      if character_id in expanded else
+                      ((13*scale,y+4*scale),(19*scale,y),(13*scale,y-4*scale)))
+            shader.bind();shader.uniform_float('color',text)
+            batch_for_shader(shader,'TRIS',{'pos':points}).draw(shader)
+            blf.position(0, 30 * scale, y - metrics.font_size * .35, 0)
             blf.size(0, metrics.font_size)
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
@@ -429,7 +529,10 @@ def _draw_window():
               (.105, .105, .105, 1))
         if view is None:
             return
-        lanes = dict(character_lanes(view, region.height, first, metrics=metrics))
+        expanded = expanded_characters(context, view)
+        rows = _rows(context, view, first, metrics)
+        lanes = {r.character_id:r.y for r in rows if r.kind == 'character'}
+        depth_lanes = {r.character_id:r.y for r in rows if r.kind == 'depth'}
         # The Dope Sheet supplies View2D navigation, not visible native keys.
         # Draw a modest Blender-like ruler/grid above the ProjectState lanes.
         left = region.view2d.region_to_view(0, 0)[0]
@@ -452,6 +555,8 @@ def _draw_window():
             background, _text, _border = _row_style(context, character_id, current)
             _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
                   background)
+        for y in depth_lanes.values():
+            _fill(shader,batch_for_shader,0,y-half_row,region.width,y+half_row,(.12,.12,.12,1))
         playhead = region.view2d.view_to_region(context.scene.frame_current, 0,
                                                clip=False)[0]
         frame_x = lambda frame: region.view2d.view_to_region(
@@ -460,7 +565,7 @@ def _draw_window():
         selected_repair = _ui().selected_repair_range(context)
         for interval, x0, x1, y0, y1 in motion_interval_rects(
                 view, region.view2d, region.width, region.height, offset, first,
-                metrics=metrics, include_interval=True):
+                metrics=metrics, include_interval=True, expanded=expanded):
             fill_color, line_color = repair_range_colors(interval.mode)
             _fill(shader, batch_for_shader, x0, y0, x1, y1, fill_color)
             _line(shader, batch_for_shader, ((x0, y0), (x0, y1), (x1, y1), (x1, y0)),
@@ -496,6 +601,16 @@ def _draw_window():
                 _line(shader, batch_for_shader, ((x, y - 3 * scale), (x, y + 3 * scale)),
                       derived_mark_color(mark.state))
         _draw_tracking_hint_markers(context, view, first, metrics, shader, batch_for_shader)
+        # Native Blender-frame Location keys, aggregated only in their own child.
+        from .vta_depth_keys import selected_scene_frames
+        selected_depth = selected_scene_frames(context.scene, depth_lanes)
+        for _cid, _frame, x, y in depth_key_markers(context, depth_lanes, scale):
+            if key_radius <= x <= region.width-key_radius:
+                color = (.95,.75,.3,1) if _frame in selected_depth.get(_cid, ()) else (.55,.57,.6,1)
+                shader.bind();shader.uniform_float('color',color)
+                batch_for_shader(shader,'TRIS',{'pos':(
+                    (x,y+key_radius),(x+key_radius,y),(x,y-key_radius),
+                    (x,y+key_radius),(x,y-key_radius),(x-key_radius,y))}).draw(shader)
         for key in view.keys:
             y = lanes.get(key.character_id)
             if y is None:
@@ -662,6 +777,8 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
                 layout.label(text=f'Active Character: {character.display_name}')
         layout.label(text='Tracking ticks: bright = matched')
         layout.label(text='Grey = unresolved; not confidence')
+        layout.label(text='Expand Character → Depth: native Location keys')
+        layout.label(text='Edit native keys: Shift F6 (Graph Editor)')
         layout.separator()
         layout.label(text='Review Keys')
         row = layout.row()
@@ -737,10 +854,22 @@ def timeline_tooltip(context, point):
     if view is None:
         return ''
     metrics = _metrics(context)
+    expanded = expanded_characters(context, view)
+    channel = _row_at(context, view, first, metrics, point[1])
+    if channel and channel.kind == 'depth':
+        if context.region.type == 'CHANNELS':
+            return 'Depth — This Character’s native Object Location keys, aggregated across X/Y/Z. No identity edits.'
+        for _cid, frame, x, y in depth_key_markers(context, {channel.character_id:channel.y}, metrics.ui_scale):
+            if abs(x-point[0]) <= metrics.hit_radius:
+                return (f'Depth key at frame {frame:g} — Click to select/scrub; Shift/Ctrl toggles selection. '
+                        'X/Delete removes this Character’s complete Location key. Shift F6: Graph Editor.')
+        return 'Depth — Click to scrub; click diamonds to select, Shift/Ctrl to add, X/Delete to remove selected Location keys.'
     if context.region.type == 'CHANNELS':
-        cid = hit_character(view, context.region.height, point[1], first, metrics=metrics)
+        cid = hit_character(view, context.region.height, point[1], first, metrics=metrics, expanded=expanded)
+        if cid and 6*metrics.ui_scale <= point[0] <= 26*metrics.ui_scale:
+            return 'Expand/collapse this Character’s Depth channel — Presentation only; animation is unchanged.'
         return 'Character row — Selected rows target tracking, repairs and selected generation.' if cid else ''
-    key_id = hit_review_key(view, context.region.view2d, context.region.height, point, offset, first, metrics=metrics)
+    key_id = hit_review_key(view, context.region.view2d, context.region.height, point, offset, first, metrics=metrics, expanded=expanded)
     if key_id:
         key = next((k for k in getattr(view, 'keys', ()) if k.keyframe_id == key_id), None)
         label = getattr(key, 'tracking_label', 'Authoritative — not yet included in Update Tracking')
@@ -751,11 +880,11 @@ def timeline_tooltip(context, point):
         return (f'Identity ambiguous at frame {hint.frame} — Non-authoritative hint. '
                 'Click: review / Right-click: dismiss. Assign only valid separate evidence; otherwise No Valid Candidate.')
     interval = hit_motion_interval(view, context.region.view2d, context.region.width,
-        context.region.height, point, offset, first, metrics=metrics)
+        context.region.height, point, offset, first, metrics=metrics, expanded=expanded)
     if interval:
         return ('Freeze repair — Hold the preceding trustworthy unrepaired pose.' if interval.mode == 'freeze'
                 else 'Interpolate repair — Blend raw anchors outside both endpoints; repaired frames never anchor.')
-    lanes = dict(character_lanes(view, context.region.height, first, metrics=metrics))
+    lanes = dict(character_lanes(view, context.region.height, first, metrics=metrics, expanded=expanded))
     for mark in view.derived:
         x = context.region.view2d.view_to_region(mark.source_frame + offset, 0, clip=False)[0]
         if mark.character_id in lanes and abs(x - point[0]) <= 4 * metrics.ui_scale and abs(lanes[mark.character_id] - point[1]) <= 5 * metrics.ui_scale:
@@ -813,12 +942,26 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
         metrics = _metrics(context)
+        if _box_gesture is None and event.type in {'LEFTMOUSE','RIGHTMOUSE'}:
+            try:
+                depth_result = _depth_interaction(context, view, first, metrics, point, event)
+            except ValueError as exc:
+                self.report({'WARNING'}, str(exc))
+                return {'CANCELLED'}
+            if depth_result is not None:
+                return depth_result
+            if event.type == 'LEFTMOUSE':
+                if _expansion_key(context) in _depth_focus:
+                    from .vta_depth_keys import scene_rigs, clear_selection
+                    clear_selection(scene_rigs(context.scene, [c.character_id for c in view.characters]))
+                _depth_focus.discard(_expansion_key(context))
         if context.region.type == 'CHANNELS':
             if (event.type != 'LEFTMOUSE' or _box_gesture is not None or
                     point[1] >= context.region.height - 24 * metrics.ui_scale):
                 return {'PASS_THROUGH'}
+        expanded = expanded_characters(context, view)
         key_id = (None if context.region.type == 'CHANNELS' else hit_review_key(view, context.region.view2d,
-                                context.region.height, point, offset, first, metrics=metrics)
+                                context.region.height, point, offset, first, metrics=metrics, expanded=expanded)
                   )
         if key_id is None:
             markers = tracking_hint_markers(context,view,first,metrics)
@@ -829,7 +972,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
             if context.region.type == 'WINDOW' and event.type == 'LEFTMOUSE' and _box_gesture is None:
                 interval = hit_motion_interval(view, context.region.view2d,
                                                context.region.width, context.region.height,
-                                               point, offset, first, metrics=metrics)
+                                               point, offset, first, metrics=metrics, expanded=expanded)
                 if interval is not None and ui.select_repair_range(context, interval):
                     return {'FINISHED'}
             # Leave Blender's frame ruler and non-left-click tools native.
@@ -840,6 +983,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                 self._gesture_metrics = metrics
                 self._gesture_offset = offset
                 self._gesture_first = first
+                self._gesture_expanded = expanded
                 self._gesture_extend = bool(event.ctrl or getattr(event, 'shift', False))
                 self._gesture_characters = context.region.type == 'CHANNELS'
                 self._gesture = dict(area=context.area, region=context.region,
@@ -872,7 +1016,8 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         if (gesture is not _box_gesture or not _scope(context) or
                 context.area != gesture['area'] or context.region != gesture['region'] or
                 _state(context)[0] is not self._gesture_view or
-                _metrics(context) != self._gesture_metrics):
+                _metrics(context) != self._gesture_metrics or
+                expanded_characters(context, self._gesture_view) != self._gesture_expanded):
             return self._finish_box('CANCELLED')
         if event.type in {'ESC', 'RIGHTMOUSE', 'WINDOW_DEACTIVATE'}:
             return self._finish_box('CANCELLED')
@@ -891,17 +1036,17 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                 if self._gesture_characters:
                     ids = characters_in_box(self._gesture_view, region.height,
                         gesture['start'], gesture['end'], self._gesture_first,
-                        metrics=self._gesture_metrics)
+                        metrics=self._gesture_metrics, expanded=self._gesture_expanded)
                     _ui().select_timeline_characters(context, ids, extend=self._gesture_extend)
                 else:
                     ids = review_keys_in_box(
                         self._gesture_view, region.view2d, region.width, region.height,
                         gesture['start'], gesture['end'], self._gesture_offset,
-                        self._gesture_first, metrics=self._gesture_metrics)
+                        self._gesture_first, metrics=self._gesture_metrics, expanded=self._gesture_expanded)
                     _ui().select_timeline_keys(context, ids, extend=self._gesture_extend)
             elif self._gesture_characters:
                 cid = hit_character(self._gesture_view, region.height, gesture['start'][1],
-                                    self._gesture_first, metrics=self._gesture_metrics)
+                                    self._gesture_first, metrics=self._gesture_metrics, expanded=self._gesture_expanded)
                 if cid is not None:
                     _ui().select_timeline_character(context, cid, extend=self._gesture_extend)
                 else:
@@ -910,8 +1055,39 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
+class BLENDCAP_OT_vta_depth_delete(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_depth_delete'
+    bl_label = 'Delete Selected Depth Keys'
+    bl_description = 'Delete selected Characters’ native Location keys at selected Depth diamonds; all XYZ components'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _scope(context) and context.region.type == 'WINDOW'
+
+    def execute(self, context):
+        view = _state(context)[0]
+        if view is None or _expansion_key(context) not in _depth_focus:
+            self.report({'INFO'}, 'Select Depth diamonds before deleting Depth keys.')
+            return {'CANCELLED'}
+        from .vta_depth_keys import delete_selected
+        try:
+            count = delete_selected(context.scene, [c.character_id for c in view.characters])
+        except ValueError as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        if not count:
+            return {'CANCELLED'}
+        frame = context.scene.frame_current_final
+        context.scene.frame_set(math.floor(frame), subframe=frame-math.floor(frame))
+        vta_invalidation.request_redraw()
+        return {'FINISHED'}
+
+
 def register():
     global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _camera_header_registered, _blank_handler
+    if _clear_channel_presentation not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_clear_channel_presentation)
     if _blank_handler is None:
         _blank_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_blank_animation, (), 'WINDOW', 'POST_PIXEL')
     if _window_handler is None:
@@ -946,10 +1122,16 @@ def register():
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
+            if name == 'Dopesheet':
+                for button in ('X', 'DEL'):
+                    items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_depth_delete.bl_idname, button, 'PRESS'))
 
 
 def unregister():
     global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture, _camera_header_registered, _blank_handler, _hover
+    _clear_channel_presentation()
+    if _clear_channel_presentation in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_clear_channel_presentation)
     _hover = None
     if _blank_handler is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_blank_handler, 'WINDOW')

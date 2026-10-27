@@ -326,10 +326,12 @@ def _observe_context(context):
 
 
 def _scene_observer_timer():
-    """Passive review refresh only. No Scene/editor/camera binding writes."""
+    """Review refresh/tool-entry visibility only; no Scene/editor/camera binding writes."""
     for window in tuple(bpy.context.window_manager.windows):
         with bpy.context.temp_override(window=window):
             context = bpy.context
+            from . import vta_depth_tool
+            vta_depth_tool.observe_tool_activation(context)
             if _managed_context(context):
                 _observe_context(context)
             else:
@@ -1956,7 +1958,8 @@ def _reconstruction_timer():
                 from .vta_generation import import_generation
                 paths = [Path(line.split('=', 1)[1]) for line in lines if line.startswith('VTA_OUTPUT=')]
                 rigs, report = import_generation(paths, _reconstruction_location, _get_backend(bpy.context),
-                                                migration=_generation_job.get('migration', False))
+                                                migration=_generation_job.get('migration', False),
+                                                depth_mode=_generation_job.get('depth_mode', 'AUTOMATIC'))
         unavailable = sum(s['state'] == 'unavailable' for c in report['characters'] for s in c['schedule'])
         _status = f'Generated {len(rigs)} Character armature(s). {unavailable} unavailable Character-frames.'
         _status_is_error = False
@@ -1982,6 +1985,59 @@ def _reconstruction_timer():
         vta_invalidation.request_redraw()
     vta_invalidation.request_redraw()
     return None
+
+
+_setting_depth_mode = False
+
+
+def _set_depth_mode(scene, automatic):
+    global _setting_depth_mode
+    _setting_depth_mode = True
+    try:
+        scene.blendcap_vta_automatic_depth = automatic
+    finally:
+        _setting_depth_mode = False
+
+
+def _depth_mode_changed(scene, context):
+    if _setting_depth_mode:
+        return
+    owned = [o for o in scene.objects if scene.get('vta_project_id') and o.type=='ARMATURE'
+             and o.get('vta_project_id')==scene.get('vta_project_id')
+             and o.get('vta_source_id')==scene.get('vta_source_id') and o.get('vta_character_id')]
+    if not owned:
+        return
+    requested = scene.blendcap_vta_automatic_depth
+    _set_depth_mode(scene, not requested)  # Cancel/escape leaves the old setting intact.
+    if context.scene == scene and not _analysis_locked():
+        bpy.ops.blendcap.vta_confirm_depth_mode('INVOKE_DEFAULT', automatic=requested)
+
+
+class BLENDCAP_OT_vta_confirm_depth_mode(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_confirm_depth_mode'
+    bl_label = 'Change Depth Mode?'
+    automatic: bpy.props.BoolProperty(options={'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        self._scene = context.scene
+        self._identity = (context.scene.get('vta_project_id'), context.scene.get('vta_source_id'))
+        self._before = context.scene.blendcap_vta_automatic_depth
+        return context.window_manager.invoke_props_dialog(self, width=470)
+
+    def draw(self, context):
+        self.layout.label(text='Use ' + ('Automatic' if self.automatic else 'Fixed') + ' Depth after regeneration?')
+        self.layout.label(text='This changes the setting only; existing animation is unchanged.')
+        self.layout.label(text='Regenerate the whole source for the selected Characters.')
+        self.layout.label(text='Depth keys are kept, but may need adjustment on the new baseline.', icon='INFO')
+
+    def execute(self, context):
+        if (not hasattr(self, '_scene') or context.scene != self._scene or _analysis_locked()
+                or self._identity != (context.scene.get('vta_project_id'),context.scene.get('vta_source_id'))
+                or context.scene.blendcap_vta_automatic_depth != self._before):
+            self.report({'WARNING'}, 'Scene, source or setting changed; retry the Depth option.')
+            return {'CANCELLED'}
+        _set_depth_mode(context.scene,self.automatic)
+        return {'FINISHED'}
 
 
 class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
@@ -2061,6 +2117,12 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             require_source_aligned(context.scene, [c['character_id'] for c in plan.get('characters',())],
                                    plan['project_id'], plan['source_id'])
             backend._core.validate_skeletal_repairs(project, plan, frame_offset=offset)
+            depth_mode = 'AUTOMATIC' if getattr(context.scene, 'blendcap_vta_automatic_depth', False) else 'FIXED'
+            from .vta_depth_generation import preflight as depth_preflight
+            from .vta_generation import owners as generation_owners
+            depth_preflight([o for o in generation_owners(context.scene,plan['project_id'],plan['source_id'])
+                             if o.type=='ARMATURE' and o.get('vta_character_id') in ids],
+                            depth_mode, plan['source_video_sha256'], bounded='frame_range' in options)
             visible_range = f'{start}–{end}'
             bundle = Path(__file__).resolve().parents[1]
             python = Path(_python_exe())
@@ -2086,7 +2148,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             from ..blendcap_vta_generation_ipc import filesystem_path, new_request
             previous = sorted({fingerprint(o) for o in owners(context.scene, plan['project_id'], plan['source_id'])})
             job = new_request(location.companion_root, decision_required=bool(previous))
-            job.update(plan=plan, domain=domain, offset=offset,
+            job.update(plan=plan, domain=domain, offset=offset, depth_mode=depth_mode,
                        workspace=getattr(context, 'workspace', None),
                        first_output=not any(o.type == 'ARMATURE' for o in owners(context.scene, plan['project_id'], plan['source_id'])))
             _reconstruction_log = job['log']
@@ -3587,6 +3649,24 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         draw_operation_feedback(self.layout, context, 'animation')
 
 
+class VIEW3D_PT_blendcap_vta_generation_camera(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = 'Advanced Camera'
+    bl_idname = 'VIEW3D_PT_blendcap_vta_generation_camera'
+    bl_parent_id = 'VIEW3D_PT_blendcap_vta_animation'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        controls = self.layout.column()
+        controls.enabled = _view is not None and not _analysis_locked()
+        controls.label(text='Camera calibration')
+        controls.prop_enum(context.scene.blendcap_props, 'fov_mode', 'FIRST')
+        controls.prop_enum(context.scene.blendcap_props, 'fov_mode', 'EVERY')
+        controls.prop(context.scene, 'blendcap_vta_automatic_depth')
+        controls.label(text='Off: fixed depth; author travel with Depth keys.')
+        controls.label(text='Stable focal estimates can reduce depth changes.')
+        controls.label(text='Per-frame estimates support zoom; may add depth motion.')
+
+
 class VIEW3D_PT_blendcap_vta_animation_cleanup(_VtaReviewSubpanel,bpy.types.Panel):
     bl_label='Animation Cleanup'
     bl_idname='VIEW3D_PT_blendcap_vta_animation_cleanup'
@@ -3706,6 +3786,10 @@ def register_properties() -> None:
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
         name="Show VTA Candidate Overlay", default=True,
         description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
+    bpy.types.Scene.blendcap_vta_automatic_depth = bpy.props.BoolProperty(
+        name='Automatic Depth', default=False,
+        description='Calculate generated toward/away movement. Off holds generated depth fixed; native user Depth keys remain available',
+        update=_depth_mode_changed)
     bpy.types.WindowManager.blendcap_vta_analyze_scope = bpy.props.EnumProperty(
         name="Analyze Coverage", items=(
             ('WHOLE', "Whole Source", "Analyze all missing source frames"),
@@ -3780,6 +3864,7 @@ def unregister_properties() -> None:
         bpy.app.timers.unregister(_presentation_timer)
     del bpy.types.WindowManager.blendcap_vta_animation_start
     del bpy.types.WindowManager.blendcap_vta_animation_end
+    del bpy.types.Scene.blendcap_vta_automatic_depth
     del bpy.types.WindowManager.blendcap_vta_show_suppressed
     for operation in ('animation','tracking','repair','camera_cleanup','save_as'):
         delattr(bpy.types.WindowManager, 'blendcap_vta_' + operation + '_details')

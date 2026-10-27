@@ -182,7 +182,7 @@ class BlenderOutputTests(unittest.TestCase):
         context = SimpleNamespace(window_manager=wm, scene=SimpleNamespace(
             blendcap_props=SimpleNamespace(fov_mode='FIRST'),objects=[]))
         operator = SimpleNamespace(action='RANGE', report=mock.Mock())
-        plan = mock.Mock(return_value={'project_id':'p','source_id':'s'})
+        plan = mock.Mock(return_value={'project_id':'p','source_id':'s','source_video_sha256':'a'*64})
         cache = SimpleNamespace(source=SimpleNamespace(start_frame=0, end_frame=162))
         backend = SimpleNamespace(_load_context=lambda _: ('project', cache, 'revision'),
                                   _core=SimpleNamespace(build_skeletal_plan=plan, validate_skeletal_repairs=mock.Mock()))

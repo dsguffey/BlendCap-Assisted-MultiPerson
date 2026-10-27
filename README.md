@@ -20,9 +20,19 @@
 
 This VTA integration reconstructs **body and hands** from ordinary video. Current VTA does not include facial capture/animation and does not require MediaPipe. Shared upstream existing-data/retarget helpers and attribution remain for compatibility; upstream marketing material is not a supported VTA feature list.
 
+**VTA runtime update — 2026-10-23:** legacy **Run Capture / Run Preview** and
+their detector-driven worker have been retired. The supported flow is
+**SAM3 Analyze → Review/Assign → Update Tracking → reviewed reconstruction →
+editable animation**. Ultralytics, THOP, HumanDetector and YOLO weights are not
+required by this flow or included in its intended runtime requirements. Existing
+local environments/models are not uninstalled or deleted. See the current
+[VTA workflow guide](docs/vta_workflow.md). The inherited marketing, installer,
+platform and generic-retarget material below is historical upstream context,
+not a VTA 1.0 support or release claim.
+
 > ### About this repository
 >
-> This is the **public source repository** for the BlendCap add-on, published so the source is available as its license requires (BlendCap is GPL-3.0-or-later and includes the AGPL-3.0 YOLO11 detector, see [Licensing](#licensing)).
+> This is the **public source repository** for the BlendCap-derived VTA integration. The public integration remains GPL-3.0-or-later; see [Licensing](#licensing). The retired YOLO detector is no longer a runtime dependency.
 >
 > **Most people want the [paid build](#get-blendcap)**: it adds the one-click dependency installer, bundled model access so the setup just works, updates, and support. Building from this source yourself is possible but **advanced and unsupported**, there are no install scripts here by design; the requirements and model sources are documented in [`requirements.txt`](requirements.txt).
 
@@ -111,13 +121,14 @@ The current reviewed multi-Character integration is described in the
 
 ```mermaid
 flowchart LR
-    V1[video] --> Y[person detection<br/>YOLO11] --> S[body + hands<br/>SAM 3D Body] --> BVH[BVH]
-    BVH --> R[retarget onto your rig<br/>FK + IK]
+    V1[video] --> A[SAM3 Analyze] --> U[Review / Assign / Update Tracking]
+    U --> S[reviewed boxes<br/>SAM 3D Body + hands] --> BVH[body export]
+    BVH --> E[editable VTA animation] --> R[supported native retarget profiles]
 ```
 
 The body path runs Meta's **SAM 3D Body** with a **DINOv3** backbone and **MoGe** for camera field-of-view, using **Fast-SAM-3D-Body** on **PyTorch** / **ONNX Runtime**. MediaPipe is not an active runtime dependency.
 
-Capture runs in [`save_mhr_data.py`](save_mhr_data.py); shared export helpers live in [`pipeline/`](pipeline/) and existing-data retargeting in [`blendcap/retarget/`](blendcap/retarget/). The legacy face-capture worker has been removed.
+Reviewed reconstruction runs in [`blendcap_vta_reconstruct_worker.py`](blendcap_vta_reconstruct_worker.py), using the detector-free model loader in [`save_mhr_data.py`](save_mhr_data.py). Shared export helpers live in [`pipeline/`](pipeline/) and FK math in [`blendcap/retarget/`](blendcap/retarget/). The legacy capture/preview planner and face-capture worker have been removed.
 
 ## Roadmap
 
@@ -138,7 +149,11 @@ Directions actively being worked toward, not dated promises, priorities shift wi
 
 BlendCap is licensed **GPL-3.0-or-later**. © 2026 Arcomade. See [`LICENSE`](LICENSE) and [`NOTICE.txt`](NOTICE.txt).
 
-Because BlendCap includes the **AGPL-3.0** Ultralytics YOLO11 detector as a core, always-loaded component, the whole add-on is distributed under GPL v3 (which bridges to the AGPL component under section 13), which is why this source is, and must remain, public.
+The 2026-10-23 cleanup removes Ultralytics, THOP and YOLO weights from the intended
+VTA runtime payload. This does not change the public integration's GPL license,
+remove historical notices, or resolve the separate Blender/private-core boundary
+and model/native-runtime redistribution questions. No release/installer is certified
+by this source cleanup.
 
 Bundled / redistributed components keep their own licenses; full texts are in [`licenses/`](licenses/):
 
@@ -146,7 +161,7 @@ Bundled / redistributed components keep their own licenses; full texts are in [`
 |---|---|---|
 | Meta SAM 3D Body | Body + hand model | Meta SAM License |
 | Meta DINOv3 | Vision backbone | Meta DINOv3 License |
-| Ultralytics YOLO11 | Person detection | AGPL-3.0 |
+| Ultralytics YOLO11 / THOP | Historical attribution only; retired from intended VTA runtime | AGPL-3.0 |
 | Fast-SAM-3D-Body | Accelerated inference | MIT (over Meta-SAM code) |
 | MoGe (Microsoft) | Camera field-of-view | MIT (+ Apache-2.0 subcomponent) |
 | MediaPipe (Google) | Retained legacy attribution, not a VTA runtime dependency | Apache-2.0 |

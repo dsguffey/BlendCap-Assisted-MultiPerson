@@ -115,6 +115,9 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
             def column(self, **kwargs):
                 return Layout(self.calls)
 
+            def prop_enum(self, data, prop, value, **kwargs):
+                self.calls.append(('prop_enum', prop, value))
+
             def box(self):
                 return Layout(self.calls)
 

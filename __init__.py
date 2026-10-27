@@ -110,30 +110,6 @@ def _update_default_video_source(self, context):
     bpy.app.timers.register(_deferred_prompt, first_interval=0.05)
 
 
-def _detected_backend_label():
-    """What the dependency installer detected/installed, or None.
-
-    The live auto-detection (save_mhr_data._get_device) runs in the venv and
-    needs torch, which Blender's bundled Python can't import - so we can't run
-    it from draw(). Instead we surface what the installer recorded in
-    install_marker.json (gpu_description, e.g. "NVIDIA (CUDA)"). _get_device()
-    picks the device matching the installed backend at capture time, so this
-    reflects the automatic choice (barring a hardware change since install -
-    a Reinstall refreshes the marker)."""
-    if not is_dependencies_installed():
-        return None
-    marker = read_install_marker() or {}
-    desc = marker.get("gpu_description")
-    if desc:
-        return desc
-    # Older markers may lack a description; infer from the installed extra.
-    extra = (marker.get("extra") or "").lower()
-    gtype = (marker.get("gpu_type") or "").lower()
-    if extra == "cuda" or gtype == "nvidia":
-        return "NVIDIA (CUDA)"
-    if extra == "directml" or gtype.startswith("amd"):
-        return "AMD/Intel (DirectML)"
-    return marker.get("gpu_type") or None
 
 
 class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
@@ -146,13 +122,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
     # install — NOT per-.blend). Where each one is consumed:
     #   cache_*               -> helpers._cache_dir (cache folder resolution)
     #   bvh_library_*         -> helpers._bvh_library_dir (library folder)
-    #   capture_backend       -> operators_pipeline._capture_use_ort_override /
-    #                            _capture_force_cpu (USE_ORT + CPU env vars
-    #                            on the capture subprocess)
-    #   refine_hands          -> operators_pipeline capture cmd (--no-hands)
     #   sequencer_export_behavior -> properties.update_video_source
-    #   disable_timeline_autosnap -> mocap.load_proxy_to_vse playhead snap +
-    #                                operators_pipeline capture start
     #   hide_setup_section    -> panels.draw_blendcap_ui (Setup block)
     #   hide_clear_all        -> panels.draw_blendcap_ui (Clear All button)
     #   hide_donate_buttons   -> panels.draw_blendcap_ui + this draw()
@@ -231,40 +201,6 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         description="Existing offline SAM3 checkpoint for candidate analysis")
 
     # --- Capture & tracking ---
-    capture_backend: bpy.props.EnumProperty(  # type: ignore
-        name="Capture Backend",
-        items=[
-            ('AUTO', "Automatic (use what was detected at installation)",
-             "Use the backend chosen when dependencies were installed - see "
-             "the line below. Best choice unless detection got it wrong"),
-            ('GPU', "NVIDIA - CUDA",
-             "Force the NVIDIA/CUDA engine. Fastest and most accurate; needs "
-             "a supported NVIDIA GPU"),
-            ('COMPAT', "Non-NVIDIA - DirectML / ONNX (experimental)",
-             "Force the DirectML path (via ONNX Runtime) for AMD/Intel GPUs. "
-             "Slower, slightly less accurate, and currently experimental"),
-            ('CPU', "CPU Only (no GPU - very slow)",
-             "Run capture entirely on the CPU with no GPU acceleration. Much "
-             "slower than a GPU, but works on any machine and avoids GPU "
-             "out-of-memory crashes. The first CPU capture downloads a "
-             "one-time ~1.7 GB fast-CPU backend when online; without it, "
-             "capture still runs on an even slower fallback. Use for "
-             "testing, or as a fallback if a GPU backend keeps failing"),
-        ],
-        default='AUTO',
-        description=(
-            "Which capture engine to use. Leave on Automatic unless hardware "
-            "detection picked the wrong one"))
-    refine_hands: bpy.props.EnumProperty(  # type: ignore
-        name="Refine Hand Tracking",
-        description="Extra capture pass that sharpens hand pose (slower)",
-        items=[
-            ('AUTO', "Automatic",
-             "Refine on NVIDIA, skip on non-NVIDIA and CPU (where it's slow)"),
-            ('ON', "Always on", "Always refine hands"),
-            ('OFF', "Always off", "Never refine hands (faster, rougher hands)"),
-        ],
-        default='AUTO')
     default_video_source: bpy.props.EnumProperty(  # type: ignore
         name="Default Source",
         items=[
@@ -301,13 +237,6 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
             "What to do with Blender's \"Sequencer\" render option when you "
             "switch the capture source to a Video Editor strip. Leaving it on "
             "can make renders export the video strip instead of your scene"))
-    disable_timeline_autosnap: bpy.props.BoolProperty(  # type: ignore
-        name="Disable playhead auto-snap",
-        default=False,
-        description=(
-            "Keep the timeline where it is when you run tracking from the "
-            "Video Editor. By default the playhead jumps to the start of the "
-            "clip to be tracked"))
 
     # --- Interface ---
     hide_setup_section: bpy.props.BoolProperty(  # type: ignore
@@ -361,7 +290,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         self._draw_dependencies(context, layout)
         self._draw_locations(context, layout)
         self._draw_vta_core(context, layout)
-        self._draw_capture(context, layout)
+        self._draw_source_options(context, layout)
         self._draw_interface(context, layout)
 
     def _draw_dependencies(self, context, layout):
@@ -485,30 +414,9 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         box.prop(self, "vta_kinesia_root")
         box.prop(self, "vta_sam3_checkpoint")
 
-    def _draw_capture(self, context, layout):
+    def _draw_source_options(self, context, layout):
         box = layout.box()
-        box.label(text="Capture & Tracking", icon='CAMERA_DATA')
-
-        # Capture backend / hardware override.
-        col = box.column(align=True)
-        col.prop(self, "capture_backend")
-        if self.capture_backend == 'AUTO':
-            detected = _detected_backend_label()
-            if detected:
-                col.label(text="Detected at installation: " + detected, icon='CHECKMARK')
-            elif not is_dependencies_installed():
-                col.label(text="Install dependencies to detect your hardware.",
-                          icon='INFO')
-            else:
-                col.label(text="Hardware not recorded yet - try Reinstall.",
-                          icon='INFO')
-        elif self.capture_backend == 'CPU':
-            col.label(text="Runs on CPU only - expect minutes per frame.",
-                      icon='INFO')
-
-        box.prop(self, "refine_hands")
-
-        box.separator()
+        box.label(text="Source Options", icon='CAMERA_DATA')
 
         # Which source a fresh scene starts on (File Path vs Video Editor
         # strip). Applied to new/startup files by registration's load_post
@@ -540,7 +448,6 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
                            "Source is Video Editor Strip - new files start "
                            "on a strip, with no source switch to ask on.",
                            icon='INFO')
-        box.prop(self, "disable_timeline_autosnap")
 
     def _draw_interface(self, context, layout):
         box = layout.box()

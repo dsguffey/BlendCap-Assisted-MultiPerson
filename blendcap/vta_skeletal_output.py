@@ -376,7 +376,8 @@ def stage_source_camera(plan, records, location, bounded, bounds, reference=None
     return previous, camera
 
 
-def import_reviewed_output(path, location, backend, *, configure_views=True, migration_approved=False):
+def import_reviewed_output(path, location, backend, *, configure_views=True, migration_approved=False,
+                           depth_mode='AUTOMATIC'):
     root = Path(path).resolve().parent
     expected_root = (location.companion_root / 'reconstruction').resolve()
     if not root.is_relative_to(expected_root):
@@ -444,6 +445,14 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
     if 'character_scope' in plan:
         # Compatible partial publication never validates/rewrites unrelated rigs.
         prior = [o for o in all_prior if o.get('vta_character_id') in expected]
+    from . import vta_depth_generation
+    from ..blendcap_vta_depth_policy import MODES
+    if depth_mode not in MODES:
+        raise ValueError('Unsupported generated Depth mode')
+    if report['version'] != 4 and depth_mode != 'AUTOMATIC':
+        raise ValueError('Fixed Depth requires calibrated generation; regenerate current output')
+    vta_depth_generation.preflight(prior, depth_mode, plan.get('source_video_sha256'),
+                                  bounded=bounded and not replacing_calibration)
     reference = None
     source_bounds = None
     if report['version'] == 4:
@@ -514,6 +523,11 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
                 register_camera_root(obj, registration[cid])
             retime_reviewed_action(obj, record['source_frames'], record['schedule'],
                                   offset, repair_math=backend._core)
+            if report['version'] == 4:
+                # Fresh canonical camera/rig share the same gauge before the
+                # common scene translation. User Object keys are merged later.
+                vta_depth_generation.apply(obj, Matrix.Rotation(math.pi/2,4,'X'),
+                    record['schedule'], offset, depth_mode, plan['source_video_sha256'], cid, previous)
             obj['vta_character_id'], obj['vta_project_id'] = cid, plan['project_id']
             obj['vta_source_id'] = plan['source_id']
             obj['vta_output_file'] = str(Path(path).resolve())

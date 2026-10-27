@@ -509,11 +509,12 @@ class RetargetTests(unittest.TestCase):
 
     def test_legacy_ui_hidden_while_engine_presets_and_operators_remain(self):
         panels=importlib.import_module(self.addon.__name__+'.blendcap.panels')
-        names=('_draw_setup_section','_draw_source_section','_draw_capture_section','_draw_bvh_settings_section','_draw_bvh_library_section')
+        names=('_draw_setup_section','_draw_source_section','_draw_bvh_settings_section','_draw_bvh_library_section')
         with mock.patch.object(panels,'addon_prefs',return_value=None),mock.patch.object(panels,'_draw_retargeting_section') as legacy,mock.patch.object(panels,'_draw_donate_section') as donate:
             with mock.patch.multiple(panels,**{name:mock.Mock() for name in names}):
                 panels.draw_blendcap_ui(SimpleNamespace(layout=RecordingLayout()),bpy.context)
         legacy.assert_not_called();donate.assert_not_called()
+        self.assertFalse(hasattr(panels,'_draw_capture_section'))
         self.assertEqual(panels.VIEW3D_PT_blendcap_ui.bl_category,'VTA')
         self.assertTrue(callable(panels._draw_retarget_mapper_table))
         self.assertTrue(hasattr(self.scene,'blendcap_retarget_pairs'))

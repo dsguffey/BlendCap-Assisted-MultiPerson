@@ -51,9 +51,7 @@ from .operators_pipeline import (
     BLENDCAP_OT_deps_missing,
     BLENDCAP_OT_open_license,
     BLENDCAP_OT_append_workspace,
-    BLENDCAP_OT_generate_mocap,
     BLENDCAP_OT_cancel,
-    BLENDCAP_OT_cancel_cleanup,
     BLENDCAP_OT_generate_bvh,
     BLENDCAP_OT_bake_camera_offset,
 )
@@ -87,6 +85,7 @@ from .vta_review_ui import (
     BLENDCAP_OT_vta_generate_animation,
     BLENDCAP_OT_vta_update_animation,
     BLENDCAP_OT_vta_generation_details,
+    BLENDCAP_OT_vta_confirm_depth_mode,
     BLENDCAP_OT_vta_open_logs,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
@@ -110,6 +109,7 @@ from .vta_review_ui import (
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_animation,
     VIEW3D_PT_blendcap_vta_animation_cleanup,
+    VIEW3D_PT_blendcap_vta_generation_camera,
     VIEW3D_PT_blendcap_vta_display,
     VIEW3D_PT_blendcap_vta_advanced,
     register_properties as register_vta_review_properties,
@@ -123,6 +123,7 @@ from .vta_workspace import (
     BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_timeline_select,
     BLENDCAP_OT_vta_timeline_hover,
+    BLENDCAP_OT_vta_depth_delete,
     BLENDCAP_MT_vta_timeline_context,
     BLENDCAP_MT_vta_timeline_commands,
     BLENDCAP_PT_vta_timeline,
@@ -245,9 +246,7 @@ classes = (
     BLENDCAP_OT_vta_load_scene,
     BLENDCAP_OT_vta_match_source_fps,
     BLENDCAP_OT_vta_toggle_editor_mode,
-    BLENDCAP_OT_generate_mocap,
     BLENDCAP_OT_cancel,
-    BLENDCAP_OT_cancel_cleanup,
     BLENDCAP_OT_generate_bvh,
     BLENDCAP_OT_bake_camera_offset,
     BLENDCAP_OT_revert_strip,
@@ -288,11 +287,13 @@ classes = (
     BLENDCAP_OT_vta_update_animation,
     BLENDCAP_OT_vta_retarget,
     BLENDCAP_OT_vta_generation_details,
+    BLENDCAP_OT_vta_confirm_depth_mode,
     BLENDCAP_OT_vta_open_logs,
     BLENDCAP_OT_vta_candidate_select,
     BLENDCAP_OT_vta_review_key_select,
     BLENDCAP_OT_vta_timeline_select,
     BLENDCAP_OT_vta_timeline_hover,
+    BLENDCAP_OT_vta_depth_delete,
     BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,
@@ -317,6 +318,7 @@ classes = (
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_animation,
     VIEW3D_PT_blendcap_vta_animation_cleanup,
+    VIEW3D_PT_blendcap_vta_generation_camera,
     VIEW3D_PT_blendcap_vta_display,
     VIEW3D_PT_blendcap_vta_advanced,
 )
@@ -515,6 +517,8 @@ def _blendcap_default_source_startup_timer():
 
 
 def register():
+    from . import vta_metadata
+    vta_metadata.register()
     # Reload trap: if a module wasn't reloaded but its sibling registration
     # module was, Blender may have a stale class registered under the same
     # bl_idname that our top-level unregister() couldn't address (because
@@ -561,6 +565,8 @@ def register():
         default=False)
     register_vta_review_properties()
     register_vta_workspace()
+    from . import vta_depth_tool
+    vta_depth_tool.register()
 
     # --- Retargeting v2 scene state ---
     bpy.types.Scene.blendcap_retarget_pairs = bpy.props.CollectionProperty(type=BlendCapBonePair)
@@ -882,6 +888,10 @@ def register():
 
 
 def unregister():
+    from . import vta_metadata
+    vta_metadata.unregister()
+    from . import vta_depth_tool
+    vta_depth_tool.unregister()
     from .vta_retarget import cancel_running
     cancel_running(bpy.context)
     del bpy.types.Scene.blendcap_vta_retarget

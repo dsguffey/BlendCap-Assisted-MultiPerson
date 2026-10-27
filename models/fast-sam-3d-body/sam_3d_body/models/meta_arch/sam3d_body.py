@@ -2526,30 +2526,6 @@ class SAM3DBody(BaseModel):
 
         return pose_output
 
-    def forward_step_merged(
-        self, batch: Dict, body_batch_idx: list, hand_batch_idx: list
-    ) -> Dict:
-        """Run forward pass with explicit body/hand batch indices.
-
-        This is used for merged batch inference where body and hand crops
-        are combined into a single batch for shared backbone execution.
-
-        Args:
-            batch: Combined batch with shape [1, N, ...] where N = body + hands
-            body_batch_idx: Indices for body crops (e.g., [0] for first person)
-            hand_batch_idx: Indices for hand crops (e.g., [1, 2] for left/right hands)
-
-        Returns:
-            Output dict with both 'mhr' (body) and 'mhr_hand' (hand) outputs
-        """
-        # Set the batch indices for routing in forward_pose_branch
-        self.body_batch_idx = body_batch_idx
-        self.hand_batch_idx = hand_batch_idx
-
-        # Run forward with both body and hand decoders
-        pose_output = self.forward_pose_branch(batch)
-
-        return pose_output
 
     def run_inference(
         self,
@@ -2558,10 +2534,6 @@ class SAM3DBody(BaseModel):
         inference_type: str = "full",
         transform_hand: Any = None,
         thresh_wrist_angle=1.4,
-        hand_box_source: str = "body_decoder",  # "body_decoder" or "yolo_pose"
-        yolo_pose_keypoints: Optional[np.ndarray] = None,  # YOLO-Pose keypoints [N, 17, 3]
-        yolo_pose_body_boxes: Optional[np.ndarray] = None,  # YOLO-Pose body boxes [N, 4]
-        parallel_decoders: bool = True,  # Enable merged batch execution for shared backbone
     ):
         """
         Run 3DB inference (optionally with hand detector).
@@ -2571,17 +2543,6 @@ class SAM3DBody(BaseModel):
             - body: inference with body decoder only (still full-body output)
             - hand: inference with hand decoder only (only hand output)
 
-        hand_box_source:
-            - body_decoder: use hand boxes from body decoder output (default)
-            - yolo_pose: use hand boxes computed from YOLO-Pose wrist keypoints
-
-        yolo_pose_keypoints:
-            - YOLO-Pose keypoints array with shape [N, 17, 3] (x, y, conf)
-            - Required when hand_box_source="yolo_pose"
-
-        yolo_pose_body_boxes:
-            - YOLO-Pose body boxes array with shape [N, 4] (x1, y1, x2, y2)
-            - Required when hand_box_source="yolo_pose" for computing hand box size
         """
         run_inference_start = time.time()
         print("        [run_inference] Starting...")
@@ -2611,220 +2572,49 @@ class SAM3DBody(BaseModel):
         elif not inference_type == "full":
             ValueError("Invalid inference type: ", inference_type)
 
-        # Check if we can use parallel execution (merged backbone)
-        # Parallel mode requires: yolo_pose hand boxes (no dependency on body decoder output)
-        # Can be disabled via environment variable PARALLEL_DECODERS=0
-        env_parallel = os.environ.get('PARALLEL_DECODERS', '1') != '0'
-        use_parallel = (
-            parallel_decoders
-            and env_parallel
-            and hand_box_source == "yolo_pose"
-            and yolo_pose_keypoints is not None
+        # Body-decoder hand boxes are the only supported source.
+        t0 = time.time()
+        torch.cuda.synchronize()
+        pose_output = self.forward_step(batch, decoder_type="body")
+        torch.cuda.synchronize()
+        print(f"          [run_inference] step1_body_decoder: {time.time() - t0:.4f}s")
+
+        # Get hand boxes from the body decoder.
+        left_xyxy, right_xyxy = self._get_hand_box(pose_output, batch)
+
+        ori_local_wrist_rotmat = euler_to_rotmat_XZY(
+            pose_output["mhr"]["body_pose"][:, [41, 43, 42, 31, 33, 32]].unflatten(
+                1, (2, 3)
+            )
         )
 
-        if use_parallel:
-            # ============================================================
-            # MERGED BATCH EXECUTION PATH (Shared Backbone)
-            # Combine body + hand crops into single batch, run backbone once
-            # ============================================================
-            print("          [run_inference] Using MERGED BATCH execution (shared backbone)")
-            t0 = time.time()
+        # Step 2. Re-run with both hands (merged batch for efficiency)
+        t0 = time.time()
 
-            # Step 0: Get hand boxes from YOLO-Pose FIRST (before body decoder)
-            left_xyxy, right_xyxy = self._get_hand_box_from_yolo_pose(
-                yolo_pose_keypoints, yolo_pose_body_boxes, batch
-            )
+        ## Prepare left hand batch (flip image & box)
+        flipped_img = img[:, ::-1]
+        tmp = left_xyxy.copy()
+        left_xyxy[:, 0] = width - tmp[:, 2] - 1
+        left_xyxy[:, 2] = width - tmp[:, 0] - 1
 
-            # Prepare hand batches using GPU-accelerated version (~10x faster than CPU version)
-            _DEBUG_HAND_PREP = os.environ.get("DEBUG_HAND_PREP", "0") == "1"
+        batch_lhand = prepare_batch(
+            flipped_img, transform_hand, left_xyxy, cam_int=cam_int.clone()
+        )
+        batch_lhand = recursive_to(batch_lhand, batch["img"].device)
 
-            if _USE_GPU_HAND_PREP:
-                # GPU version: perform flip + crop + normalize on GPU (or CPU
-                # if cam_int is on CPU — the function uses whatever device
-                # it's told). img is a numpy array here, so use cam_int's
-                # device as the canonical source of truth.
-                output_size = (self.cfg.MODEL.IMAGE_SIZE[1], self.cfg.MODEL.IMAGE_SIZE[0])  # (H, W)
-                batch_lhand, batch_rhand, left_xyxy_flipped = _prepare_hand_batches_gpu(
-                    img, left_xyxy, right_xyxy, cam_int,
-                    output_size=output_size,
-                    padding=0.9,  # Consistent with GetBBoxCenterScale(padding=0.9)
-                    device=cam_int.device,
-                )
-            else:
-                # CPU version (fallback)
-                flipped_img = img[:, ::-1]
-                tmp = left_xyxy.copy()
-                left_xyxy_flipped = left_xyxy.copy()
-                left_xyxy_flipped[:, 0] = width - tmp[:, 2] - 1
-                left_xyxy_flipped[:, 2] = width - tmp[:, 0] - 1
+        ## Prepare right hand batch
+        batch_rhand = prepare_batch(
+            img, transform_hand, right_xyxy, cam_int=cam_int.clone()
+        )
+        batch_rhand = recursive_to(batch_rhand, batch["img"].device)
 
-                batch_lhand = prepare_batch(
-                    flipped_img, transform_hand, left_xyxy_flipped, cam_int=cam_int.clone()
-                )
-                batch_lhand = recursive_to(batch_lhand, batch["img"].device)
-
-                batch_rhand = prepare_batch(
-                    img, transform_hand, right_xyxy, cam_int=cam_int.clone()
-                )
-                batch_rhand = recursive_to(batch_rhand, batch["img"].device)
-
-            # Debug: save cropped images for comparison
-            if _DEBUG_HAND_PREP:
-                import cv2
-                suffix = "gpu" if _USE_GPU_HAND_PREP else "cpu"
-
-                def save_debug_img(batch, name):
-                    img_t = batch['img'][0, 0]  # (3, H, W)
-                    # Print detailed tensor statistics
-                    print(f"          [DEBUG] {name} img stats: min={img_t.min().item():.4f}, max={img_t.max().item():.4f}, mean={img_t.mean().item():.4f}")
-                    print(f"          [DEBUG] {name} img shape: {img_t.shape}")
-                    print(f"          [DEBUG] {name} bbox_center: {batch['bbox_center'].squeeze().tolist()}")
-                    print(f"          [DEBUG] {name} bbox_scale: {batch['bbox_scale'].squeeze().tolist()}")
-                    print(f"          [DEBUG] {name} affine_trans:\n{batch['affine_trans'].squeeze().cpu().numpy()}")
-                    # Print image corner pixel values for comparison
-                    print(f"          [DEBUG] {name} img[0,:3,:3]:\n{img_t[0,:3,:3].cpu().numpy()}")
-                    # Save image
-                    img_save = (img_t * 255).clamp(0, 255).byte()
-                    img_np = img_save.permute(1, 2, 0).cpu().numpy()  # (H, W, 3)
-                    img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite(f"./output/debug_{name}_{suffix}.jpg", img_np)
-                    print(f"          [DEBUG] Saved ./output/debug_{name}_{suffix}.jpg")
-
-                save_debug_img(batch_lhand, "lhand")
-                save_debug_img(batch_rhand, "rhand")
-
-            # Merge left and right hand batches: [1, 2, ...]
-            batch_hands = self._merge_hand_batches(batch_lhand, batch_rhand)
-            print(f"          [run_inference] prepare_hand_batches: {time.time() - t0:.4f}s")
-
-            # Merge body batch with hand batches: [1, 3*N, ...]
-            # Combined batch order:
-            #   - indices 0 to N-1: body crops
-            #   - indices N to 2*N-1: left hand crops
-            #   - indices 2*N to 3*N-1: right hand crops
-            t0 = time.time()
-            combined_batch = self._merge_body_hand_batches(batch, batch_hands)
-            self._initialize_batch(combined_batch)
-            print(f"          [run_inference] merge_body_hand_batches: {time.time() - t0:.4f}s")
-
-            # Get number of persons from batch
-            num_persons = batch["img"].shape[1]
-
-            # Run single forward pass with shared backbone
-            # body_batch_idx routes body crops to body decoder
-            # hand_batch_idx routes hand crops to hand decoder
-            t_merged = time.time()
-            torch.cuda.synchronize()
-            combined_output = self.forward_step_merged(
-                combined_batch,
-                body_batch_idx=list(range(num_persons)),
-                hand_batch_idx=list(range(num_persons, 3 * num_persons))
-            )
-            torch.cuda.synchronize()
-            print(f"          [run_inference] merged_forward (backbone + body_decoder + hand_decoder): {time.time() - t_merged:.4f}s")
-
-            # Extract body output from combined output (include image_embeddings and condition_info for post-processing)
-            # Note: image_embeddings has shape [3*N, C, H, W], we only need the body part [0:N]
-            # condition_info also needs to be sliced to body only
-            pose_output = {
-                "mhr": combined_output["mhr"],
-                "image_embeddings": combined_output["image_embeddings"][0:num_persons],  # Only body embeddings
-                "condition_info": combined_output["condition_info"][0:num_persons],  # Only body condition
-            }
-
-            # Copy ray_cond from combined_batch back to original batch for post-processing
-            # forward_pose_branch sets ray_cond on combined_batch, but run_keypoint_prompt uses the original batch
-            if "ray_cond" in combined_batch:
-                batch["ray_cond"] = combined_batch["ray_cond"]
-
-            # Extract hand output from combined output
-            merged_output = {"mhr_hand": combined_output["mhr_hand"]}
-
-            # DEBUG: Check for NaN in outputs after merged forward
-            _DEBUG_NAN = True
-            if _DEBUG_NAN:
-                def check_nan(tensor, name):
-                    if tensor is not None and torch.isnan(tensor).any():
-                        print(f"          [DEBUG NaN] {name}: contains NaN!")
-                        return True
-                    return False
-
-                print("          [DEBUG NaN] Checking body output (pose_output['mhr'])...")
-                for k, v in pose_output["mhr"].items():
-                    if isinstance(v, torch.Tensor):
-                        check_nan(v, f"pose_output['mhr']['{k}']")
-
-                print("          [DEBUG NaN] Checking hand output (merged_output['mhr_hand'])...")
-                if merged_output["mhr_hand"] is not None:
-                    for k, v in merged_output["mhr_hand"].items():
-                        if isinstance(v, torch.Tensor):
-                            check_nan(v, f"merged_output['mhr_hand']['{k}']")
-
-            # Compute ori_local_wrist_rotmat from body decoder output (needed for post-processing)
-            ori_local_wrist_rotmat = euler_to_rotmat_XZY(
-                pose_output["mhr"]["body_pose"][:, [41, 43, 42, 31, 33, 32]].unflatten(
-                    1, (2, 3)
-                )
-            )
-
-            # Update left_xyxy for unflipping (use the flipped version)
-            left_xyxy = left_xyxy_flipped
-
-        else:
-            # ============================================================
-            # SEQUENTIAL EXECUTION PATH (original behavior)
-            # ============================================================
-            # Step 1. For full-body inference, we first inference with the body decoder.
-            t0 = time.time()
-            torch.cuda.synchronize()
-            pose_output = self.forward_step(batch, decoder_type="body")
-            torch.cuda.synchronize()
-            print(f"          [run_inference] step1_body_decoder: {time.time() - t0:.4f}s")
-
-            # Get hand boxes - either from body decoder or YOLO-Pose
-            if hand_box_source == "yolo_pose" and yolo_pose_keypoints is not None:
-                print("          [run_inference] Using YOLO-Pose hand boxes (replacing body decoder)")
-                left_xyxy, right_xyxy = self._get_hand_box_from_yolo_pose(
-                    yolo_pose_keypoints, yolo_pose_body_boxes, batch
-                )
-            else:
-                if hand_box_source == "yolo_pose":
-                    print("          [run_inference] WARNING: hand_box_source='yolo_pose' but no keypoints provided, falling back to body_decoder")
-                left_xyxy, right_xyxy = self._get_hand_box(pose_output, batch)
-
-            ori_local_wrist_rotmat = euler_to_rotmat_XZY(
-                pose_output["mhr"]["body_pose"][:, [41, 43, 42, 31, 33, 32]].unflatten(
-                    1, (2, 3)
-                )
-            )
-
-            # Step 2. Re-run with both hands (merged batch for efficiency)
-            t0 = time.time()
-
-            ## Prepare left hand batch (flip image & box)
-            flipped_img = img[:, ::-1]
-            tmp = left_xyxy.copy()
-            left_xyxy[:, 0] = width - tmp[:, 2] - 1
-            left_xyxy[:, 2] = width - tmp[:, 0] - 1
-
-            batch_lhand = prepare_batch(
-                flipped_img, transform_hand, left_xyxy, cam_int=cam_int.clone()
-            )
-            batch_lhand = recursive_to(batch_lhand, batch["img"].device)
-
-            ## Prepare right hand batch
-            batch_rhand = prepare_batch(
-                img, transform_hand, right_xyxy, cam_int=cam_int.clone()
-            )
-            batch_rhand = recursive_to(batch_rhand, batch["img"].device)
-
-            ## Merge both hand batches and run single forward pass
-            batch_hands = self._merge_hand_batches(batch_lhand, batch_rhand)
-            self._initialize_batch(batch_hands)  # Re-initialize for merged batch [1, 2, ...]
-            torch.cuda.synchronize()
-            merged_output = self.forward_step(batch_hands, decoder_type="hand")
-            torch.cuda.synchronize()
-            print(f"          [run_inference] step2_hands_merged_decoder: {time.time() - t0:.4f}s")
+        ## Merge both hand batches and run single forward pass
+        batch_hands = self._merge_hand_batches(batch_lhand, batch_rhand)
+        self._initialize_batch(batch_hands)  # Re-initialize for merged batch [1, 2, ...]
+        torch.cuda.synchronize()
+        merged_output = self.forward_step(batch_hands, decoder_type="hand")
+        torch.cuda.synchronize()
+        print(f"          [run_inference] step2_hands_merged_decoder: {time.time() - t0:.4f}s")
 
         ## Split output back to left and right
         # Get number of persons for correct splitting
@@ -3430,118 +3220,6 @@ class SAM3DBody(BaseModel):
 
         return left_xyxy, right_xyxy
 
-    def _get_hand_box_from_yolo_pose(
-        self,
-        yolo_pose_keypoints: np.ndarray,
-        yolo_pose_body_boxes: np.ndarray,
-        batch: Dict,
-        hand_box_scale: float = 3.0,
-        min_wrist_conf: float = 0.3,
-    ):
-        """
-        Get hand bbox from YOLO-Pose wrist keypoints.
-
-        Args:
-            yolo_pose_keypoints: YOLO-Pose keypoints [N, 17, 3] (x, y, conf)
-                - COCO format: idx 9 = left_wrist, idx 10 = right_wrist
-            yolo_pose_body_boxes: YOLO-Pose body boxes [N, 4] (x1, y1, x2, y2)
-            batch: batch dict containing affine_trans
-            hand_box_scale: scale factor for hand box size (default: 2.5)
-            min_wrist_conf: minimum confidence threshold for wrist detection
-
-        Returns:
-            left_xyxy: [N, 4] left hand boxes in original image coordinates
-            right_xyxy: [N, 4] right hand boxes in original image coordinates
-
-        Note:
-            COCO keypoint mapping:
-            - left_wrist (idx 9) corresponds to person's LEFT hand
-            - right_wrist (idx 10) corresponds to person's RIGHT hand
-        """
-        n_persons = yolo_pose_keypoints.shape[0]
-
-        # COCO keypoint indices
-        LEFT_WRIST_IDX = 9
-        RIGHT_WRIST_IDX = 10
-
-        left_centers = []
-        left_scales = []
-        right_centers = []
-        right_scales = []
-
-        for i in range(n_persons):
-            kpts = yolo_pose_keypoints[i]  # [17, 3]
-            body_box = yolo_pose_body_boxes[i]  # [4]
-
-            # Compute hand box size based on body box
-            body_width = body_box[2] - body_box[0]
-            body_height = body_box[3] - body_box[1]
-            hand_size = (body_width + body_height) / 2 / hand_box_scale
-
-            # Left wrist -> Left hand box
-            left_wrist = kpts[LEFT_WRIST_IDX]
-            if left_wrist[2] > min_wrist_conf:
-                lx, ly = left_wrist[0], left_wrist[1]
-                left_centers.append([lx, ly])
-                left_scales.append([hand_size, hand_size])
-            else:
-                # Use body center as fallback
-                cx = (body_box[0] + body_box[2]) / 2
-                cy = (body_box[1] + body_box[3]) / 2
-                left_centers.append([cx, cy])
-                left_scales.append([hand_size, hand_size])
-                print(f"          [YOLO-Pose] WARNING: Person {i} left_wrist low conf ({left_wrist[2]:.2f}), using body center")
-
-            # Right wrist -> Right hand box
-            right_wrist = kpts[RIGHT_WRIST_IDX]
-            if right_wrist[2] > min_wrist_conf:
-                rx, ry = right_wrist[0], right_wrist[1]
-                right_centers.append([rx, ry])
-                right_scales.append([hand_size, hand_size])
-            else:
-                # Use body center as fallback
-                cx = (body_box[0] + body_box[2]) / 2
-                cy = (body_box[1] + body_box[3]) / 2
-                right_centers.append([cx, cy])
-                right_scales.append([hand_size, hand_size])
-                print(f"          [YOLO-Pose] WARNING: Person {i} right_wrist low conf ({right_wrist[2]:.2f}), using body center")
-
-        # Convert to numpy arrays
-        batch["left_center"] = np.array(left_centers)
-        batch["left_scale"] = np.array(left_scales)
-        batch["right_center"] = np.array(right_centers)
-        batch["right_scale"] = np.array(right_scales)
-
-        # Log computed values
-        for i in range(n_persons):
-            print(f"          [YOLO-Pose] Person {i}:")
-            print(f"            left_center: {batch['left_center'][i]}, left_scale: {batch['left_scale'][i]}")
-            print(f"            right_center: {batch['right_center'][i]}, right_scale: {batch['right_scale'][i]}")
-
-        # Compute xyxy boxes
-        left_xyxy = np.concatenate(
-            [
-                (batch["left_center"][:, 0] - batch["left_scale"][:, 0] * 1 / 2).reshape(-1, 1),
-                (batch["left_center"][:, 1] - batch["left_scale"][:, 1] * 1 / 2).reshape(-1, 1),
-                (batch["left_center"][:, 0] + batch["left_scale"][:, 0] * 1 / 2).reshape(-1, 1),
-                (batch["left_center"][:, 1] + batch["left_scale"][:, 1] * 1 / 2).reshape(-1, 1),
-            ],
-            axis=1,
-        )
-        right_xyxy = np.concatenate(
-            [
-                (batch["right_center"][:, 0] - batch["right_scale"][:, 0] * 1 / 2).reshape(-1, 1),
-                (batch["right_center"][:, 1] - batch["right_scale"][:, 1] * 1 / 2).reshape(-1, 1),
-                (batch["right_center"][:, 0] + batch["right_scale"][:, 0] * 1 / 2).reshape(-1, 1),
-                (batch["right_center"][:, 1] + batch["right_scale"][:, 1] * 1 / 2).reshape(-1, 1),
-            ],
-            axis=1,
-        )
-
-        print(f"          [YOLO-Pose] left_xyxy: {left_xyxy}")
-        print(f"          [YOLO-Pose] right_xyxy: {right_xyxy}")
-
-        return left_xyxy, right_xyxy
 
     def _merge_hand_batches(self, batch_lhand: Dict, batch_rhand: Dict) -> Dict:
         """Merge left and right hand batches into a single batch for efficient inference.
@@ -3578,43 +3256,6 @@ class SAM3DBody(BaseModel):
 
         return merged_batch
 
-    def _merge_body_hand_batches(self, batch_body: Dict, batch_hands: Dict) -> Dict:
-        """Merge body batch with hand batches for shared backbone inference.
-
-        This combines body crop + hand crops into a single batch so backbone runs once.
-        The batch structure is [batch_size, num_person, ...].
-
-        Args:
-            batch_body: Body batch dict, shape [1, 1, ...] (1 body crop)
-            batch_hands: Merged hand batch dict, shape [1, 2, ...] (left + right hand)
-
-        Returns:
-            Combined batch dict with shape [1, 3, ...] (body + left_hand + right_hand)
-            - Person 0: body crop
-            - Person 1: left hand crop
-            - Person 2: right hand crop
-        """
-        combined_batch = {}
-
-        # Keys that need to be concatenated along person dimension (dim=1)
-        concat_keys = [
-            "img", "img_size", "ori_img_size", "bbox_center", "bbox_scale",
-            "bbox", "affine_trans", "mask", "mask_score", "person_valid"
-        ]
-
-        for key in concat_keys:
-            if key in batch_body and key in batch_hands:
-                combined_batch[key] = torch.cat([batch_body[key], batch_hands[key]], dim=1)
-
-        # cam_int is [batch_size, 3, 3], just take from body batch
-        if "cam_int" in batch_body:
-            combined_batch["cam_int"] = batch_body["cam_int"]
-
-        # Handle img_ori specially (it's a list)
-        if "img_ori" in batch_body and "img_ori" in batch_hands:
-            combined_batch["img_ori"] = batch_body["img_ori"] + batch_hands["img_ori"]
-
-        return combined_batch
 
     def _split_hand_outputs(self, merged_output: Dict, batch_size: int = 1) -> Tuple[Dict, Dict]:
         """Split merged hand output back into left and right hand outputs.

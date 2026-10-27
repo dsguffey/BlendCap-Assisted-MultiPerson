@@ -403,7 +403,7 @@ class CleanupBlenderTests(unittest.TestCase):
         fake_gpu = NS(shader=NS(from_builtin=mock.Mock(return_value=NS())))
         fake_batch = NS(batch_for_shader=mock.Mock())
         # Mock GPU/font sinks, not the renderer's all-row logic or selection state.
-        with mock.patch.object(workspace, 'bpy', NS(context=context)), \
+        with mock.patch.object(workspace, 'bpy', NS(context=context, types=bpy.types)), \
              mock.patch.object(workspace, '_scope', return_value=True), \
              mock.patch.object(workspace, '_line', side_effect=lambda s,b,p,c: lines.append((p,c))), \
              mock.patch.object(workspace, '_fill'), \

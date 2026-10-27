@@ -80,7 +80,7 @@ class CorePolishTests(unittest.TestCase):
             location=ReviewLocation(Path(folder),Path(folder)/'video.mp4',0,1)
             wm=NS(blendcap_vta_animation_start=20,blendcap_vta_animation_end=21,blendcap_vta_generation_scope='SELECTED')
             context=NS(window_manager=wm,scene=NS(objects=[],blendcap_props=NS(fov_mode='FIRST')))
-            build=mock.Mock(return_value=dict(project_id='p',source_id='s'))
+            build=mock.Mock(return_value=dict(project_id='p',source_id='s',source_video_sha256='a'*64))
             backend=NS(_load_context=lambda _:(None,NS(source=NS(start_frame=0,end_frame=162)),'r'),
                 _core=NS(build_skeletal_plan=build,validate_skeletal_repairs=mock.Mock()))
             with mock.patch.object(ui,'_location_from_context',return_value=location), mock.patch.object(ui,'_get_backend',return_value=backend), \
@@ -90,6 +90,7 @@ class CorePolishTests(unittest.TestCase):
                     mock.patch.object(ui,'_backend_root',Path('private')), mock.patch.object(bpy.app.timers,'register'), \
                     mock.patch.object(ui.subprocess,'Popen',return_value=NS(poll=lambda:None)) as launch:
                 self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
+                self.assertEqual(ui._generation_job['depth_mode'],'FIXED')
                 build.assert_called_once_with(None,mock.ANY,frame_range=(19,20),character_ids=('white',))
                 command=launch.call_args.args[0]
                 self.assertEqual(command[command.index('--character-id')+1],'white')
@@ -97,7 +98,9 @@ class CorePolishTests(unittest.TestCase):
                 # Pretend the already-asserted fake request was never launched.
                 ui._reconstruction_process=None; ui._generation_job=None
                 wm.blendcap_vta_generation_scope='ALL'; build.reset_mock()
+                context.scene.blendcap_vta_automatic_depth=True
                 self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
+                self.assertEqual(ui._generation_job['depth_mode'],'AUTOMATIC')
                 self.assertEqual(build.call_args.kwargs['character_ids'],('white',))
                 self.assertIn('--character-id',launch.call_args.args[0])
                 ui._reconstruction_process=None; ui._generation_job=None
@@ -276,6 +279,13 @@ class CorePolishTests(unittest.TestCase):
         self.assertIn('Select Character rows',generation.failure_message('Select Character rows or choose All Reviewed.'))
 
     def test_timeline_tooltip_hits_review_repairs_rows_and_derived_not_generated_poses(self):
+        # This host-independent fixture exercises existing review hit priorities;
+        # live native Object Location marker state has its own Blender tests.
+        depth = mock.patch.object(self.workspace,'depth_key_markers',return_value=())
+        lanes = mock.patch.object(self.workspace,'character_lanes',return_value=())
+        rows = mock.patch.object(self.workspace,'_row_at',return_value=None)
+        depth.start(); lanes.start(); rows.start()
+        self.addCleanup(depth.stop); self.addCleanup(lanes.stop); self.addCleanup(rows.stop)
         w=self.workspace; context=NS(region=NS(type='WINDOW',height=200,width=800,view2d=NS(
             view_to_region=lambda x,y,clip=False:(x*10,y))))
         view=NS(derived=())
@@ -289,7 +299,7 @@ class CorePolishTests(unittest.TestCase):
                 self.assertIn(mode.title()+' repair',text)
                 if mode=='interpolate':self.assertIn('outside both endpoints',text)
         context.region.type='CHANNELS'
-        with mock.patch.object(w,'_state',return_value=(view,(),None,1,0,None)),mock.patch.object(w,'_metrics'),mock.patch.object(w,'hit_character',return_value='white'):
+        with mock.patch.object(w,'_state',return_value=(view,(),None,1,0,None)),mock.patch.object(w,'_metrics',return_value=NS(ui_scale=1)),mock.patch.object(w,'hit_character',return_value='white'):
             self.assertIn('Selected rows',w.timeline_tooltip(context,(30,100)))
         context.region.type='WINDOW';view.derived=(NS(character_id='white',source_frame=2),)
         with mock.patch.object(w,'_state',return_value=(view,(),None,1,0,None)), mock.patch.object(w,'_metrics',return_value=NS(ui_scale=1)), \

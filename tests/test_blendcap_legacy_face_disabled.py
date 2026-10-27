@@ -39,20 +39,12 @@ class LegacyFaceDisabledTests(unittest.TestCase):
         cls.registration=importlib.import_module(package+'.registration')
 
     def test_capture_planner_has_no_worker_or_cached_face_overlay_route(self):
-        source=inspect.getsource(self.capture.BLENDCAP_OT_generate_mocap)
-        for retired in ('save_face_data','props.track_face','"--face"','face_npz'):
-            self.assertNotIn(retired,source)
-        self.assertIn('save_mhr_data.py',source)
+        self.assertFalse(hasattr(self.capture, 'BLENDCAP_OT_generate_mocap'))
+        self.assertFalse(hasattr(self.capture, 'BLENDCAP_OT_cancel_cleanup'))
 
     def test_saved_face_only_request_fails_before_any_io(self):
-        props=SimpleNamespace(track_body=False,track_face=True)
-        context=SimpleNamespace(scene=SimpleNamespace(blendcap_props=props))
-        operator=SimpleNamespace(report=mock.Mock())
-        with mock.patch.dict(self.capture.blendcap_state,running=False), mock.patch.object(self.capture,'_resolve_video_path') as resolve:
-            self.assertEqual(self.capture.BLENDCAP_OT_generate_mocap.execute(operator,context),{'CANCELLED'})
-            resolve.assert_not_called()
-        self.assertIn('not supported',operator.report.call_args.args[1])
-        self.assertTrue(props.track_face) # Never rewrite saved owner decisions.
+        # There is no old planner left to interpret stale capture/face flags.
+        self.assertFalse(hasattr(bpy.types, 'BLENDCAP_OT_generate_mocap'))
 
     def test_saved_face_export_flags_refused_before_source_io(self):
         props=SimpleNamespace(export_face=True,use_separate_face=False)
@@ -65,7 +57,8 @@ class LegacyFaceDisabledTests(unittest.TestCase):
         self.assertTrue(props.export_face)
 
     def test_face_capture_and_application_controls_not_drawn(self):
-        for function in (self.panels._draw_capture_section,self.panels._draw_bvh_settings_section):
+        self.assertFalse(hasattr(self.panels, '_draw_capture_section'))
+        for function in (self.panels._draw_bvh_settings_section,):
             source=inspect.getsource(function)
             for prop in ('"track_face"','"export_face"','"use_separate_face"','"separate_face_data"'):
                 self.assertNotIn(prop,source)

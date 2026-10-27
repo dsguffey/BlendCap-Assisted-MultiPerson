@@ -2,7 +2,11 @@
 
 User documentation for BlendCap — markerless performance capture for Blender.
 
-New here? Start with the [Quick Start](04-quick-start.md).
+For current VTA, start with the [VTA workflow guide](vta_workflow.md).
+The [accepted pre-refactor checkpoint](vta_pre_refactor_checkpoint_20261027.md)
+records the Fixed Depth/native-key baseline and process-separation preparation.
+The inherited Capture/Preview quick start and capture settings below are historical:
+that workflow was retired on 2026-10-23. It is not a fallback for missing review data.
 
 For the current reviewed multi-Character integration, see the
 [VTA public host workflow and technical guide](vta_workflow.md).

@@ -9,6 +9,35 @@ licensing, security, packaging, installation/update, first-run and support readi
 
 ## Public component and runtime boundary
 
+### 2026-10-23: detector-driven Capture/Preview retired
+
+Use **Analyze → Review/Assign → Update Tracking → Generate Animation Range**.
+SAM3 supplies candidate evidence; reviewed boxes drive SAM 3D Body reconstruction.
+The former Run Capture/Run Preview commands, their worker/proxy-generation routes,
+HumanDetector and YOLO hand-box paths are removed. Missing or malformed reviewed
+boxes fail explicitly; generation never discovers a replacement person or falls
+back to full-image inference. The calibrated 3D view, source-video preview,
+tracking hints and current editor refreshes are **not** the retired detector preview.
+
+Ultralytics, ultralytics-thop and YOLO weights are no longer intended runtime
+dependencies. Nothing is uninstalled from developer machines. SAM3, body/DINOv3,
+MHR, MoGe and their existing numeric/image/Torch/native dependencies remain;
+the two validated environments are not unified by this cleanup.
+
+Camera calibration choices (FIRST/EVERY) remain in the modern Animation panel.
+Shared BVH/body/finger export, FK math, existing-data utilities and old saved
+properties remain where needed; this is not the facial/schema/generic-retarget
+cleanup milestone. Top-bar VTA Commands retains supported VTA commands, not the
+removed capture operators. Retargeting stays in Object Mode's VTA sidebar.
+
+No project schema migration or recreation of assignments is required for the
+cleanup. Existing baked/manual animation remains intact. Normal generation
+provenance includes provider source hashes, so a later generation after deploying
+this changed code may request the existing explicit calibration-migration consent;
+that safeguard is retained, not silently bypassed. Owner QA was not opened or
+changed during this milestone. Public/GPL/private-core and redistribution/installer
+licensing gates remain separate and unresolved.
+
 Current VTA does not include facial capture/animation. MediaPipe is not an active
 runtime dependency. Legacy Face capture, its worker and ARKit application UI are
 not exposed. Shared existing-data/body export helpers remain for compatibility.
@@ -163,6 +192,13 @@ convenience; explicit Camera View remains available.
 Checkpoint QA (2026-10-14): blank-state guidance is **still not visibly working**
 in live QA despite headless raster checks. This is non-blocking UI debt, deferred
 to the next/Public 1.0 UI pass; it is not an accepted visible feature yet.
+
+The new [VTA Depth viewport tool and native key visibility](vta_depth.md) provides
+source-camera-axis dragging with native Object Location Auto Key/manual keying
+and native-key diamonds in expandable per-Character **Depth** child rows in the
+VTA Dope Sheet. Parent rows retain their existing authority/repair/hint state.
+The current Depth workflow is accepted in owner QA. The old path below remains
+available for compatibility; no legacy-tool removal is part of this checkpoint.
 
 **Move Along Camera Depth** in the 3D VTA sidebar translates one selected generated
 rig object along the source camera's forward/back axis, independent of viewport

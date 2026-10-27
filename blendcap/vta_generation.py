@@ -85,6 +85,10 @@ def failure_message(detail, cancelled=False):
         return 'Update cancelled. Your existing animation is unchanged.'
     if 'animation start must not exceed' in detail.lower() or 'choose an animation range within' in detail.lower():
         reason = detail + ' Adjust the range and retry.'
+    elif 'changing depth mode requires' in detail.lower():
+        reason = detail
+    elif 'changing depth mode requires' in detail.lower():
+        reason = detail
     elif any(message in detail.lower() for message in ('project path is too long','select character rows','select at least one character','select all existing characters')):
         reason = detail
     elif 'environment unavailable' in detail.lower() or 'runtime is incomplete' in detail.lower():
@@ -106,7 +110,7 @@ def failure_message(detail, cancelled=False):
     return 'Couldn’t update the animation. Your existing animation was kept unchanged. ' + reason
 
 
-def import_generation(paths, location, backend, *, migration=False):
+def import_generation(paths, location, backend, *, migration=False, depth_mode='AUTOMATIC'):
     """Publish migration + requested output in one rollback boundary.
 
     Worker failures never enter here. Existing generated Actions/camera data are
@@ -116,7 +120,7 @@ def import_generation(paths, location, backend, *, migration=False):
     if not migration:
         if len(paths) != 1:
             raise ValueError('Unexpected generation output count')
-        return output.import_reviewed_output(paths[0], location, backend, configure_views=False)
+        return output.import_reviewed_output(paths[0], location, backend, configure_views=False, depth_mode=depth_mode)
     if len(paths) != 2:
         raise ValueError('Update requires migration and requested output; previous animation retained')
     reports = [json.loads(Path(p).read_text(encoding='utf-8')) for p in paths]
@@ -140,8 +144,8 @@ def import_generation(paths, location, backend, *, migration=False):
     camera = scene.camera
     render = (scene.render.resolution_x, scene.render.resolution_y, scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)
     try:
-        output.import_reviewed_output(paths[0], location, backend, configure_views=False, migration_approved=True)
-        return output.import_reviewed_output(paths[1], location, backend, configure_views=False)
+        output.import_reviewed_output(paths[0], location, backend, configure_views=False, migration_approved=True, depth_mode=depth_mode)
+        return output.import_reviewed_output(paths[1], location, backend, configure_views=False, depth_mode=depth_mode)
     except Exception:
         scene.camera = camera
         for obj, old_data, action, slot, meta, parent, ptype, bone, inverse, basis, front, hidden, render_hidden, name in snapshots:

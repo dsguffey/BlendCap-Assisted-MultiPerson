@@ -14,8 +14,8 @@ website = "https://github.com/Arcomade/BlendCap"
 # also uses Blender 5.x APIs with 4.3/4.4 fallbacks already in place.
 blender_version_min = "4.2.0"
 
-# BlendCap is GPL-3.0-or-later (forced by the always-on AGPL-3.0 YOLO11 dep;
-# GPL v3 sec.13 bridges to AGPL). The bundled model weights and third-party
+# The BlendCap-derived public integration remains GPL-3.0-or-later.
+# The model weights and retained third-party
 # code ship under their own terms - full texts in LICENSE + NOTICE.txt at
 # the root and in licenses/.
 license = [

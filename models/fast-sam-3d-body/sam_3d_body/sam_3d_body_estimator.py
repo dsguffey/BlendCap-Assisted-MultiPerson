@@ -25,13 +25,11 @@ class SAM3DBodyEstimator:
         self,
         sam_3d_body_model,
         model_cfg,
-        human_detector=None,
         human_segmentor=None,
         fov_estimator=None,
     ):
         self.device = sam_3d_body_model.device
         self.model, self.cfg = sam_3d_body_model, model_cfg
-        self.detector = human_detector
         self.sam = human_segmentor
         self.fov_estimator = fov_estimator
         self.thresh_wrist_angle = 1.4
@@ -39,8 +37,6 @@ class SAM3DBodyEstimator:
         # For mesh visualization
         self.faces = self.model.head_pose.faces.cpu().numpy()
 
-        if self.detector is None:
-            print("No human detector is used...")
         if self.sam is None:
             print("Mask-condition inference is not supported...")
         if self.fov_estimator is None:
@@ -197,32 +193,29 @@ class SAM3DBodyEstimator:
         bboxes: Optional[np.ndarray] = None,
         masks: Optional[np.ndarray] = None,
         cam_int: Optional[np.ndarray] = None,
-        det_cat_id: int = 0,
-        bbox_thr: float = 0.5,
-        nms_thr: float = 0.3,
         use_mask: bool = False,
         inference_type: str = "full",
-        hand_box_source: str = "body_decoder",  # "body_decoder" or "yolo_pose"
     ):
         """
         Perform model prediction in top-down format: assuming input is a full image.
 
         Args:
             img: Input image (path or numpy array)
-            bboxes: Optional pre-computed bounding boxes
+            bboxes: Required reviewed Nx4 bounding boxes; no detection or full-image fallback
             masks: Optional pre-computed masks (numpy array). If provided, SAM2 will be skipped.
-            det_cat_id: Detection category ID
-            bbox_thr: Bounding box threshold
-            nms_thr: NMS threshold
             inference_type:
                 - full: full-body inference with both body and hand decoders
                 - body: inference with body decoder only (still full-body output)
                 - hand: inference with hand decoder only (only hand output)
-            hand_box_source:
-                - body_decoder: use hand boxes from body decoder output (default)
-                - yolo_pose: use hand boxes computed from YOLO-Pose wrist keypoints
-                  (requires detector to be yolo_pose type)
         """
+        if bboxes is None:
+            raise RuntimeError("Reviewed-box estimator requires explicit bboxes; detector inference is disabled")
+        boxes = np.asarray(bboxes)
+        if (boxes.ndim != 2 or boxes.shape[1] != 4 or len(boxes) == 0
+                or not np.issubdtype(boxes.dtype, np.number)
+                or not np.isfinite(boxes).all()
+                or not (boxes[:, 2:] > boxes[:, :2]).all()):
+            raise ValueError("Reviewed-box estimator requires non-empty finite Nx4 bboxes with positive area")
         process_total_start = time.time()
         print("      [process_one_image] Starting...")
 
@@ -248,47 +241,8 @@ class SAM3DBodyEstimator:
         print(f"        [process_one_image] load_image: {time.time() - t0:.4f}s")
 
         t0 = time.time()
-        yolo_pose_keypoints = None  # Will be set if using yolo_pose detector
-        yolo_pose_body_boxes = None
-        if bboxes is not None:
-            boxes = bboxes.reshape(-1, 4)
-            self.is_crop = True
-        elif self.detector is not None:
-            if image_format == "rgb":
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                image_format = "bgr"
-            print("Running object detector...")
-            torch.cuda.synchronize()
-            detection_result = self.detector.run_human_detection(
-                img,
-                det_cat_id=det_cat_id,
-                bbox_thr=bbox_thr,
-                nms_thr=nms_thr,
-                default_to_full_image=False,
-            )
-            torch.cuda.synchronize()
-
-            # Handle yolo_pose detector which returns dict with boxes and keypoints
-            if isinstance(detection_result, dict):
-                boxes = detection_result["boxes"]
-                yolo_pose_keypoints = detection_result.get("keypoints", None)
-                yolo_pose_body_boxes = boxes.copy()  # Save body boxes for hand box computation
-                print(f"Found boxes: {boxes}")
-                if yolo_pose_keypoints is not None:
-                    print(f"Found keypoints shape: {yolo_pose_keypoints.shape}")
-            else:
-                boxes = detection_result
-                print("Found boxes:", boxes)
-
-            self.is_crop = True
-        else:
-            boxes = np.array([0, 0, width, height]).reshape(1, 4)
-            self.is_crop = False
-        print(f"        [process_one_image] human_detection: {time.time() - t0:.4f}s")
-
-        # If there are no detected humans, don't run prediction
-        if len(boxes) == 0:
-            return []
+        self.is_crop = True
+        print(f"        [process_one_image] reviewed_boxes: {time.time() - t0:.4f}s")
 
         # The following models expect RGB images instead of BGR
         if image_format == "bgr":
@@ -362,9 +316,6 @@ class SAM3DBodyEstimator:
             inference_type=inference_type,
             transform_hand=self.transform_hand,
             thresh_wrist_angle=self.thresh_wrist_angle,
-            hand_box_source=hand_box_source,
-            yolo_pose_keypoints=yolo_pose_keypoints,
-            yolo_pose_body_boxes=yolo_pose_body_boxes,
         )
         torch.cuda.synchronize()
         print(f"        [process_one_image] model_run_inference: {time.time() - t0:.4f}s")

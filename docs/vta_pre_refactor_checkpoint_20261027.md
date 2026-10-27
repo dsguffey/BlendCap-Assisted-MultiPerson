@@ -1,0 +1,11 @@
+# Accepted pre-refactor baseline — 2026-10-27
+
+Fixed Depth is default; Automatic Depth is unchecked under Advanced Camera and retains explicit confirmation/regeneration semantics. Multi-Character native Depth movement, selection/deletion of complete Location keys and metadata non-animatability are accepted. Safety guard unchanged; prior accepted Capture/YOLO retirement retained. Localized white-hand jitter is non-blocking for process separation; cross-Scene Character-name uniqueness remains deferred.
+
+This checkpoint does not implement process separation or declare Public 1.0. Public/GPL Blender API, UI, native Undo/animation/retarget code stays public. The proposed separate engine will own host-independent domain decisions via neutral versioned data, with provider runtimes behind explicit adapters. Current implementation still imports private Python in Blender. No legal certification or shipping payload approval is implied.
+
+Canonical engineering contract and regression baseline live in the shared `Project Documentation` directory: `vta_public_private_boundary.md` and `pre_refactor_regression_baseline_20261027.md`. The private stabilization report contains source coupling evidence. Accepted public source, tests and docs are checkpointed; disposable QA/media/models/checkpoints remain local. Optional public subprocess proof files remain separate, untracked and backed up.
+
+Validation: 789 public + 428 private tests passed with no skips/errors/failures; in-memory compile, source register/unregister, native Depth/metadata Undo and fresh source-coverage process proof passed. Two obsolete test mocks were brought up to date with `bpy.types`; no production behavior changes added during checkpoint preparation. Owner QA and companion preserved. No pushes/tags/releases in this task.
+
+Validation scope: the full local public run contains **784 checkpointed-suite tests + 5 separately untracked opt-in process-proof tests = 789**. The checkpointed public suite was also rerun alone: **784 passed**, zero skips/errors/failures (~49.94 s). Private **428 passed**. The two opt-in public proof files remain backed up outside the commit. In-memory compile count 375 public includes those two files (373 checkpointed + 2 opt-in); private compile count is 79.

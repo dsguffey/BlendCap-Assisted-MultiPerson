@@ -1,7 +1,7 @@
 """Translate durable BlendCap review evidence into a neutral VTA payload.
 
 This module is intentionally BlendCap-specific.  It validates the existing
-preview sidecar and anchor formats, converts their OpenCV/YOLO upper-left box
+preview sidecar and anchor formats, converts their OpenCV upper-left box
 coordinates at the public/private boundary, and emits JSON-compatible data.
 It does not import the private core and cannot assign semantic identity.
 """

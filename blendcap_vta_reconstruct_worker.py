@@ -157,7 +157,7 @@ def fixed_source_calibration(root, source, provider, estimator, np, torch, decod
 
 
 def run(args):
-    os.environ.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', YOLO_OFFLINE='true',
+    os.environ.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1',
                       HF_HUB_DISABLE_TELEMETRY='1', LAYER_DTYPE='fp32', USE_COMPILE='0',
                       USE_COMPILE_BACKBONE='0', DECODER_COMPILE='0', USE_ORT='0')
     core = Path(args.core_root).resolve()
@@ -233,7 +233,7 @@ def run(args):
         import numpy as np
         import cv2
         import torch
-        # Existing estimator, offline local models. Explicit boxes bypass YOLO inference.
+        # Reviewed boxes need no detector import, weights, or initialization.
         from save_mhr_data import load_estimator_fast
         estimator = load_estimator_fast()
         mode = getattr(args, 'fov_mode', 'FIRST')
@@ -256,7 +256,6 @@ def run(args):
         provenance['fov_backend'] = ('MoGe-'+provider.get('settings', {}).get('FOV_MODEL', 's')
             if estimator.fov_estimator is not None else 'default-fov-fallback')
         provenance['fov_checkpoint_sha256'] = provider.get('fov_checkpoint_sha256')
-        provenance['yolo_checkpoint_sha256'] = digest(bundle / 'checkpoints/yolo/yolo11m-pose.pt')
         provenance['detector_inference_used'] = False
         provenance['warnings'] = ([] if estimator.fov_estimator is not None else
                                   ['MoGe unavailable; existing backend default FOV used'])
@@ -386,6 +385,11 @@ def run(args):
 
 
 def main():
+    # The body backend prints Unicode diagnostics. Previously importing YOLO
+    # happened to set UTF-8 on Windows; reviewed-box startup must own this.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('core-root', 'blendcap-root', 'companion-root', 'video'):
         parser.add_argument('--' + name, required=True)

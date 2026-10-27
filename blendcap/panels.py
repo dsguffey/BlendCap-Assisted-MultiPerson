@@ -1,7 +1,7 @@
 """Shared draw function and the two panels that mount it.
 
 The draw function references operator IDs by string
-(`blendcap.generate_mocap` etc.), so the only imports needed here are
+(`blendcap.generate_bvh` etc.), so the only imports needed here are
 the two big state dicts (for progress display) and the strip-position
 helpers (for the VSE source label).
 """
@@ -182,66 +182,6 @@ def _draw_source_section(layout, context, props):
     layout.separator()
 
 
-def _draw_capture_section(layout, context, props, is_running, hide_clear_all):
-    # --- CAPTURE ---
-    box = layout.box()
-    cap_header = box.row(align=True)
-    cap_header.prop(props, "capture_expanded",
-                    icon='TRIA_DOWN' if props.capture_expanded else 'TRIA_RIGHT',
-                    emboss=False, text="")
-    cap_header.label(text="Capture", icon='VIEW_CAMERA')
-    if props.capture_expanded:
-        row = box.row()
-        row.prop(props, "track_body", text="Body")
-
-        # FOV / camera field-of-view (body tracking only). Plain dropdown.
-        fov_col = box.column(align=True)
-        fov_col.enabled = props.track_body
-        fov_col.prop(props, "fov_mode")
-        if props.fov_mode == 'MANUAL':
-            fov_col.prop(props, "fov_focal_mm")
-
-        if props.track_body:
-            box.prop(props, "preview_step", slider=True)
-            box.prop(props, "capture_skip", slider=True)
-
-        if is_running:
-            box.operator("blendcap.cancel", icon='CANCEL', text="Cancel")
-            pct = blendcap_state['progress']
-            status = blendcap_state.get('status_text', '')
-            label = (f"{int(pct)}%  {status}" if status
-                     else f"Running... {int(pct)}%")
-            _draw_progress_bar(box, pct, label, scale_y=1.4)
-            for warn in blendcap_state.get('warnings', []):
-                box.label(text=warn, icon='ERROR')
-        else:
-            row = box.row(align=True)
-            row.operator("blendcap.generate_mocap", icon='FILE_REFRESH', text="Run Preview").is_update_only = True
-            row.operator("blendcap.generate_mocap", icon='PLAY', text="Run Capture").is_update_only = False
-
-        # Revert button: show when active VSE strip is a BlendCap proxy
-        if props.video_source == 'VSE':
-            seq_ed = context.scene.sequence_editor
-            active = getattr(seq_ed, "active_strip", None) if seq_ed else None
-            if active and active.type in ('MOVIE', 'IMAGE') and "blendcap_source" in active:
-                box.separator()
-                row = box.row()
-                row.enabled = not is_running
-                row.operator("blendcap.revert_strip", icon='LOOP_BACK',
-                             text="Revert to Original Video")
-                box.label(text="Proxy clip — edits won't carry over, Revert first", icon='INFO')
-
-        # Extra gap so the destructive cache buttons sit clear of Run Capture.
-        box.separator(factor=2.0)
-        row = box.row(align=True)
-        row.enabled = not is_running
-        row.operator("blendcap.clear_current_cache", icon='TRASH', text="Clear Cache")
-        # "Clear All" wipes EVERY clip's cache; the add-on pref hides it to
-        # prevent an accidental project-wide delete (Clear Cache stays).
-        if not hide_clear_all:
-            row.operator("blendcap.clear_all_caches", icon='ERROR', text="Clear All")
-
-    layout.separator()
 
 
 def _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_running):
@@ -1125,7 +1065,6 @@ def draw_blendcap_ui(self, context):
     is_running = blendcap_state['running']
     is_bvh_running = bvh_state['running']
 
-    _draw_capture_section(layout, context, props, is_running, hide_clear_all)
     _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_running)
     # Legacy retarget UI is intentionally hidden, NOT removed. The public VTA
     # panel uses the same GPL engine with its validated safety/calibration path.
