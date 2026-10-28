@@ -51,9 +51,9 @@ class EngineClient:
         self.endpoint=endpoint;self.timeout=wire.timeout_value(timeout)
         self.last_metrics=None;self.last_diagnostics='';self.last_pid=None
 
-    def call(self,operation,payload):
+    def call(self,operation,payload,*,request_id=None):
         self.last_metrics=None;self.last_diagnostics='';self.last_pid=None
-        try:body=wire.dumps(wire.request(uuid4().hex,payload,operation));request=wire.loads(body)
+        try:body=wire.dumps(wire.request(request_id or uuid4().hex,payload,operation));request=wire.loads(body)
         except wire.ProtocolError as exc:raise EngineError(exc.code,str(exc)) from exc
         return self._exchange(request,body)
 
@@ -108,9 +108,22 @@ class EngineClient:
             if status!=expected:raise EngineError('CHILD_FAILED','Unexpected engine exit code: '+str(status))
             self.last_metrics=dict(startup_s=ready-started,round_trip_s=replied-ready,total_s=time.perf_counter()-started)
             if result['status']=='error':raise EngineError(result['error']['code'],result['error']['message'])
-            first,last=result['result']['source_range']
-            if not first<=request['payload']['source_frame']<=last:
-                raise EngineError('INVALID_RESPONSE','Source range does not contain the queried frame.')
+            if request['operation']=='source-coverage':
+                first,last=result['result']['source_range']
+                if not first<=request['payload']['source_frame']<=last:
+                    raise EngineError('INVALID_RESPONSE','Source range does not contain the queried frame.')
+            if request['operation']=='mutation-status' and result['result']['mutation_id']!=request['payload']['mutation_id']:
+                raise EngineError('INVALID_RESPONSE','Mutation status identity mismatch.')
+            item=result['result'];payload=request['payload'];operation=request['operation']
+            if operation=='character-state' and item['character_id']!=payload['character_id']:
+                raise EngineError('INVALID_RESPONSE','Observed Character identity mismatch.')
+            if operation in ('character-rename','review-restore'):
+                if item['project_id']!=payload['project_id'] or item['before']['revision']!=payload['expected_revision']:
+                    raise EngineError('INVALID_RESPONSE','Receipt does not describe the submitted project/revision.')
+                if operation=='character-rename' and item['character']['character_id']!=payload['character_id']:
+                    raise EngineError('INVALID_RESPONSE','Receipt Character identity mismatch.')
+                if operation=='review-restore' and item['after']['snapshot_id']!=payload['snapshot_id']:
+                    raise EngineError('INVALID_RESPONSE','Receipt restore target mismatch.')
             LOG.debug('VTA engine request=%s operation=%s completed',request['request_id'],request['operation'])
             failed=False
             return result['result']

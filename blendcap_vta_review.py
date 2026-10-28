@@ -498,8 +498,6 @@ def character_name_exists(view: ReviewView, display_name: str) -> bool:
 
 
 class PrivateCoreBackend:
-    def restore_review_snapshot(self, companion_root, expected_sha256, snapshot):
-        return self._core.restore_review_snapshot(companion_root, expected_sha256, snapshot)
     """Late-bound adapter to the separately installed private ``vta_core``."""
 
     def __init__(
@@ -612,6 +610,8 @@ class PrivateCoreBackend:
         return outcomes, self.query(location), self.query_timeline(location)
 
     def prepare_management(self, location: ReviewLocation, action: str, **kwargs):
+        if action == 'rename-character':
+            raise VtaReviewUiError('Character rename requires the engine mutation boundary.')
         project, cache, revision_id = self._load_context(location)
         try:
             self._core.validate_analysis_cache_registration(project, cache, revision_id)
@@ -650,6 +650,8 @@ class PrivateCoreBackend:
         return receipt
 
     def apply_management(self, location: ReviewLocation, request, *, confirmed: bool, **undo_guard):
+        if request.action == 'rename-character':
+            raise VtaReviewUiError('Character rename requires the engine mutation boundary.')
         self._load_context(location)
         try:
             receipt = self._core.apply_review_management_and_persist(

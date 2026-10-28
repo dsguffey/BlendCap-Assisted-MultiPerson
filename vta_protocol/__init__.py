@@ -6,16 +6,56 @@ Original protocol-only code, shared verbatim with the standalone engine.
 import json
 import math
 import re
+import hashlib
 from pathlib import Path
 
 PROTOCOL = 'vta-engine'
-VERSION = 1
-OPERATIONS = ('source-coverage',)
+VERSION = 2
+OPERATIONS = ('source-coverage','character-state','character-rename',
+              'review-checkpoint','review-restore','mutation-status')
 MAX_BYTES = 16384
 MAX_FRAME = 2**31-1
 CODES = frozenset(('INVALID_REQUEST','VERSION_MISMATCH','UNKNOWN_OPERATION','INVALID_PATH',
     'PROJECT_UNAVAILABLE','SOURCE_UNAVAILABLE','SOURCE_MISMATCH','FRAME_OUT_OF_RANGE',
-    'INPUT_CHANGED','RESOURCE_LIMIT','INTERNAL_ERROR'))
+    'INPUT_CHANGED','RESOURCE_LIMIT','INTERNAL_ERROR','CONFLICT','INVALID_NAME',
+    'CHARACTER_UNAVAILABLE','PROJECT_BUSY','RECOVERY_REQUIRED','IDEMPOTENCY_CONFLICT'))
+
+
+def digest(value):
+    require(type(value) is str and re.fullmatch('[0-9a-f]{64}',value) is not None,'Invalid digest.')
+
+
+def revision(value):
+    fields(value,('number','sha256'))
+    require(type(value['number']) is int and 0<=value['number']<=2**53-1,'Invalid revision number.')
+    digest(value['sha256'])
+
+
+def text(value, maximum=256, *, empty=False):
+    require(type(value) is str and (empty or bool(value)) and len(value)<=maximum,'Invalid bounded text.')
+    require(not any(0xD800<=ord(c)<=0xDFFF for c in value),'Invalid Unicode surrogate.')
+
+
+def checkpoint(value):
+    fields(value,('project_id','revision','snapshot_id'))
+    text(value['project_id']);revision(value['revision']);digest(value['snapshot_id'])
+    require(value['snapshot_id']==value['revision']['sha256'],'Snapshot/revision mismatch.')
+
+
+def receipt(value):
+    fields(value,('request_id','operation','project_id','before','after','changed','character'))
+    identifier(value['request_id']);text(value['project_id'])
+    require(value['operation'] in ('character-rename','review-restore'),'Invalid receipt operation.')
+    checkpoint(value['before']);checkpoint(value['after'])
+    require(value['before']['project_id']==value['after']['project_id']==value['project_id'],'Receipt project mismatch.')
+    require(type(value['changed']) is bool,'Invalid changed flag.')
+    before,after=value['before']['revision'],value['after']['revision']
+    require(after['number']==before['number']+int(value['changed']),'Invalid revision transition.')
+    require((before['sha256']!=after['sha256'])==value['changed'],'Invalid receipt change.')
+    if value['operation']=='character-rename':
+        fields(value['character'],('character_id','display_name'))
+        text(value['character']['character_id']);text(value['character']['display_name'],8192)
+    else:require(value['character'] is None,'Unexpected Character payload.')
 
 
 class ProtocolError(ValueError):
@@ -120,19 +160,33 @@ def validate_request(value):
     envelope(value,'request');identifier(value['request_id'])
     require(type(value['operation']) is str and value['operation'] in OPERATIONS,
             'Unknown operation.', 'UNKNOWN_OPERATION')
-    payload=value['payload'];fields(payload,('companion_root','source_path','source_frame'))
-    path_form(payload['companion_root']);path_form(payload['source_path']);frame(payload['source_frame'])
+    payload=value['payload'];operation=value['operation']
+    names={'source-coverage':('source_path','source_frame'),
+        'character-state':('character_id',),'review-checkpoint':(),
+        'character-rename':('project_id','character_id','display_name','expected_revision'),
+        'review-restore':('project_id','snapshot_id','expected_revision'),
+        'mutation-status':('mutation_id',)}[operation]
+    fields(payload,('companion_root',*names));path_form(payload['companion_root'])
+    if operation=='source-coverage':path_form(payload['source_path']);frame(payload['source_frame'])
+    if 'character_id' in payload:text(payload['character_id'])
+    if 'project_id' in payload:text(payload['project_id'])
+    if 'expected_revision' in payload:revision(payload['expected_revision'])
+    if 'display_name' in payload:text(payload['display_name'],8192,empty=True)
+    if 'snapshot_id' in payload:digest(payload['snapshot_id'])
+    if 'mutation_id' in payload:identifier(payload['mutation_id'])
     return value
 
 
 def ready(pid):
-    return dict(protocol=PROTOCOL,version=VERSION,kind='ready',pid=pid,operations=list(OPERATIONS))
+    return dict(protocol=PROTOCOL,version=VERSION,kind='ready',pid=pid,operations=list(OPERATIONS),
+                definition_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
 
 
 def validate_ready(value,pid):
-    fields(value,('protocol','version','kind','pid','operations'));envelope(value,'ready')
+    fields(value,('protocol','version','kind','pid','operations','definition_sha256'));envelope(value,'ready')
     require(type(value['pid']) is int and value['pid']==pid and value['pid']>0,'Invalid child identity.')
     require(value['operations']==list(OPERATIONS),'Incompatible engine capabilities.')
+    require(value['definition_sha256']==ready(pid)['definition_sha256'],'Protocol definitions differ.','VERSION_MISMATCH')
 
 
 def response(request_id, operation, *, result=None, error=None):
@@ -153,9 +207,23 @@ def validate_response(value, request_id, operation):
         item=value['error'];fields(item,('code','message'))
         require(type(item['code']) is str and item['code'] in CODES,'Unknown error code.')
         require(type(item['message']) is str and 0<len(item['message'])<=1024,'Invalid error message.')
-    else:
+    elif operation=='source-coverage':
         fields(value['result'],('source_range',))
         bounds=value['result']['source_range']
         require(type(bounds) is list and len(bounds)==2,'Invalid source range.')
         frame(bounds[0]);frame(bounds[1]);require(bounds[0]<=bounds[1],'Reversed source range.')
+    elif operation=='review-checkpoint':checkpoint(value['result'])
+    elif operation=='character-state':
+        item=value['result'];fields(item,('checkpoint','character_id','display_name'))
+        checkpoint(item['checkpoint']);text(item['character_id']);text(item['display_name'],8192)
+    elif operation in ('character-rename','review-restore'):
+        receipt(value['result'])
+        require(value['result']['request_id']==request_id and value['result']['operation']==operation,'Receipt identity mismatch.')
+    elif operation=='mutation-status':
+        item=value['result'];fields(item,('mutation_id','state','receipt'))
+        identifier(item['mutation_id']);require(item['state'] in ('absent','not-applied','applied'),'Invalid mutation status.')
+        if item['state']=='applied':
+            receipt(item['receipt']);require(item['receipt']['request_id']==item['mutation_id'],'Status receipt mismatch.')
+        else:require(item['receipt'] is None,'Unexpected receipt.')
+    else:raise ProtocolError('UNKNOWN_OPERATION','Unknown response operation.')
     return value

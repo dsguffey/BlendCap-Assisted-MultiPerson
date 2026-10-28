@@ -383,7 +383,7 @@ class BlenderTimelineTests(unittest.TestCase):
         ))
         self.assertEqual(len(self.overlay.visible_lanes(view(), 150)), 3)
 
-    def test_every_management_action_uses_same_confirmed_private_command(self):
+    def test_unmigrated_management_actions_use_confirmed_private_command(self):
         ui = self.ui
         location = review_shell.ReviewLocation(Path("companion"), Path("video.mp4"), 5, 105)
         current = review_shell.ReviewView(
@@ -396,7 +396,7 @@ class BlenderTimelineTests(unittest.TestCase):
         selected.click(view(), "key-a")
         choices = (
             "clear-assignment", "clear-review-key", "clear-selected-review-keys",
-            "clear-all-review-keys-on-frame", "rename-character", "delete-character",
+            "clear-all-review-keys-on-frame", "delete-character",
         )
         for action in choices:
             with self.subTest(action=action):

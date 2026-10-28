@@ -15,6 +15,8 @@ STRIP_TAG = 'vta_source_strip_version'
 
 
 def _require_session(context):
+    from .vta_review_undo import require_ready
+    require_ready()
     from . import vta_review_ui as ui
     scene = session.main_scene(context)
     from .vta_project_save import require_usable

@@ -44,7 +44,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(wire.dumps(dict(reversed(list(self.request.items())))),wire.dumps(self.request))
 
     def test_version_unknown_operation_and_identifier_rejected(self):
-        for field,values in [('version',(True,0,2,'1')),('operation',('os.system','__import__','exec','source-coverage;cmd')),
+        for field,values in [('version',(True,0,wire.VERSION+1,'1')),('operation',('os.system','__import__','exec','source-coverage;cmd')),
                              ('request_id',('',RID.upper(),'x'*32,True,{}))]:
             for value in values:
                 with self.subTest(field=field,value=value),self.assertRaises(wire.ProtocolError):
@@ -91,7 +91,7 @@ class ProtocolTests(unittest.TestCase):
         tree=ast.parse((P/'vta_protocol/__init__.py').read_text())
         mods=[n.module for n in ast.walk(tree) if isinstance(n,ast.ImportFrom)]
         mods += [a.name for n in ast.walk(tree) if isinstance(n,ast.Import) for a in n.names]
-        self.assertEqual(set(mods),{'json','math','re','pathlib'})
+        self.assertEqual(set(mods),{'json','math','re','pathlib','hashlib'})
 
 
 class ProcessTests(unittest.TestCase):
@@ -130,7 +130,7 @@ class ProcessTests(unittest.TestCase):
 
     def test_server_rejects_hostile_wire_before_domain_execution(self):
         good=wire.request(RID,payload(self.root,self.video));cases=[b'garbage',b'\x80pickle',b'x'*(wire.MAX_BYTES+1)]
-        cases += [json.dumps(value).encode() for value in ({**good,'version':2},{**good,'operation':'__import__'},
+        cases += [json.dumps(value).encode() for value in ({**good,'version':wire.VERSION+1},{**good,'operation':'__import__'},
             {**good,'extra':True},{**good,'payload':{}},{**good,'request_id':'bad'})]
         before=(self.root/'project_state.json').read_bytes()
         for raw in cases:
@@ -152,7 +152,7 @@ class ProcessTests(unittest.TestCase):
         read="q=w.loads(sys.stdin.buffer.read());r=w.response(q['request_id'],q['operation'],result={'source_range':[0,162]})\n"
         cases=[("print('broken',flush=True)",'INVALID_RESPONSE'),("print('x'*20000,flush=True)",'INVALID_RESPONSE'),
             (read+"r['request_id']='b'*32;sys.stdout.buffer.write(w.dumps(r))",'INVALID_RESPONSE'),
-            (read+"r['version']=2;sys.stdout.buffer.write(w.dumps(r))",'INVALID_RESPONSE'),
+            (read+"r['version']=w.VERSION+1;sys.stdout.buffer.write(w.dumps(r))",'INVALID_RESPONSE'),
             (read+"sys.stdout.buffer.write(w.dumps(r));print('{}',flush=True)",'INVALID_RESPONSE'),
             (read+"sys.stdout.buffer.write(w.dumps(r));sys.stdout.buffer.flush();sys.exit(9)",'CHILD_FAILED'),
             ("sys.exit(8)",'CHILD_FAILED')]

@@ -153,6 +153,9 @@ def loaded_context_matches(context, target=None):
 
 
 def require_loaded_context(context):
+    from .vta_review_undo import require_ready
+    try:require_ready()
+    except RuntimeError as exc:raise VtaReviewUiError(str(exc)) from exc
     if not loaded_context_matches(context):
         from .vta_scene_session import warning
         raise VtaReviewUiError(warning(context) or 'Enter VTA Mode / Load VTA Scene first.')
@@ -425,13 +428,16 @@ def _configured_core_location(context) -> str:
     return bpy.path.abspath(value) if value else ""
 
 
+def _engine_client(context):
+    python = Path(_python_exe())
+    return EngineClient(resolve_engine(_configured_core_location(context),
+        python=python if python.is_file() else None))
+
+
 def _source_coverage(context, location):
     """Explicit read-only IPC query; never called by a draw/poll/observer."""
     try:
-        python = Path(_python_exe())
-        endpoint = resolve_engine(_configured_core_location(context),
-                                  python=python if python.is_file() else None)
-        return SourceCoverageClient(EngineClient(endpoint)).source_coverage(location)
+        return SourceCoverageClient(_engine_client(context)).source_coverage(location)
     except EngineError as exc:
         raise VtaReviewUiError(f'VTA engine [{exc.code}]: {exc}') from exc
 
@@ -1097,6 +1103,9 @@ def _analysis_error_summary(detail: str) -> str:
 
 
 def _require_analysis_idle() -> None:
+    from .vta_review_undo import require_ready
+    try:require_ready()
+    except RuntimeError as exc:raise VtaReviewUiError(str(exc)) from exc
     from ..blendcap_vta_operation_lock import recover
     if _location is not None:recover(_location.companion_root/'analysis/vta-analysis.lock')
     if _analysis_locked():
@@ -2945,9 +2954,12 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                 if row is None:
                     raise VtaReviewUiError("Select a Character to rename.")
                 self.new_name = row.display_name
-            request = _get_backend(context).prepare_management(
-                _location, self.action, **self._arguments(),
-            )
+            if self.action == 'rename-character':
+                request = _engine_client(context).call('character-state',dict(
+                    companion_root=str(_location.companion_root),character_id=_selection.character_id))
+            else:
+                request = _get_backend(context).prepare_management(
+                    _location, self.action, **self._arguments())
             self._pending_request = request
             self._pending_location = _location
             character = next((item for item in _view.characters
@@ -2994,15 +3006,21 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if not refresh(context, force=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
+        renamed = False
         try:
             if self.action == "rename-character":
-                updated = _get_backend(context).prepare_management(
-                    self._pending_location, self.action,
-                    character_id=request.character_id, display_name=self.new_name,
-                )
-                if updated.project_sha256 != request.project_sha256:
-                    raise VtaReviewUiError("Project changed while the rename dialog was open.")
-                request = updated
+                from . import vta_review_undo as bridge
+                if _location != self._pending_location:
+                    raise VtaReviewUiError('The VTA review location changed during confirmation.')
+                _use_timeline_active(context)
+                if _selection.character_id != request['character_id']:
+                    raise VtaReviewUiError('The selected Character changed during confirmation.')
+                bridge.rename(context,self._pending_location.companion_root,request,self.new_name)
+                renamed = True
+                refresh(context,force=True)
+                _status='VTA Character renamed.';_status_is_error=False
+                self.report({'INFO'},_status)
+                return {'FINISHED'}
             if _location != self._pending_location:
                 raise VtaReviewUiError("The VTA review location changed during confirmation.")
             _use_timeline_active(context)
@@ -3023,7 +3041,9 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         except Exception as exc:
             _status = user_message(exc); _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            # A presentation failure cannot turn a committed rename into an
+            # apparent aborted edit or discard Blender's native Undo step.
+            return {'FINISHED'} if renamed else {'CANCELLED'}
 
 
 def _action_availability(context=None):
@@ -3368,6 +3388,8 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         draw_scene_workflow(layout, context)
         from .vta_project_save import draw_error
         draw_error(layout,context)
+        from .vta_review_undo import draw_pending
+        draw_pending(layout)
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         draw_scene_timing(layout, context)
         layout.operator('blendcap.vta_camera_depth', text='Move Along Camera Depth')

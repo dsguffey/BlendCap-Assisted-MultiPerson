@@ -1,64 +1,108 @@
-# Engine boundary — Architecture Cleanup Milestone 1
+# Engine boundary — Architecture Cleanup Milestones 1–2
 
-Repository implementation, 2026-10-27. Only **source coverage** has migrated.
-Other features still use the legacy in-process private backend and mixed workers.
-This is not a claim that the whole addon is isolated or ready for release.
+Implementation verified 2026-10-28. Source coverage and Character rename now use
+an owned standalone private engine. Other domain workflows and presentation still
+use the legacy in-process backend. This is a validated vertical slice, not full
+application isolation or a release/deployment claim.
 
-Explicit Analyze/Repeat Assignment coverage queries use
-`blendcap_vta_engine.SourceCoverageClient` → a standalone private `vta_engine.py`
-process → the canonical private project loader. The old backend coverage method
-is removed. The Analyze panel reads validated source metadata for its range label;
-draw/poll/observer paths do not launch coverage subprocesses.
+## Transport and ownership
 
-Transport: one child per request, inherited stdin/stdout pipes, no listener or
-persistent endpoint. The public adapter starts and owns shutdown. `-I -B` isolates
-the child's Python path and suppresses bytecode. A ready/version/capabilities/PID
-handshake precedes a UUID-correlated request and one final response. The default
-overall deadline is 15 seconds; invalid responses, crash, nonzero exit and timeout
-fail visibly, kill/reap an owned live child and close pipes. There is no legacy
-fallback. A writer thread also bounds the case where the child stops reading stdin.
+`blendcap_vta_engine.EngineClient` launches one child per explicit request using
+an existing standalone Python, `-I -B`, inherited pipes and `shell=False`. There is
+no listener, resident service, arbitrary RPC, private host import or silent legacy
+fallback on migrated operations. The private entry point blocks Blender/BlendCap
+imports. The client owns timeout, pipe cleanup and kill/reap of its child.
 
-Neutral definitions live in `vta_protocol/`, original **CC0-1.0** protocol-only
-code, vendored byte-identically in the private repo. Neither side imports the
-other implementation to obtain them. No Blender, provider or domain dependency.
-This placement is an engineering/provenance choice, not legal certification.
+Neutral `vta_protocol/` definitions are original CC0-1.0 code, vendored verbatim
+in both repositories. Protocol v2 has an exact source-SHA handshake in addition
+to version, capabilities and child PID. Synchronized package bytes are required,
+including newline representation. Tests independently compare the copies.
 
-Version 1 uses deterministic UTF-8 JSON with strict field/type/version/operation/ID
-validation, 16 KiB messages, depth/node limits, finite numbers, bounded integer
-frames, absolute local paths, and no traversal/device/network/alternate-stream
-syntax. Only `source-coverage` is allowed. No pickle, objects, callbacks, imports,
-shell commands or generic RPC. Engine file references resolve to regular files;
-project/analysis references cannot escape the selected companion. The canonical
-project document is capped at 64 MiB; source hashing streams data. File signatures
-are rechecked to reject detected input changes. No project writes occur.
+Strict deterministic JSON remains bounded to 16 KiB, with exact fields, IDs,
+types, finite numbers and complexity limits. Paths are bounded absolute local
+paths, rejecting traversal, device/network and alternate-stream syntax. Names
+are inert Unicode data; existing domain trim/casefold/uniqueness rules remain.
+Internal newlines are escaped, not newly prohibited. Receipts and their envelopes
+must fit the wire limit before publication. No pickle or executable payloads.
 
-Installation executable paths are trusted user/install configuration, never wire
-payload. Same-user processes/files are trusted at the OS level: this is not an OS
-sandbox, privilege boundary or protection from a user replacing their engine.
-No unrelated process can connect through a persistent service endpoint because
-none exists. No new authentication service is needed for these owned pipes.
+Allowlist: `source-coverage`, `character-state`, `character-rename`,
+`review-checkpoint`, `review-restore`, `mutation-status`. Coverage remains read-only.
+Observation/checkpoint operations may create bounded engine history metadata.
 
-Failures have stable error codes and bounded messages. Standard Python logging
-records request ID, operation, child PID, exit and bounded escaped stderr (8 KiB);
-the client also retains last diagnostics and startup/round-trip/lifetime metrics.
-Logging destinations follow host configuration; no logs are written into owner
-project state by this layer. Successful queries do not dump project contents.
+The canonical companion `project_state.json` is the sole domain authority.
+Blender owns its native objects, animation and Undo tokens; cached names are only
+presentation. Engine snapshots/receipts are immutable recovery/history, not a
+second editable database. Existing ProjectState 0.9 is unchanged.
 
-Discovery uses the saved Core folder or existing product/development defaults,
-checking launcher files without importing private modules. It uses an existing
-standalone Python (addon venv when present, otherwise bundled/system Python);
-no dependency installation is added. Packaging/version-matched executable
-deployment remains later work. This milestone does not update the installed addon.
+## Mutation and Undo
 
-No session engine is resident: a dead process is discarded and a later explicit
-query starts clean. Owned children are reaped on handled failures; persistent
-orphan detection and parent-crash supervision remain packaging/recovery work.
-Future mutation can reuse request/error/lifecycle framing, but needs receipts/CAS
-and Undo first. Progress/cancel and large file manifests require explicit typed
-protocol extensions; no job orchestration was implemented now.
+Rename submits project/Character IDs, expected project revision and proposed name.
+Revision is `{number, sha256}`: a monotonic project counter plus exact document
+hash. Changed mutations/restores and observed legacy writes advance it. Stale
+requests fail without overwriting; the user must reopen/reconfirm against fresh
+state. Unobserved external ABA cannot be detected while legacy writers remain.
+An observed external change starts a new native Undo epoch on the next explicit
+edit; older tokens cannot overwrite that new baseline.
+Project-wide duplicate-name scope is deliberately preserved, including its known
+cross-Scene limitation.
 
-Verification includes fresh factory-startup Blender with private-import blocking,
-real private execution with host-import blocking, accepted project parity and
-owner-state hashes, malformed/hostile wire cases, crash/timeout/pipe backpressure,
-native Undo and full public/private regressions. Detailed measurements and remaining
-milestone estimates live in the private M1 research report and canonical contract.
+A request UUID is also its idempotency key. Receipts contain request/operation/
+project IDs, before/after checkpoints, changed flag and renamed Character result.
+An identical retry returns the original receipt even after later Undo. Reusing
+an ID with different content fails. Mutation status resolves applied/not-applied/
+absent after recovery; transport failure alone does not prove non-application.
+
+`.vta-engine/` holds the head, compressed content-addressed snapshots and request
+records. An OS lease serializes engine requests and cooperates with the existing
+project-operation sentinel. Only an abandoned engine-marked sentinel can be
+reclaimed under that lease; unknown/legacy locks are retained. Before/after
+snapshots and prepared intent precede atomic canonical publication, then receipt
+and head completion. Recovery accepts only the exact before or after hash. A
+third document blocks recovery without overwrite.
+
+The shared review Undo bridge now stores opaque checkpoint IDs in native Text
+blocks. Undo/Redo selects a prior engine checkpoint and issues a fresh CAS restore;
+it never sends project documents or replays rename business logic. Legacy review
+commands still run their existing guarded writers, surrounded by engine checkpoint
+capture so interleaved rename/review Undo cannot overwrite each other's history.
+The old public snapshot-restore method and legacy rename route are unavailable.
+
+Native Blender Undo/Save cannot be atomically vetoed by their post/pre handlers.
+On failed reconciliation, native state and authority may temporarily disagree:
+VTA shows a durable warning, pauses further domain edits and offers **Retry
+Reconciliation**. Native Undo/Redo may continue; the newest desired checkpoint is
+retained separately from an uncertain request. Retry checks its receipt first.
+Save/Reopen preserves unresolved intent; Load never silently rewrites authority.
+Save As copies committed journal/snapshot/pending JSON, excludes locks/temp files,
+and rebinds the pending warning to the independent companion. Normal reopen starts
+a new native Undo session; persistent native Undo history is not promised.
+
+## Bounds and remaining work
+
+Canonical documents/decompressed snapshots: 64 MiB. Compressed snapshot history:
+128 MiB; request receipts: 4096. Exhaustion fails closed and retains history rather
+than silently deleting reachable Undo states. History retention/compaction must be
+addressed before broad deployment: large projects can exhaust this conservative
+M2 budget after relatively few distinct full-document edits. This build is not
+installed into the owner's addon.
+
+On a read-only copy of the 29 MB owner project, startup was about 55–59 ms,
+rename exchange/lifetime 1.48/1.55 s, and Undo/Redo 1.70/1.77 s. Observation was
+about 0.65 s. These are diagnostics, not acceptance thresholds or claims of instant
+interaction. Snapshot/document work dominates startup. Revisit presentation/state
+cost in M3; consider a resident process for measured cache needs, and M4 provider
+jobs/progress/cancellation. No async job migration is included in M2.
+
+Same-user files/executable configuration are OS-trusted; this is not a sandbox or
+protection against a malicious engine. Exact hash checks do not make unrelated
+legacy writers globally atomic. An OS/power failure during lock initialization
+can leave an unknown sentinel requiring inspection; it is never stolen. Parent
+crash supervision, packaging/version matching, history lifecycle and clean-machine
+recovery remain M5 work. No shipping/license certification is implied.
+
+Verification includes full public/private suites, real subprocess crashes at four
+publication stages, timeout/corrupt/mismatched response recovery, CAS/idempotency,
+OS lease contention, private-import blocking, actual native repeated Undo/Redo,
+Save/Reopen and independent pending Save As recovery. Existing native Depth Undo
+and source registration/compile proofs also pass. Detailed evidence and estimates
+are in the private M2 research report and canonical boundary document.
