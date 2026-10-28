@@ -127,9 +127,10 @@ class CopyPlan:
         original_hash=file_hash(self.source/'project_state.json')
         raw=read_json(self.source/'project_state.json')
         self.add(self.source/'project_state.json','project_state.json',original_hash)
-        # Durable mutation history/recovery is project state, not disposable job
-        # output. Copy only committed JSON; never leases or abandoned temp files.
+        # Durable recovery travels with Save As; ordinary history does not.
+        # Copy only committed JSON, never leases or abandoned temp files.
         engine=self.source/'.vta-engine'
+        pending=self.source/'.vta-host-pending.json'
         def add_history(path,relative):
             if not path.resolve().is_relative_to(self.source) or path.stat().st_nlink!=1:
                 raise ValueError('Linked VTA engine history cannot be copied safely.')
@@ -138,10 +139,14 @@ class CopyPlan:
             for relative in ('head.json',):
                 path=engine/relative
                 if path.is_file():add_history(path,Path('.vta-engine')/relative)
-            for folder in ('snapshots','requests'):
+            # Preserve old snapshot closure only for an unresolved legacy case
+            # that may need the prior build. Never delete it from the source.
+            unresolved=pending.is_file() or (engine.joinpath('head.json').is_file()
+                and read_json(engine/'head.json').get('pending') is not None)
+            folders=('requests','snapshots') if unresolved else ('requests',)
+            for folder in folders:
                 for path in (engine/folder).glob('*.json'):
                     add_history(path,Path('.vta-engine')/folder/path.name)
-        pending=self.source/'.vta-host-pending.json'
         if pending.is_file():add_history(pending,pending.name)
         # Candidate observations cannot safely be regenerated: human keys and
         # derived ownership reference their exact IDs. Keep referenced revisions.

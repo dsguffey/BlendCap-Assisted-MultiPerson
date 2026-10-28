@@ -94,7 +94,7 @@ class MutationProcessTests(unittest.TestCase):
         status=self.client.call('mutation-status',dict(companion_root=str(self.root),mutation_id=identity))
         self.assertEqual(status['state'],'applied');self.assertEqual(status['receipt']['after']['revision']['number'],1)
 
-    def test_import_isolated_actual_rename_and_restore(self):
+    def test_import_isolated_actual_rename_and_status(self):
         code='''import sys,json
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
@@ -104,7 +104,7 @@ with private_import_guard():
  c=EngineClient(EngineEndpoint(Path(sys.executable),Path(sys.argv[2])))
  s=c.call('character-state',dict(companion_root=sys.argv[3],character_id='a'))
  r=c.call('character-rename',dict(companion_root=sys.argv[3],project_id='test',character_id='a',display_name='Isolated',expected_revision=s['checkpoint']['revision']))
- c.call('review-restore',dict(companion_root=sys.argv[3],project_id='test',snapshot_id=r['before']['snapshot_id'],expected_revision=r['after']['revision']))
+ assert c.call('mutation-status',dict(companion_root=sys.argv[3],mutation_id=r['request_id']))['receipt']==r
  assert not any(n=='vta_core' or n.startswith('vta_core.') for n in sys.modules)
  print('isolated')
 '''
@@ -129,7 +129,7 @@ with private_import_guard():
             self.assertEqual(status['state'],'applied')
             self.assertEqual(status['receipt']['character']['display_name'],mode)
 
-    def test_save_as_copy_preserves_durable_history_excludes_lock(self):
+    def test_save_as_copy_preserves_durable_recovery_excludes_lock(self):
         from blendcap_vta_project_copy import CopyPlan
         result=self.client.call('character-rename',self.payload())
         plan=CopyPlan(self.root,self.root.parent/(self.root.name+'-copy'));plan.project()
@@ -140,10 +140,20 @@ with private_import_guard():
         destination=plan.destination;self.addCleanup(lambda:shutil.rmtree(destination,ignore_errors=True))
         for relative,(source,_digest) in plan.files.items():
             path=destination/relative;path.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,path)
-        self.client.call('review-restore',dict(companion_root=str(destination),project_id='test',
-            expected_revision=result['after']['revision'],snapshot_id=result['before']['snapshot_id']))
+        self.assertEqual(self.client.call('mutation-status',dict(companion_root=str(destination),mutation_id=result['request_id']))['receipt'],result)
+        self.client.call('character-rename',{**self.payload('Alice'),'companion_root':str(destination),'expected_revision':result['after']['revision']})
         self.assertEqual(json.loads((destination/'project_state.json').read_text())['characters'][0]['display_name'],'Alice')
         self.assertEqual(json.loads((self.root/'project_state.json').read_text())['characters'][0]['display_name'],'Changed')
+
+    def test_save_as_omits_resolved_history_but_retains_legacy_pending_closure(self):
+        from blendcap_vta_project_copy import CopyPlan
+        old=self.root/'.vta-engine/snapshots/old.json';old.parent.mkdir();old.write_text('{}')
+        def included():
+            plan=CopyPlan(self.root,self.root.parent/(self.root.name+'-unused'));plan.project()
+            return Path('.vta-engine/snapshots/old.json') in plan.files
+        self.assertFalse(included());self.assertTrue(old.exists())
+        (self.root/'.vta-host-pending.json').write_text('{}')
+        self.assertTrue(included());self.assertTrue(old.exists())
 
 
 if __name__=='__main__':unittest.main()

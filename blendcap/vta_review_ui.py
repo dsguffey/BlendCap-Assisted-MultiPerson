@@ -2205,7 +2205,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
 class BLENDCAP_OT_vta_suppress_candidate(bpy.types.Operator):
     bl_idname = 'blendcap.vta_suppress_candidate'
     bl_label = 'Suppress Candidate'
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_description = 'Ignore this candidate during automatic continuation; retain raw evidence for Restore'
 
     @classmethod
@@ -2336,7 +2336,7 @@ class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
 class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_assign"
     bl_label = "Assign"
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_description = "Assign the selected candidate; confirm if existing assignments must change"
 
     @classmethod
@@ -2446,7 +2446,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
 class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
     bl_idname = 'blendcap.vta_repeat_assignment'
     bl_label = 'Repeat Last Assignment'
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_description = 'Assign the current candidate to the last explicitly assigned Character and advance one frame'
 
     @classmethod
@@ -2525,7 +2525,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
 
 
 class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_idname = "blendcap.vta_review_hard_state"
     bl_label = "Mark Review State"
     bl_description = "Persist an explicit per-Character decision without assigning a candidate"
@@ -2909,7 +2909,7 @@ _MANAGEMENT_ACTIONS = (
 
 
 class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_idname = "blendcap.vta_review_manage"
     bl_label = "Manage VTA Review"
     bl_description = "Change authoritative VTA review keys or a Character"
@@ -2943,7 +2943,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if not _edit_available(self):
             return {'CANCELLED'}
         self._pending_request = None
-        if not refresh(context, force=True):
+        if not refresh(context, force=self.action != "rename-character", check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         try:
@@ -3003,7 +3003,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if request is None or getattr(self, "_pending_location", None) is None:
             self.report({'ERROR'}, "Use the confirmation dialog for review management.")
             return {'CANCELLED'}
-        if not refresh(context, force=True):
+        if not refresh(context, force=self.action != "rename-character", check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         renamed = False
@@ -3017,7 +3017,6 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                     raise VtaReviewUiError('The selected Character changed during confirmation.')
                 bridge.rename(context,self._pending_location.companion_root,request,self.new_name)
                 renamed = True
-                refresh(context,force=True)
                 _status='VTA Character renamed.';_status_is_error=False
                 self.report({'INFO'},_status)
                 return {'FINISHED'}
@@ -3033,7 +3032,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             with _review_transaction(context, self._pending_location) as guard:
                 _get_backend(context).apply_management(
                     self._pending_location, request, confirmed=True, **guard)
-            refresh(context, force=True)
+            refresh(context, force=self.action != "rename-character", check_disk=True)
             _status = f"VTA review action completed: {self.action}."
             _status_is_error = False
             self.report({'INFO'}, _status)
@@ -3042,8 +3041,9 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             _status = user_message(exc); _status_is_error = True
             self.report({'ERROR'}, _status)
             # A presentation failure cannot turn a committed rename into an
-            # apparent aborted edit or discard Blender's native Undo step.
-            return {'FINISHED'} if renamed else {'CANCELLED'}
+            # apparent aborted edit.
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if renamed or isinstance(exc, AppliedMutationError) else {'CANCELLED'}
 
 
 def _action_availability(context=None):
@@ -3315,7 +3315,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
     bl_idname = "blendcap.vta_update_tracking"
     bl_label = "Update Tracking"
-    bl_options = {'UNDO'}
+    bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_description = "Update independent tracking for every selected Character near this frame"
 
     @classmethod

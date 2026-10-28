@@ -30,7 +30,7 @@ class TrackingKeyPresentationTests(unittest.TestCase):
                          ('grey',61,'pending'))
 
 
-class ReviewUndoBridgeTests(unittest.TestCase):
+class ReviewRecoveryBridgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from tests.test_blendcap_vta_scene_binding import SceneBindingTests
@@ -44,6 +44,7 @@ class ReviewUndoBridgeTests(unittest.TestCase):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup);self.root=Path(folder.name);project(self.root)
         self.path=self.root/'project_state.json';self.before=self.path.read_bytes();self.location=NS(companion_root=self.root)
         self.client=EngineClient(EngineEndpoint(PY,ENTRY))
+        self.real_refresh=self.bridge._refresh
         for patch in (mock.patch.object(self.bridge,'_client',return_value=self.client),mock.patch.object(self.bridge,'_refresh'),
                       mock.patch.object(self.ui,'set_operation_feedback')):
             patch.start();self.addCleanup(patch.stop)
@@ -58,59 +59,39 @@ class ReviewUndoBridgeTests(unittest.TestCase):
         with self.bridge.transaction(self.bpy.context,self.location) as guard:
             self.assertEqual(guard['expected_document_sha256'],hashlib.sha256(self.path.read_bytes()).hexdigest())
             raw=json.loads(self.path.read_text());raw['characters'][0]['display_name']=name;self.path.write_text(json.dumps(raw))
-        return self.bridge._entries[str(self.root.resolve())]
+        return self.path.read_bytes()
 
     def rename(self,name):
         observed=self.client.call('character-state',dict(companion_root=str(self.root),character_id='a'))
         return self.bridge.rename(self.bpy.context,self.root,observed,name)
 
-    def desired(self,snapshot):
-        entry=self.bridge._entries[str(self.root.resolve())];token=self.bridge._text(entry);token.clear();token.write(snapshot)
-        self.bridge.restore()
-
-    def test_tokens_contain_no_project_document_and_restore_undo_redo(self):
-        entry=self.legacy('Changed');after=self.path.read_bytes();token=self.bridge._text(entry)
-        identity=token.as_string();self.assertEqual(len(identity),64);self.assertNotIn('Changed',identity)
-        self.desired(entry['base']['snapshot_id']);self.assertEqual(self.path.read_bytes(),self.before)
-        self.desired(identity);self.assertEqual(self.path.read_bytes(),after)
-        self.assertNotIn('states',entry) # Host no longer owns document snapshots.
+    def test_domain_edits_have_no_native_tokens_and_undo_never_calls_engine(self):
+        self.rename('B');self.legacy('C');self.rename('D');after=self.path.read_bytes()
+        with mock.patch.object(self.client,'call',side_effect=AssertionError('Native Undo called engine')):
+            for _ in range(6):self.bridge.native_changed()
+        self.assertEqual(self.path.read_bytes(),after)
+        self.assertFalse(any(t.get('vta_review_undo') for t in self.bpy.data.texts))
+        self.assertFalse((self.root/'.vta-engine/snapshots').exists())
 
     def test_failed_edit_and_noop_do_not_create_native_token(self):
         with self.assertRaisesRegex(ValueError,'invalid authoritative'):
             with self.bridge.transaction(self.bpy.context,self.location):raise ValueError('invalid authoritative')
         with self.bridge.transaction(self.bpy.context,self.location):pass
-        entry=self.bridge._entries[str(self.root.resolve())]
-        self.assertIsNone(self.bridge._text(entry));self.assertEqual(self.path.read_bytes(),self.before);self.assertFalse(self.bridge._pending)
+        self.assertEqual(self.path.read_bytes(),self.before);self.assertFalse(self.bridge._pending)
 
-    def test_external_write_fails_closed_on_restore(self):
-        entry=self.legacy('Changed');raw=json.loads(self.path.read_text());raw['characters'][0]['display_name']='External'
-        self.path.write_text(json.dumps(raw));external=self.path.read_bytes()
-        self.desired(entry['base']['snapshot_id']);self.assertEqual(self.path.read_bytes(),external)
-        self.assertTrue(self.bridge._pending)
-        with self.assertRaises(RuntimeError):self.bridge.require_ready()
-
-    def test_fresh_edit_after_external_write_starts_a_new_undo_epoch(self):
-        self.rename('B');old=self.bridge._entries[str(self.root.resolve())]
-        raw=json.loads(self.path.read_text());raw['characters'][0]['display_name']='External'
-        self.path.write_text(json.dumps(raw));external=self.path.read_bytes()
-        self.rename('D');current=self.bridge._entries[str(self.root.resolve())]
-        self.assertNotEqual(old['epoch'],current['epoch'])
-        self.bpy.data.texts.remove(self.bridge._text(current)) # Native Undo past new epoch.
-        self.assertIsNotNone(self.bridge._text(old))
-        self.bridge.restore();self.assertEqual(self.path.read_bytes(),external)
-        self.bridge.restore();self.assertEqual(self.path.read_bytes(),external)
-        self.assertFalse(self.bridge._pending)
-
-    def test_old_snapshot_not_replayed_after_session_clear(self):
-        self.legacy('Changed');after=self.path.read_bytes();self.bridge.clear()
-        with mock.patch.object(self.client,'call') as call:self.bridge.restore()
-        call.assert_not_called();self.assertEqual(self.path.read_bytes(),after)
+    def test_native_presentation_failure_does_not_block_domain_or_touch_keys(self):
+        self.rename('B');after=self.path.read_bytes()
+        with mock.patch.object(self.bridge,'_refresh',side_effect=RuntimeError('Missing native binding')):
+            self.bridge.native_changed()
+        self.assertIn('Missing native binding',self.bridge._presentation_warning)
+        self.assertFalse(self.bridge._pending);self.bridge.require_ready()
+        self.assertEqual(self.path.read_bytes(),after)
 
     def test_missing_postcommit_capture_retains_pending_then_explicit_retry(self):
         actual=self.client.call;count=0
         def call(operation,*a,**kw):
             nonlocal count
-            if operation=='review-checkpoint':
+            if operation=='project-state':
                 count+=1
                 if count==2:raise OSError('capture unavailable')
             return actual(operation,*a,**kw)
@@ -119,19 +100,8 @@ class ReviewUndoBridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],'Saved')
         self.bridge.retry(self.bpy.context);self.assertFalse(self.bridge._pending)
 
-    def test_unknown_snapshot_never_overwrites_project(self):
-        entry=self.legacy('Changed');after=self.path.read_bytes();self.desired('f'*64)
-        self.assertEqual(self.path.read_bytes(),after);self.assertTrue(self.bridge._pending)
-
-    def test_interleaved_rename_legacy_edit_rename_undo_redo(self):
-        first=self.rename('B');entry=self.legacy('C');middle=entry['current']['snapshot_id'];last=self.rename('D')
-        for desired,name in [(middle,'C'),(first['after']['snapshot_id'],'B'),(first['before']['snapshot_id'],'Alice'),
-                             (first['after']['snapshot_id'],'B'),(middle,'C'),(last['after']['snapshot_id'],'D')]:
-            self.desired(desired);self.assertFalse(self.bridge._pending)
-            self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],name)
-
     def test_public_adoption_failure_recovers_applied_receipt(self):
-        with mock.patch.object(self.bridge,'_adopt',side_effect=RuntimeError('adoption failed')),self.assertRaises(RuntimeError):self.rename('B')
+        with mock.patch.object(self.bridge,'_refresh',side_effect=RuntimeError('adoption failed')),self.assertRaises(RuntimeError):self.rename('B')
         self.assertTrue(self.bridge._pending);self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],'B')
         self.bridge.retry(self.bpy.context);self.assertFalse(self.bridge._pending)
 
@@ -158,10 +128,46 @@ class ReviewUndoBridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],'Through engine')
         self.assertFalse(self.bridge._pending)
 
-    def test_latest_native_undo_intent_preserved_while_engine_unavailable(self):
-        first=self.rename('B');last=self.rename('C')
-        with mock.patch.object(self.client,'call',side_effect=OSError('unavailable')):
-            self.desired(first['after']['snapshot_id']);self.desired(first['before']['snapshot_id'])
-        self.assertTrue(self.bridge._pending);self.bridge.retry(self.bpy.context)
-        self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],'Alice')
-        self.assertFalse(self.bridge._pending)
+    def test_pending_survives_native_undo_and_no_replay_on_retry(self):
+        observed=self.client.call('character-state',dict(companion_root=str(self.root),character_id='a'))
+        with mock.patch.object(self.client,'call',side_effect=OSError('unavailable')),self.assertRaises(OSError):
+            self.bridge.rename(self.bpy.context,self.root,observed,'B')
+        pending=json.loads((self.root/self.bridge.PENDING_FILE).read_text())
+        self.bridge.native_changed()
+        self.assertEqual(json.loads((self.root/self.bridge.PENDING_FILE).read_text()),pending)
+        self.bridge.retry(self.bpy.context);self.assertFalse(self.bridge._pending)
+        self.assertEqual(self.path.read_bytes(),self.before)
+
+    def test_applied_but_superseded_recovery_is_not_silently_adopted(self):
+        with mock.patch.object(self.bridge,'_refresh',side_effect=RuntimeError('refresh failed')),self.assertRaises(RuntimeError):self.rename('B')
+        raw=json.loads(self.path.read_text());raw['characters'][0]['display_name']='External';self.path.write_text(json.dumps(raw))
+        with self.assertRaisesRegex(RuntimeError,'outside pending'):self.bridge.retry(self.bpy.context)
+        self.assertTrue(self.bridge._pending)
+        self.assertEqual(json.loads(self.path.read_text())['characters'][0]['display_name'],'External')
+
+    def test_legacy_unresolved_undo_is_preserved_and_refused_not_replayed(self):
+        before=self.client.call('project-state',dict(companion_root=str(self.root)))
+        legacy=self.bridge._intent(str(self.root),before,'capture','project-state',dict(companion_root=str(self.root)))
+        legacy['desired_snapshot']='f'*64
+        with self.assertRaisesRegex(RuntimeError,'prior M2 build'):self.bridge._read_intent(legacy)
+        self.assertEqual(self.path.read_bytes(),self.before)
+
+    def test_native_membership_change_is_warned_without_repairing_scene(self):
+        scene=self.bpy.context.scene
+        original={k:scene.get(k) for k in ('vta_project_id','vta_scene_characters')}
+        try:
+            scene['vta_project_id']='test';scene['vta_scene_characters']='before'
+            self.bridge.native_before();scene['vta_scene_characters']='after'
+            self.bridge.native_changed()
+            self.assertTrue(self.bridge._presentation_warning)
+            self.assertEqual(scene['vta_scene_characters'],'after')
+            self.assertEqual(self.path.read_bytes(),self.before)
+        finally:
+            for key,value in original.items():
+                if value is None:del scene[key]
+                else:scene[key]=value
+
+    def test_failed_refresh_return_is_not_mistaken_for_success(self):
+        # Call the real helper, which must notice refresh's handled-error False.
+        with mock.patch.object(self.ui,'refresh',return_value=False),self.assertRaises(RuntimeError):
+            self.real_refresh()

@@ -447,13 +447,15 @@ region in the Scene. With no suitable prior region, the existing nearest-key /
 about-five-seconds fallback applies. Consecutive hard keys have no mutable frames
 between them. Identical supported assignments retain their existing provenance.
 
-Review assignment, hard-state, suppression, key-management and tracking commands
-participate in native Blender Undo/Redo for the current session. Only an opaque
-Undo token is stored in the .blend; bounded session snapshots restore canonical
-review data atomically. Evidence/media/generated output are not rewound. File
-reload, external project writes and other project operations form safety barriers:
-Undo never overwrites changed external data. Old evicted snapshots may be
-unavailable; the operation reports this rather than fabricating a restore.
+In the source-only M2 simplification (2026-10-28), ordinary VTA decisions use
+explicit correction instead of Blender Ctrl+Z. Rename again, reassign or change
+the review decision explicitly. Blender Undo/Redo still owns native Location/Depth
+keys, manual animation and transforms. Native Undo refreshes VTA presentation but
+does not rewind authoritative decisions or silently regenerate missing outputs.
+Unresolved mutations survive Save/Reopen and require explicit Retry Reconciliation.
+Operation-specific Restore for expensive/destructive edits is a bounded policy,
+not a newly implemented universal history. See [engine boundary](vta_engine_boundary.md).
+The installed pre-refactor add-on remains unchanged until explicit deployment.
 
 ### Failure-directed identity review
 

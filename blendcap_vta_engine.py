@@ -117,13 +117,11 @@ class EngineClient:
             item=result['result'];payload=request['payload'];operation=request['operation']
             if operation=='character-state' and item['character_id']!=payload['character_id']:
                 raise EngineError('INVALID_RESPONSE','Observed Character identity mismatch.')
-            if operation in ('character-rename','review-restore'):
+            if operation=='character-rename':
                 if item['project_id']!=payload['project_id'] or item['before']['revision']!=payload['expected_revision']:
                     raise EngineError('INVALID_RESPONSE','Receipt does not describe the submitted project/revision.')
                 if operation=='character-rename' and item['character']['character_id']!=payload['character_id']:
                     raise EngineError('INVALID_RESPONSE','Receipt Character identity mismatch.')
-                if operation=='review-restore' and item['after']['snapshot_id']!=payload['snapshot_id']:
-                    raise EngineError('INVALID_RESPONSE','Receipt restore target mismatch.')
             LOG.debug('VTA engine request=%s operation=%s completed',request['request_id'],request['operation'])
             failed=False
             return result['result']
