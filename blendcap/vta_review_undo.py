@@ -18,12 +18,21 @@ def _pending_text(root):
     return next((t for t in bpy.data.texts if t.get('vta_reconciliation_pending')==root),None)
 
 def _validate(intent):
-    wire.fields(intent,('root','file','request_id','operation','payload','before','kind'))
+    wire.fields(intent,('root','file','request_id','operation','payload','before','kind',*(('binding',) if 'binding' in intent else ())))
     wire.path_form(intent['root']);wire.checkpoint(intent['before'])
-    wire.require(intent['kind'] in ('capture','rename'),'Invalid pending intent.')
-    wire.require(intent['operation']=={'capture':'project-state','rename':'character-rename'}[intent['kind']],'Invalid pending operation.')
+    wire.require(intent['kind'] in ('capture','rename','mutation'),'Invalid pending intent.')
+    expected={'capture':('project-state',),'rename':('character-rename',),'mutation':wire.MUTATIONS}[intent['kind']]
+    wire.require(intent['operation'] in expected,'Invalid pending operation.')
     wire.request(intent['request_id'],intent['payload'],intent['operation'])
     wire.require(intent['payload']['companion_root']==intent['root'],'Pending root mismatch.')
+    if intent['kind'] in ('rename','mutation'):
+        wire.require(intent['payload']['project_id']==intent['before']['project_id']
+            and intent['payload']['expected_revision']==intent['before']['revision'],'Pending intent revision mismatch.')
+    if 'binding' in intent:
+        wire.require(intent['operation']=='character-create','Unexpected native binding intent.')
+        binding=intent['binding'];wire.fields(binding,('scene_owner_id','project_id','source_id','video_sha256'))
+        wire.identifier(binding['scene_owner_id']);wire.text(binding['project_id']);wire.text(binding['source_id']);wire.digest(binding['video_sha256'])
+        wire.require(binding['project_id']==intent['before']['project_id'],'Binding project mismatch.')
     return intent
 
 def _read_intent(intent):
@@ -79,8 +88,12 @@ def _send(intent,client):
     try:return client.call(intent['operation'],intent['payload'],request_id=intent['request_id'])
     except Exception:
         status=client.call('mutation-status',dict(companion_root=intent['root'],mutation_id=intent['request_id']))
-        if status['state']=='applied':return status['receipt']
-        if intent['kind']=='rename':_unmark(intent['root'])
+        if status['state']=='applied':
+            result=status['receipt']
+            wire.validate_response(wire.response(intent['request_id'],intent['operation'],result=result),intent['request_id'],intent['operation'])
+            wire.validate_target(intent['operation'],intent['payload'],result)
+            return result
+        if intent['kind'] in ('rename','mutation'):_unmark(intent['root'])
         raise
 
 def rename(context,root,observed,name):
@@ -92,6 +105,50 @@ def rename(context,root,observed,name):
     except Exception as exc:
         # Failure retains durable intent. The operator must not report an abort.
         raise AppliedMutationError('Character renamed; presentation reconciliation pending: '+str(exc)) from exc
+    _unmark(root);return result
+
+def _adopt_creation(intent,result,context):
+    if 'binding' not in intent:return
+    binding=intent['binding']
+    from . import vta_character_bindings
+    vta_character_bindings.record(intent['root'],binding,result['character']['character_id'],result['request_id'])
+    candidates=[s for s in bpy.data.scenes if (s.get('vta_project_id'),s.get('vta_source_id'),s.get('vta_source_video_sha256'))==
+        (binding['project_id'],binding['source_id'],binding['video_sha256'])]
+    exact=[s for s in candidates if s.get('vta_scene_owner_id')==binding['scene_owner_id']]
+    if len(exact)==1:scene=exact[0]
+    elif not exact and len(candidates)==1 and not candidates[0].get('vta_scene_owner_id'):
+        # Explicit Retry after native Undo may have removed only the host ID.
+        # A unique matching owned source is sufficient; never choose among Scenes.
+        scene=candidates[0];scene['vta_scene_owner_id']=binding['scene_owner_id']
+    else:raise RuntimeError('Character was saved; its intended Scene binding is missing or ambiguous. Restore the original Scene before Retry.')
+    from . import vta_scene_characters as characters
+    ids=characters.stored(scene)
+    if ids is None:
+        from . import vta_review_ui as ui
+        location=ui._location_from_context(context,allow_outside=True)
+        observed=ui._get_backend(context).observe(location,force=True)
+        if observed.project_id!=binding['project_id'] or observed.source['source_id']!=binding['source_id']:
+            raise RuntimeError('Load the original source Scene before reconciling Character membership.')
+        ids=observed.members(scene)
+    characters._write(scene,ids|{result['character']['character_id']})
+
+def submit(context,root,before,operation,payload):
+    require_ready();root=str(Path(root).resolve())
+    intent=_intent(root,before,'mutation',operation,payload)
+    if operation=='character-create':
+        scene=context.scene
+        if scene.get('vta_project_id')!=before['project_id'] or not scene.get('vta_source_id'):
+            raise RuntimeError('Character creation needs the matching loaded VTA Scene.')
+        identity=scene.get('vta_scene_owner_id') or uuid.uuid4().hex;wire.identifier(identity)
+        scene['vta_scene_owner_id']=identity
+        intent['binding']=dict(scene_owner_id=identity,project_id=before['project_id'],source_id=scene['vta_source_id'],video_sha256=scene['vta_source_video_sha256'])
+    _mark(intent)
+    result=_send(intent,_client(context))
+    try:
+        _adopt_creation(intent,result,context)
+        _refresh()
+    except Exception as exc:
+        raise AppliedMutationError('VTA edit saved; presentation reconciliation pending: '+str(exc)) from exc
     _unmark(root);return result
 
 @contextmanager
@@ -147,7 +204,7 @@ def native_changed(_unused=None,_depsgraph=None):
         changed=_native_bindings is not None and _bindings()!=_native_bindings
         observed=getattr(ui._display,'context',None)
         if observed is not None:
-            project=observed[0];valid={c.character_id for c in project.characters}
+            project=observed if hasattr(observed,'members') else observed[0];valid={c.character_id for c in project.characters}
             for scene in bpy.data.scenes:
                 if scene.get('vta_project_id')!=project.project_id:continue
                 from .vta_scene_characters import stored
@@ -168,12 +225,16 @@ def retry(context):
         current=client.call('project-state',dict(companion_root=root))
         if current['project_id']!=intent['before']['project_id']:
             raise RuntimeError('Recovery belongs to another project; nothing was changed.')
-        if intent['kind']=='rename':
+        if intent['kind'] in ('rename','mutation'):
             status=client.call('mutation-status',dict(companion_root=root,mutation_id=intent['request_id']))
+            if status['state']=='applied':
+                wire.validate_response(wire.response(intent['request_id'],intent['operation'],result=status['receipt']),intent['request_id'],intent['operation'])
+                wire.validate_target(intent['operation'],intent['payload'],status['receipt'])
             # No blind replay, including known-not-applied requests. A fresh Rename
             # is explicit correction. Applied-but-superseded remains review-required.
             if status['state']=='applied' and current['revision']!=status['receipt']['after']['revision']:
                 raise RuntimeError('Project changed outside pending operation; reconciliation needs review.')
+            if status['state']=='applied':_adopt_creation(intent,status['receipt'],context)
         _refresh()
         _unmark(root)
 

@@ -1,5 +1,7 @@
 """Focused tests for the public, Blender-independent VTA review shell."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 from dataclasses import dataclass
 from enum import Enum
 import ast
@@ -228,7 +230,7 @@ class ReviewPresentationTests(unittest.TestCase):
                 load_analysis_cache = staticmethod(lambda _root, _revision: object())
                 build_frame_review = staticmethod(lambda *_args, **_kwargs: review)
 
-            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            backend = LegacyReviewBackend(importer=lambda _name: Core())
             queried = backend.query(review_ui.ReviewLocation(
                 Path(directory) / "scene_vta", source, 12, 13
             ))
@@ -398,7 +400,7 @@ class ReviewPresentationTests(unittest.TestCase):
             source = Path(directory) / "source.mp4"
             source.write_bytes(b"video")
             source_hash = review_ui.sha256_file(source)
-            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            backend = LegacyReviewBackend(importer=lambda _name: Core())
             location = review_ui.ReviewLocation(
                 Path(directory) / "scene_vta", source, 12, 13
             )
@@ -465,7 +467,7 @@ class ReviewPresentationTests(unittest.TestCase):
             source = Path(directory) / "source.mp4"
             source.write_bytes(b"video")
             source_hash = review_ui.sha256_file(source)
-            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            backend = LegacyReviewBackend(importer=lambda _name: Core())
             location = review_ui.ReviewLocation(Path(directory) / "scene_vta", source, 12, 13)
             request, current = backend.prepare_reassignment(
                 location,
@@ -524,7 +526,7 @@ class ReviewPresentationTests(unittest.TestCase):
             source_hash = review_ui.sha256_file(source)
             root = Path(directory) / "scene_vta"
             location = review_ui.ReviewLocation(root, source, 12, 13)
-            backend = review_ui.PrivateCoreBackend(importer=lambda _name: Core())
+            backend = LegacyReviewBackend(importer=lambda _name: Core())
             character, refreshed = backend.create_character(
                 location, display_name="Wrestler A"
             )
@@ -591,7 +593,7 @@ class ReviewPresentationTests(unittest.TestCase):
                 'start_frame': 0, 'end_frame': 162,
             }]})
             core = SimpleNamespace(load_project_state=lambda _root: project)
-            backend = review_ui.PrivateCoreBackend(core=core)
+            backend = LegacyReviewBackend(core=core)
             location = review_ui.ReviewLocation(Path(directory), source, 0, 1)
             _project, resolved = backend._load_project_source(location)
             self.assertEqual((resolved['start_frame'],resolved['end_frame']), (0, 162))

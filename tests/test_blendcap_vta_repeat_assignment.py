@@ -1,4 +1,6 @@
 """Session-only repeat action: real operator methods and normal Assign guards."""
+
+from tests.legacy_review_backend import LegacyReviewBackend
 from contextlib import ExitStack
 from dataclasses import replace
 import ast
@@ -384,7 +386,7 @@ class RepeatOperatorTests(unittest.TestCase):
                 project.candidate_evidence('rev', 'other-1')),)))
         core.save_project_state(project, root)
         core.save_analysis_cache(cache, root)
-        backend = self.ui.PrivateCoreBackend(core=core)
+        backend = LegacyReviewBackend(core=core)
         self.stack.enter_context(mock.patch.object(self.ui, '_get_backend', return_value=backend))
         from blendcap_vta_engine import SourceCoverageClient, EngineClient, resolve_engine
         client = SourceCoverageClient(EngineClient(resolve_engine(ROOT.parent/'Video-to-Animation')))

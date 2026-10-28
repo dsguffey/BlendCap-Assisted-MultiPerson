@@ -1,5 +1,7 @@
 """Public-shell proof that Update Tracking stays separate from review authority."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,7 +46,7 @@ class TrackingPresentationTests(unittest.TestCase):
     def test_bulk_backend_validates_set_and_uses_registered_cache_and_digest(self):
         core = SimpleNamespace(validate_analysis_cache_registration=mock.Mock(),
                                update_tracking_many_and_persist=mock.Mock(return_value=('receipt',)))
-        backend = review.PrivateCoreBackend(core)
+        backend = LegacyReviewBackend(core)
         backend._load_context = mock.Mock(return_value=(SimpleNamespace(
             characters=(SimpleNamespace(character_id='red'), SimpleNamespace(character_id='black')),
             to_json=lambda: 'canonical'), SimpleNamespace(source=SimpleNamespace(source_id='s')), 'analysis'))
@@ -99,7 +101,7 @@ class TrackingPresentationTests(unittest.TestCase):
         ))
 
     def test_backend_wires_selected_character_only_to_explicit_command(self):
-        backend = review.PrivateCoreBackend(core=SimpleNamespace(
+        backend = LegacyReviewBackend(core=SimpleNamespace(
             validate_analysis_cache_registration=mock.Mock(),
             update_tracking_and_persist=mock.Mock(return_value="receipt"),
         ))

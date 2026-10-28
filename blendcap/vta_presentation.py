@@ -42,7 +42,16 @@ class Presentation:
     def current(self, backend, location):
         return self.key == self.identity(backend, location)
 
-    def observe(self, backend, location, source, *, force=False):
+    def observe(self, backend, location, source, *, force=False, asynchronous=False):
+        if getattr(backend,'is_engine_review',False):
+            observation=(backend.observe_async(location) if asynchronous else backend.observe(location,force=force))
+            if observation is None:return False
+            changed=self.context is not observation
+            self.context=observation;self.key=self.identity(backend,location)
+            self.coverage=observation.coverage;self.revision=observation.value['analysis_revision_id']
+            self.stamp=backend.stamp;self.error=None
+            if changed:self.frames.clear();self.timeline=None
+            return changed
         key = self.identity(backend, location)
         if not force and self.key == key and self.stamp == self.signature(location):
             return False

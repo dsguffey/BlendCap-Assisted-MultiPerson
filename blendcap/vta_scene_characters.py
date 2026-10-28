@@ -23,6 +23,9 @@ def stored(scene):
 
 def allowed(scene,project):
     explicit=stored(scene)
+    if hasattr(project,'members'):
+        valid={c.character_id for c in project.characters}
+        return (explicit & valid) if explicit is not None else project.members(scene)
     valid={c.character_id for c in project.characters}
     if explicit is not None:return explicit & valid
     # Read-only legacy inference: use source evidence and actual Scene rigs,

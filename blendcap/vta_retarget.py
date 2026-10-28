@@ -598,7 +598,7 @@ def mapping_preview(context, settings):
     if target is None or not target_picker_poll(settings, target):
         raise ValueError('Choose a target armature, not a mesh part.')
     mapping = validate_target(target, context.scene,settings.target_profile)
-    bindings = ui._get_backend(context)._core.retarget_source_bindings()
+    bindings = ui._get_generation_backend(context)._core.retarget_source_bindings()
     rows = []
     for binding in bindings:
         semantic, name = binding['id'], binding['bone']
@@ -726,7 +726,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
                 or source.get('vta_source_id')!=info[1]['source_id'] or not source.get('vta_character_id')):
             raise ValueError('Choose one generated VTA Character from the loaded source.')
         validate_target(target,scene,self.target_profile)
-        backend=ui._get_backend(context);location=ui._location_from_context(context,allow_outside=True)
+        backend=ui._get_generation_backend(context);location=ui._location_from_context(context,allow_outside=True)
         # Export authorizes the requested motion, not the current playhead.
         # In particular frame 0 is a valid place to inspect the imported model
         # and launch a bake whose motion starts at 1, without moving the Scene.

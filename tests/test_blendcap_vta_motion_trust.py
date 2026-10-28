@@ -1,5 +1,7 @@
 """Thin routing and paint-only motion intervals; no private algorithms copied."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +9,7 @@ import sys
 import unittest
 from unittest import mock
 
-from blendcap_vta_review import PrivateCoreBackend, ReviewLocation, VtaReviewUiError, present_review
+from blendcap_vta_review import ReviewLocation, VtaReviewUiError, present_review
 from blendcap_vta_timeline import TimelineCharacter, TimelineKey, TimelineMotionInterval, TimelineView, present_timeline
 from blendcap_vta_workspace import TimelineMetrics, character_lanes, hit_review_key, motion_interval_rects
 
@@ -104,7 +106,7 @@ class MotionPresentationTests(unittest.TestCase):
 
     def test_backend_routes_existing_frame_conversion_and_expected_hash(self):
         core = SimpleNamespace(apply_motion_trust_many_and_persist=mock.Mock(return_value=('receipt',)))
-        backend = PrivateCoreBackend(core)
+        backend = LegacyReviewBackend(core)
         project = SimpleNamespace(characters=(SimpleNamespace(character_id='yellow'),), to_json=lambda: 'state')
         location = ReviewLocation(Path('companion'), Path('video'), 46, 147)
         with mock.patch.object(backend, '_load_project_source', return_value=(project, dict(source_id='s', start_frame=0, end_frame=162))):
@@ -116,7 +118,7 @@ class MotionPresentationTests(unittest.TestCase):
 
     def test_backend_rejects_bad_range_or_missing_character_before_core(self):
         core = SimpleNamespace(apply_motion_trust_many_and_persist=mock.Mock())
-        backend = PrivateCoreBackend(core)
+        backend = LegacyReviewBackend(core)
         project = SimpleNamespace(characters=(SimpleNamespace(character_id='yellow'),), to_json=lambda: 'state')
         location = ReviewLocation(Path('companion'), Path('video'), 0, 1)
         with mock.patch.object(backend, '_load_project_source', return_value=(project, dict(source_id='s', start_frame=0, end_frame=162))):
@@ -163,7 +165,7 @@ class MotionBlenderTests(unittest.TestCase):
                 self.assertEqual(ui._selection.character_id, 'yellow')
                 backend.set_motion_trust_for_characters.assert_called_with('location', ('yellow',), 67, 90,
                     action='mark' if action == 'FREEZE' else 'clear', mode='freeze' if action == 'FREEZE' else None)
-                self.assertEqual(refresh.call_args_list, [mock.call(context, force=True)] * 2)
+                self.assertEqual(refresh.call_args_list, [mock.call(context, check_disk=True)] * 2)
                 redraw.assert_called_once()
             context.scene.frame_set.assert_not_called()
             backend.update_tracking.assert_not_called()

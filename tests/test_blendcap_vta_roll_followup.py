@@ -69,7 +69,7 @@ class RollFollowupTests(unittest.TestCase):
                     mock.patch.object(ui,'tracking_character_ids',return_value=()), \
                     mock.patch.object(ui,'_reconstruction_process',None),mock.patch.object(ui,'_edit_available',return_value=True), \
                     mock.patch.object(ui,'_location_from_context',return_value=NS(companion_root=Path(folder),blender_frame=1,source_frame=0)), \
-                    mock.patch.object(ui,'_get_backend',return_value=backend),mock.patch.object(ui.subprocess,'Popen') as launch:
+                    mock.patch.object(ui,'_get_generation_backend',return_value=backend),mock.patch.object(ui.subprocess,'Popen') as launch:
                 self.assertFalse(ui.BLENDCAP_OT_vta_generate_animation.poll(context))
                 self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),context),{'CANCELLED'})
                 launch.assert_not_called();self.assertIn('Select at least one Character.',ui._generation_details)
@@ -104,7 +104,7 @@ class RollFollowupTests(unittest.TestCase):
             with mock.patch.object(ui,'tracking_character_ids',return_value=('other-scene-character',)), \
                     mock.patch.object(ui,'_reconstruction_process',None),mock.patch.object(ui,'_edit_available',return_value=True), \
                     mock.patch.object(ui,'_location_from_context',return_value=NS(companion_root=Path(folder),blender_frame=1,source_frame=0)), \
-                    mock.patch.object(ui,'_get_backend',return_value=backend),mock.patch.object(ui.subprocess,'Popen') as launch, \
+                    mock.patch.object(ui,'_get_generation_backend',return_value=backend),mock.patch.object(ui.subprocess,'Popen') as launch, \
                     mock.patch.object(session,'owned',return_value=True),mock.patch.object(scope,'allowed',return_value={'this-scene-character'}):
                 self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),context),{'CANCELLED'})
                 build.assert_not_called();launch.assert_not_called()

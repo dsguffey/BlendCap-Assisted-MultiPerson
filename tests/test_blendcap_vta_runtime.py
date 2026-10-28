@@ -1,5 +1,7 @@
 """Focused tests for public discovery of the separately installed VTA Core."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 from pathlib import Path
 import tempfile
 import types
@@ -116,7 +118,6 @@ class RuntimeDiscoveryTests(unittest.TestCase):
         self.assertEqual(result.status, runtime.VtaCoreStatus.INCOMPATIBLE)
 
     def test_existing_review_backend_accepts_discovered_core_module(self):
-        from blendcap_vta_review import PrivateCoreBackend
 
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(directory)
@@ -124,7 +125,7 @@ class RuntimeDiscoveryTests(unittest.TestCase):
             result = runtime.discover_vta_core(
                 root, importer=lambda _name: core, sys_path=[]
             )
-        backend = PrivateCoreBackend(core=result.core)
+        backend = LegacyReviewBackend(core=result.core)
         self.assertIs(backend._core, core)
 
 

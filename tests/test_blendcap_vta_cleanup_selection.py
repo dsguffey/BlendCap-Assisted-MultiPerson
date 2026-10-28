@@ -1,5 +1,7 @@
 """Contextual Character selection, Cleanup routing, and bounded mouse gestures."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 from contextlib import ExitStack
 import importlib.util
 from pathlib import Path
@@ -8,7 +10,7 @@ from types import MethodType, SimpleNamespace as NS
 import unittest
 from unittest import mock
 
-from blendcap_vta_review import PrivateCoreBackend, ReviewLocation, SelectionState, VtaReviewUiError, tracking_update_error
+from blendcap_vta_review import ReviewLocation, SelectionState, VtaReviewUiError, tracking_update_error
 from blendcap_vta_timeline import TimelineCharacter, TimelineCharacterSelection, TimelineKey, TimelineView
 from blendcap_vta_workspace import TimelineMetrics, character_lanes, characters_in_box, derived_mark_color
 
@@ -78,7 +80,7 @@ class CharacterSelectionTests(unittest.TestCase):
 
     def test_backend_bulk_uses_one_core_command_and_visible_frame_mapping(self):
         core = NS(apply_motion_trust_many_and_persist=mock.Mock(return_value=('b', 'a')))
-        backend = PrivateCoreBackend(core)
+        backend = LegacyReviewBackend(core)
         project = NS(characters=tuple(NS(character_id=cid) for cid in ('a', 'b', 'c')),
                      to_json=lambda: 'canonical')
         location = ReviewLocation(Path('companion'), Path('video'), 7, 108)

@@ -237,7 +237,7 @@ class GenerationFlowTests(unittest.TestCase):
         log_ready(job)
         patches={'_generation_job':job,'_reconstruction_process':pending,'_reconstruction_scene':bpy.context.scene,
                  '_reconstruction_location':f.location,'_reconstruction_stop':job['stop'],'_reconstruction_log':job['log']}
-        with mock.patch.multiple(self.ui,**patches), mock.patch.object(self.ui,'_get_backend',return_value=f.backend), mock.patch.object(self.ui,'_location_from_context',return_value=f.location), mock.patch.object(self.ui,'require_loaded_context'), mock.patch.object(self.ui,'_request_generation_confirmation',return_value={'RUNNING_MODAL'}) as dialog:
+        with mock.patch.multiple(self.ui,**patches), mock.patch.object(self.ui,'_get_generation_backend',return_value=f.backend), mock.patch.object(self.ui,'_location_from_context',return_value=f.location), mock.patch.object(self.ui,'require_loaded_context'), mock.patch.object(self.ui,'_request_generation_confirmation',return_value={'RUNNING_MODAL'}) as dialog:
             self.assertEqual(self.ui._reconstruction_timer(),.5)
             self.assertEqual(job['required'],(0,5));dialog.assert_called_once()
             old=SimpleNamespace(job_id=job['id'])

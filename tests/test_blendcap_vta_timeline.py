@@ -1,5 +1,7 @@
 """Pure and Blender-background contracts for the VTA review timeline."""
 
+from tests.legacy_review_backend import LegacyReviewBackend
+
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,7 +62,7 @@ class TimelineProofTests(unittest.TestCase):
             build_review_timeline=mock.Mock(return_value=private_timeline),
             build_review_management_request=mock.Mock(return_value="request"),
         )
-        backend = review_shell.PrivateCoreBackend(core=core)
+        backend = LegacyReviewBackend(core=core)
         location = review_shell.ReviewLocation(Path("companion"), Path("video.mp4"), 5, 105)
         with mock.patch.object(backend, "_load_context", return_value=(project, cache, "revision")):
             timeline = backend.query_timeline(location)

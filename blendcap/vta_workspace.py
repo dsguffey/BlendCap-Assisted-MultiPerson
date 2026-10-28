@@ -740,6 +740,7 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         row = layout.row()
         row.enabled = ui._action_availability(context)['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+        layout.operator('blendcap.vta_restore_protected',text='Restore Last Protected Edit')
         ui.draw_operation_feedback(layout, context, 'tracking')
         layout.separator()
         ui.draw_cleanup_commands(layout, context, menu=True)
@@ -797,6 +798,7 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
         row = layout.row()
         row.enabled = availability['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
+        layout.operator('blendcap.vta_restore_protected',text='Restore Last Protected Edit')
         layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
 
         layout.separator()

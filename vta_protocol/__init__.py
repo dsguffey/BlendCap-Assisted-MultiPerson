@@ -10,9 +10,9 @@ import hashlib
 from pathlib import Path
 
 PROTOCOL = 'vta-engine'
-VERSION = 3
+VERSION = 4
 OPERATIONS = ('source-coverage','character-state','character-rename',
-              'project-state','mutation-status')
+              'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last')
 MAX_BYTES = 16384
 MAX_FRAME = 2**31-1
 CODES = frozenset(('INVALID_REQUEST','VERSION_MISMATCH','UNKNOWN_OPERATION','INVALID_PATH',
@@ -42,23 +42,23 @@ def checkpoint(value):
 
 
 def receipt(value):
-    fields(value,('request_id','operation','project_id','before','after','changed','character'))
+    fields(value,('request_id','operation','project_id','before','after','changed','character',
+                  *(('details',) if value.get('operation') in DETAIL_OPS else ())))
     identifier(value['request_id']);text(value['project_id'])
-    # review-restore is accepted only as a historical receipt returned by status;
-    # it is not an executable operation in protocol v3.
-    # review-restore is accepted only as a historical receipt returned by status;
-    # it is not an executable operation in protocol v3.
-    require(value['operation'] in ('character-rename','review-restore'),'Invalid receipt operation.')
+    # Historical restore receipts remain readable; restore is not executable.
+    require(value['operation'] in (*MUTATIONS,'review-restore'),'Invalid receipt operation.')
     checkpoint(value['before']);checkpoint(value['after'])
     require(value['before']['project_id']==value['after']['project_id']==value['project_id'],'Receipt project mismatch.')
     require(type(value['changed']) is bool,'Invalid changed flag.')
     before,after=value['before']['revision'],value['after']['revision']
     require(after['number']==before['number']+int(value['changed']),'Invalid revision transition.')
     require((before['sha256']!=after['sha256'])==value['changed'],'Invalid receipt change.')
-    if value['operation']=='character-rename':
+    if value['operation'] in ('character-rename','character-create'):
         fields(value['character'],('character_id','display_name'))
         text(value['character']['character_id']);text(value['character']['display_name'],8192)
-    else:require(value['character'] is None,'Unexpected Character payload.')
+    else:
+        require(value['character'] is None,'Unexpected Character payload.')
+        if value['operation']!='review-restore':validate_details(value['operation'],value['details'])
 
 
 class ProtocolError(ValueError):
@@ -167,20 +167,32 @@ def validate_request(value):
     names={'source-coverage':('source_path','source_frame'),
         'character-state':('character_id',),'project-state':(),
         'character-rename':('project_id','character_id','display_name','expected_revision'),
-        'mutation-status':('mutation_id',)}[operation]
+        'mutation-status':('mutation_id',),'review-observation':('source_path','source_frame'),
+        **{op:('project_id','expected_revision','source_id','source_frame','analysis_revision_id',
+               'cache_sha256','character_id',*extra) for op,extra in (
+            ('review-assign',('observation_id',)),('review-reassign',('observation_id','confirmed')),
+            ('review-hard-state',('state','confirmed')))},
+        **{op:request_names(op) for op in EXTRA}}[operation]
     fields(payload,('companion_root',*names));path_form(payload['companion_root'])
-    if operation=='source-coverage':path_form(payload['source_path']);frame(payload['source_frame'])
-    if 'character_id' in payload:text(payload['character_id'])
+    if operation in ('source-coverage','review-observation'):path_form(payload['source_path']);frame(payload['source_frame'])
+    if 'character_id' in payload and operation!='review-management':text(payload['character_id'])
     if 'project_id' in payload:text(payload['project_id'])
     if 'expected_revision' in payload:revision(payload['expected_revision'])
     if 'display_name' in payload:text(payload['display_name'],8192,empty=True)
     if 'mutation_id' in payload:identifier(payload['mutation_id'])
+    if operation in ('review-assign','review-reassign','review-hard-state'):
+        text(payload['source_id']);frame(payload['source_frame']);text(payload['analysis_revision_id'])
+        digest(payload['cache_sha256'])
+        if 'observation_id' in payload:text(payload['observation_id'])
+        if 'confirmed' in payload:require(type(payload['confirmed']) is bool,'Invalid confirmation.')
+        if 'state' in payload:require(payload['state'] in ('occluded','no-valid-candidate','not-visible'),'Invalid hard boundary.')
+    validate_payload(operation,payload)
     return value
 
 
 def ready(pid):
     return dict(protocol=PROTOCOL,version=VERSION,kind='ready',pid=pid,operations=list(OPERATIONS),
-                definition_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+                definition_sha256=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('__init__.py','observation.py','domain.py'))).hexdigest())
 
 
 def validate_ready(value,pid):
@@ -213,11 +225,18 @@ def validate_response(value, request_id, operation):
         bounds=value['result']['source_range']
         require(type(bounds) is list and len(bounds)==2,'Invalid source range.')
         frame(bounds[0]);frame(bounds[1]);require(bounds[0]<=bounds[1],'Reversed source range.')
+    elif operation=='review-observation':
+        item=value['result'];fields(item,('checkpoint','artifact_id','sha256','bytes','source_id','coverage'))
+        checkpoint(item['checkpoint']);identifier(item['artifact_id']);digest(item['sha256']);text(item['source_id'])
+        require(type(item['bytes']) is int and 0<item['bytes']<=32*1024*1024,'Invalid observation size.')
+        require(type(item['coverage']) is list and len(item['coverage'])==2,'Invalid observation coverage.')
+        frame(item['coverage'][0]);frame(item['coverage'][1]);require(item['coverage'][0]<=item['coverage'][1],'Reversed observation window.')
+    elif operation=='tracking-plan':validate_plan(value['result'])
     elif operation=='project-state':checkpoint(value['result'])
     elif operation=='character-state':
         item=value['result'];fields(item,('checkpoint','character_id','display_name'))
         checkpoint(item['checkpoint']);text(item['character_id']);text(item['display_name'],8192)
-    elif operation=='character-rename':
+    elif operation in MUTATIONS:
         receipt(value['result'])
         require(value['result']['request_id']==request_id and value['result']['operation']==operation,'Receipt identity mismatch.')
     elif operation=='mutation-status':
@@ -228,3 +247,6 @@ def validate_response(value, request_id, operation):
         else:require(item['receipt'] is None,'Unexpected receipt.')
     else:raise ProtocolError('UNKNOWN_OPERATION','Unknown response operation.')
     return value
+
+
+from .domain import MUTATIONS,DETAIL_OPS,EXTRA,request_names,validate_payload,validate_details,validate_plan,validate_target

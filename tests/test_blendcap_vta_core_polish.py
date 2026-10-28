@@ -42,7 +42,7 @@ class CorePolishTests(unittest.TestCase):
         context = NS(window_manager=NS(blendcap_vta_animation_start=79,blendcap_vta_animation_end=90),scene=NS())
         operator = NS(action='RANGE',report=mock.Mock())
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(ui,'_location_from_context',return_value=ReviewLocation(Path(folder),Path('video.mp4'),0,1)), \
-                mock.patch.object(ui,'_get_backend',return_value=backend), mock.patch.object(ui,'_edit_available',return_value=True), \
+                mock.patch.object(ui,'_get_generation_backend',return_value=backend), mock.patch.object(ui,'_edit_available',return_value=True), \
                 mock.patch.object(ui,'_reconstruction_process',None), mock.patch.object(ui,'_python_exe') as python, \
                 mock.patch.object(ui,'tracking_character_ids',return_value=('yellow',)), \
                 mock.patch.object(ui.subprocess,'Popen') as launch:
@@ -83,7 +83,7 @@ class CorePolishTests(unittest.TestCase):
             build=mock.Mock(return_value=dict(project_id='p',source_id='s',source_video_sha256='a'*64))
             backend=NS(_load_context=lambda _:(None,NS(source=NS(start_frame=0,end_frame=162)),'r'),
                 _core=NS(build_skeletal_plan=build,validate_skeletal_repairs=mock.Mock()))
-            with mock.patch.object(ui,'_location_from_context',return_value=location), mock.patch.object(ui,'_get_backend',return_value=backend), \
+            with mock.patch.object(ui,'_location_from_context',return_value=location), mock.patch.object(ui,'_get_generation_backend',return_value=backend), \
                     mock.patch.object(ui,'tracking_character_ids',return_value=('white',)), mock.patch.object(ui,'require_loaded_context'), \
                     mock.patch.object(ui,'_edit_available',return_value=True), mock.patch.object(ui,'_python_exe',return_value='python'), \
                     mock.patch.object(Path,'is_file',return_value=True), mock.patch.object(ui,'_reconstruction_process',None), \

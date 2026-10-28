@@ -224,7 +224,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                                            if call[0] == "blendcap.vta_review_manage"])
             self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
             self.assertEqual({call[0] for call in menu.calls}, {
-            "blendcap.vta_review_manage", "blendcap.vta_update_tracking",
+            "blendcap.vta_review_manage", "blendcap.vta_update_tracking", "blendcap.vta_restore_protected",
             "blendcap.vta_analyze", "blendcap.vta_generate_animation",
             "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera",
             "blendcap.vta_match_source_fps"

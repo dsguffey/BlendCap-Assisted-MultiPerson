@@ -147,7 +147,14 @@ class CopyPlan:
             for folder in folders:
                 for path in (engine/folder).glob('*.json'):
                     add_history(path,Path('.vta-engine')/folder/path.name)
+            # One operation-scoped protected state and any linked recovery
+            # candidate travel with an independent Save As. This is not a stack.
+            for path in (engine/'restore').glob('*.json'):
+                add_history(path,Path('.vta-engine')/'restore'/path.name)
         if pending.is_file():add_history(pending,pending.name)
+        bindings=self.source/'.vta-host-bindings'
+        for path in bindings.glob('*.json'):
+            add_history(path,Path('.vta-host-bindings')/path.name)
         # Candidate observations cannot safely be regenerated: human keys and
         # derived ownership reference their exact IDs. Keep referenced revisions.
         required=set(raw.get('active_analysis_revision_by_source',{}).values())

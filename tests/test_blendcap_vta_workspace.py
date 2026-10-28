@@ -261,7 +261,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
              mock.patch.object(ui._selection, 'accept_review'), \
              mock.patch.object(ui.vta_invalidation, 'request_redraw') as redraw:
             ui._accept_mutated_review(object(), object())
-            refresh.assert_called_once_with(mock.ANY, force=True)
+            refresh.assert_called_once_with(mock.ANY, check_disk=True)
             redraw.assert_called_once()
 
     def test_key_click_syncs_character_without_navigation(self):

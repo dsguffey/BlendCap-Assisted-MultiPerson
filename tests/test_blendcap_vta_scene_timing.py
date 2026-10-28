@@ -237,8 +237,7 @@ class SceneTimingTests(unittest.TestCase):
         from types import SimpleNamespace
         from blendcap_vta_review import ReviewLocation
         source=dict(self.source,fps=30)
-        project=SimpleNamespace(to_dict=lambda:{'project_id':self.fixture.pid,'sources':[source]})
-        backend=SimpleNamespace(_core=SimpleNamespace(load_project_state=lambda _:project),_source_hash=lambda _:source['video_sha256'])
+        backend=SimpleNamespace(observe=lambda _:SimpleNamespace(project_id=self.fixture.pid,source=source))
         with mock.patch.object(self.ui,'_location_from_context',return_value=ReviewLocation(self.fixture.root,self.path,0,1)),mock.patch.object(self.ui,'_get_backend',return_value=backend):
             with self.assertRaisesRegex(self.ui.VtaReviewUiError,'Movie FPS differs'):
                 self.ui._timing_source(bpy.context)

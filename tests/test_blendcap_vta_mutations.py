@@ -48,8 +48,8 @@ class MutationProcessTests(unittest.TestCase):
     def test_no_legacy_rename_or_snapshot_restore_fallback(self):
         from blendcap_vta_review import PrivateCoreBackend,VtaReviewUiError
         backend=PrivateCoreBackend(core=mock.Mock())
-        with self.assertRaises(VtaReviewUiError):backend.prepare_management(None,'rename-character')
-        with self.assertRaises(VtaReviewUiError):backend.apply_management(None,SimpleNamespace(action='rename-character'),confirmed=True)
+        self.assertFalse(hasattr(backend,'prepare_management'))
+        self.assertFalse(hasattr(backend,'apply_management'))
         self.assertFalse(hasattr(backend,'restore_review_snapshot'))
         backend._core.assert_not_called()
 
@@ -115,9 +115,9 @@ with private_import_guard():
         for mode in ('malformed','request-id','character-id'):
             self.state=self.client.call('character-state',dict(companion_root=str(self.root),character_id='a'))
             script=self.root/'bad_response.py'
-            script.write_text('import sys\nsys.path.insert(0,'+repr(str(K))+')\n'
+            script.write_text('import sys,copy\nsys.path.insert(0,'+repr(str(K))+')\n'
                 'import vta_engine, vta_protocol as w\nfrom vta_core import engine_mutations\noriginal=w.response\n'
-                'def response(*a,**kw):\n r=original(*a,**kw)\n'
+                'def response(*a,**kw):\n r=copy.deepcopy(original(*a,**kw))\n'
                 +({'malformed':" r['unexpected']=True\n",'request-id':" r['request_id']='0'*32\n",
                     'character-id':" r['result']['character']['character_id']='b'\n"}[mode])+
                 ' return r\nw.response=response\nraise SystemExit(vta_engine.main())\n',encoding='utf-8')

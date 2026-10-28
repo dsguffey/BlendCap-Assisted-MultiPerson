@@ -41,7 +41,6 @@ from ..blendcap_vta_analyze_worker import STATUS_NAME, STOP_NAME
 from ..blendcap_vta_timeline import ReviewKeySelection, TimelineCharacterSelection, key_at
 from ..blendcap_vta_area_mode import ROLE_PREVIEW, ROLE_TIMELINE, WORKSPACE_TAG, role_for
 from . import vta_invalidation, vta_overlay, vta_timeline_overlay
-from .vta_review_undo import transaction as _review_transaction
 from .vta_presentation import Presentation, source_identity, pointer, at_frame, file_signature
 from .helpers import (
     _active_video_strip, _python_exe, _resolve_video_path, _strip_visible_end, addon_prefs,
@@ -269,7 +268,7 @@ def _reset_scene_presentation(_unused=None):
     global _view, _location, _timeline, _timeline_identity, _project_signature, _cache_signature
     global _selection, _review_key_selection, _character_selections, _repair_selections
     global _last_assignment_target
-    global _display_backend
+    global _display_backend,_backend,_backend_location,_backend_root
     global _scene_character_ids
     _scene_sessions.clear()
     _validated_sources.clear()
@@ -278,6 +277,7 @@ def _reset_scene_presentation(_unused=None):
     _scene_character_ids=None
     _display.clear()
     _display_backend = None
+    _backend=None;_backend_location=None;_backend_root=None
     _load_scene_enum_items.clear()
     _operation_feedback.clear()
     _tracking_hints.clear()
@@ -323,8 +323,8 @@ def _observer_identity(context):
 def _observe_context(context):
     key = pointer(context.window)
     token = _observer_identity(context)
-    if _observer_tokens.get(key) != token:
-        refresh(context, check_disk=True)
+    if _observer_tokens.get(key) != token or getattr(_backend,'_job',None) is not None:
+        refresh(context, check_disk=True, asynchronous=True)
         _observer_tokens[key] = _observer_identity(context)
     sync_objects_to_review(context)
 
@@ -442,22 +442,41 @@ def _source_coverage(context, location):
         raise VtaReviewUiError(f'VTA engine [{exc.code}]: {exc}') from exc
 
 
-def _get_backend(context, *, force: bool = False):
-    global _backend, _backend_location, _backend_root
+_generation_backend=None
+_generation_backend_location=None
+_generation_backend_root=None
+
+def _get_generation_backend(context, *, force: bool = False):
+    global _generation_backend, _generation_backend_location, _generation_backend_root
     configured = _configured_core_location(context)
-    cached_root_missing = _backend_root is not None and not (
-        _backend_root / "vta_core" / "__init__.py"
+    cached_root_missing = _generation_backend_root is not None and not (
+        _generation_backend_root / "vta_core" / "__init__.py"
     ).is_file()
-    if force or _backend is None or configured != _backend_location or cached_root_missing:
+    if force or _generation_backend is None or configured != _generation_backend_location or cached_root_missing:
         resolution = discover_vta_core(configured)
         if not resolution.available:
-            _backend = None
-            _backend_location = configured
-            _backend_root = None
+            _generation_backend = None
+            _generation_backend_location = configured
+            _generation_backend_root = None
             raise VtaReviewUiError(resolution.message)
-        _backend = PrivateCoreBackend(core=resolution.core)
-        _backend_location = configured
-        _backend_root = resolution.root
+        _generation_backend = PrivateCoreBackend(core=resolution.core)
+        _generation_backend_location = configured
+        _generation_backend_root = resolution.root
+    return _generation_backend
+
+
+def _domain_mutation(context,operation,payload,observed):
+    from . import vta_review_undo as recovery
+    return recovery.submit(context,payload['companion_root'],observed,operation,payload)
+
+def _get_backend(context, *, force=False):
+    global _backend,_backend_location,_backend_root
+    from ..blendcap_vta_engine_review import EngineReviewBackend
+    configured=_configured_core_location(context)
+    if _backend is None or configured!=_backend_location:
+        client=_engine_client(context)
+        _backend=EngineReviewBackend(client,mutate=lambda op,payload,observed: _domain_mutation(context,op,payload,observed))
+        _backend_location=configured;_backend_root=client.endpoint.launcher.parent
     return _backend
 
 
@@ -507,20 +526,18 @@ def _location_from_context(context, *, allow_outside=False) -> ReviewLocation:
 
 
 def _timing_source(context):
-    """Hash-validated source metadata, independent of current playhead bounds."""
-    location = _location_from_context(context, allow_outside=True)
-    backend = _get_backend(context)
-    project = backend._core.load_project_state(location.companion_root).to_dict()
-    digest = backend._source_hash(location.source_path)
-    sources = [s for s in project['sources'] if s.get('video_sha256') == digest]
-    if len(sources) != 1:
-        raise VtaReviewUiError('Active clip does not uniquely match the VTA project source.')
-    strip = _active_video_strip(context.scene.sequence_editor)
+    """Validated neutral source metadata from one engine observation."""
+    location=_location_from_context(context,allow_outside=True)
+    backend=_get_backend(context)
+    observation=backend.observe(location)
+    source=observation.source
+    strip=_active_video_strip(context.scene.sequence_editor)
     from .vta_scene_timing import validate_source_strip
     validate_source_strip(strip)
-    if not math.isclose(float(strip.fps), sources[0]['fps'], rel_tol=1e-6, abs_tol=1e-3):
+    if not math.isclose(float(strip.fps),source['fps'],rel_tol=1e-6,abs_tol=1e-3):
         raise VtaReviewUiError('Movie FPS differs from the VTA source metadata; use the original source clip. No Scene was retimed.')
-    return project['project_id'], sources[0], location, strip
+    return observation.project_id,source,location,strip
+
 
 
 
@@ -1374,7 +1391,7 @@ def _rebuild_enum_items() -> None:
 
 
 def refresh(context, *, force: bool = False, target_scene=None, check_disk=False,
-            memory_only=False, validated_info=None) -> bool:
+            memory_only=False, validated_info=None, asynchronous=False) -> bool:
     global _view, _location, _project_signature, _status, _status_is_error
     global _timeline, _timeline_identity, _cache_signature, _presentation_scene, _display_backend
     global _scene_character_ids
@@ -1434,7 +1451,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
             if force or check_disk or not _display.current(backend, location):
                 if memory_only:
                     return False
-                model_changed = _display.observe(backend, location, info[1], force=force)
+                model_changed = _display.observe(backend, location, info[1], force=force, asynchronous=asynchronous)
             project_signature = _display.stamp[0] if _display.stamp else None
             cache_signature = _display.stamp[2] if _display.stamp else None
         else:
@@ -1459,7 +1476,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
             _scene_character_ids=None
             if capable and _display.context is not None and isinstance(getattr(context,'scene',None),bpy.types.Scene):
                 from .vta_scene_session import owned
-                project=_display.context[0]
+                project=_display.context if getattr(backend,'is_engine_review',False) else _display.context[0]
                 if owned(context.scene) and hasattr(project,'characters'):
                     from . import vta_scene_characters
                     _scene_character_ids=vta_scene_characters.allowed(context.scene,project)
@@ -1511,7 +1528,7 @@ def _accept_mutated_review(context, refreshed) -> None:
     global _view
     _view = refreshed
     _selection.accept_review(refreshed)
-    if not refresh(context, force=True):
+    if not refresh(context, check_disk=True):
         raise VtaReviewUiError(_status)
     vta_invalidation.request_redraw()
 
@@ -1927,7 +1944,7 @@ def _reconstruction_timer():
                     if payload['plan'] != job['plan']:
                         raise VtaReviewUiError('Review changed during generation. Retry Generate Animation Range.')
                     from .vta_generation import migration_range
-                    backend = _get_backend(bpy.context)
+                    backend = _get_generation_backend(bpy.context)
                     incoming = backend._core.reconstruction_fingerprint(payload['reconstruction'], job['plan']['source_video_sha256'])
                     required = migration_range(_reconstruction_scene, job['plan'], incoming, job['domain'], job['offset'])
                     job['required'] = required
@@ -1974,11 +1991,11 @@ def _reconstruction_timer():
             validate_output_mapping(_reconstruction_location, _location_from_context(bpy.context, allow_outside=True))
             if _generation_job is None:
                 rigs, report = import_reviewed_output(output, _reconstruction_location,
-                                                     _get_backend(bpy.context), configure_views=False)
+                                                     _get_generation_backend(bpy.context), configure_views=False)
             else:
                 from .vta_generation import import_generation
                 paths = [Path(line.split('=', 1)[1]) for line in lines if line.startswith('VTA_OUTPUT=')]
-                rigs, report = import_generation(paths, _reconstruction_location, _get_backend(bpy.context),
+                rigs, report = import_generation(paths, _reconstruction_location, _get_generation_backend(bpy.context),
                                                 migration=_generation_job.get('migration', False),
                                                 depth_mode=_generation_job.get('depth_mode', 'AUTOMATIC'))
         unavailable = sum(s['state'] == 'unavailable' for c in report['characters'] for s in c['schedule'])
@@ -2109,7 +2126,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
         clear_operation_feedback('animation', context)
         try:
             location = _location_from_context(context)
-            backend = _get_backend(context)
+            backend = _get_generation_backend(context)
             project, cache, _revision = backend._load_context(location)
             from ..blendcap_vta_generation_ipc import preflight_generation_paths
             preflight_generation_paths(location.companion_root)
@@ -2244,9 +2261,8 @@ class BLENDCAP_OT_vta_suppress_candidate(bpy.types.Operator):
             if (not hasattr(self, '_request')
                     or _location_from_context(context) != self._location):
                 raise VtaReviewUiError('Selection or source changed; refresh and retry.')
-            with _review_transaction(context, self._location) as guard:
-                _get_backend(context).apply_suppression(self._location, self._request, confirmed=True, **guard)
-            refresh(context, force=True)
+            _get_backend(context).apply_suppression(self._location, self._request, confirmed=True)
+            refresh(context, check_disk=True)
             _status = ('Candidate restored. Use Update Tracking explicitly.' if self.restore
                        else 'Candidate suppressed. Raw evidence retained.')
             _status_is_error = False
@@ -2349,7 +2365,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
         if not _edit_available(self):
             return {'CANCELLED'}
         self._confirmed_request = None
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         intent = _selection.assignment_intent(_view)
@@ -2384,7 +2400,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             _status = user_message(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
     def draw(self, _context):
         for line in getattr(self, "_confirmation_lines", ()):
@@ -2394,7 +2411,7 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
         global _view, _status, _status_is_error
         if not _edit_available(self):
             return {'CANCELLED'}
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         intent = None if _view is None else _selection.assignment_intent(_view)
@@ -2412,9 +2429,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             if confirmed_request is None:
                 if intent.requires_confirmation:
                     raise VtaReviewUiError("Use Assign in the panel to confirm this reassignment.")
-                with _review_transaction(context, _location) as guard:
-                    _receipt, refreshed = _get_backend(context).apply(
-                        _location, observation_id=observation_id, character_id=character_id, **guard)
+                _receipt, refreshed = _get_backend(context).apply(
+                    _location, observation_id=observation_id, character_id=character_id)
             else:
                 if (
                     _location != getattr(self, "_confirmation_location", None)
@@ -2422,9 +2438,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
                     or confirmed_request.character_id != character_id
                 ):
                     raise VtaReviewUiError("The review selection changed during confirmation.")
-                with _review_transaction(context, _location) as guard:
-                    _receipt, refreshed = _get_backend(context).apply_confirmed_reassignment(
-                        _location, confirmed_request, **guard)
+                _receipt, refreshed = _get_backend(context).apply_confirmed_reassignment(
+                    _location, confirmed_request)
             _accept_mutated_review(context, refreshed)
             character = next(
                 row.display_name for row in refreshed.characters
@@ -2440,7 +2455,8 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
             _status = user_message(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
@@ -2465,7 +2481,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
         if not _repeat_assignment_context(context):
             self.report({'ERROR'}, 'Use Repeat Last Assignment in the VTA Preview.')
             return False
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return False
         target = _repeat_character_id()
@@ -2517,7 +2533,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
             # Only after durable assignment success; no candidate is carried forward.
             _selection.observation_id = ''
             self._repeat_scene.frame_set(self._repeat_next_frame)
-            if not refresh(context, force=True):
+            if not refresh(context, check_disk=True):
                 self.report({'WARNING'}, 'Assignment saved; refresh VTA Review for the next frame.')
             else:
                 _sync_properties(context)
@@ -2553,7 +2569,7 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
         if not _edit_available(self):
             return {'CANCELLED'}
         self._confirmed_request = None
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         intent = _selection.hard_state_intent(_view, self.decision_kind)
@@ -2586,7 +2602,8 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
             _status = user_message(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
     def draw(self, _context):
         for line in getattr(self, "_confirmation_lines", ()):
@@ -2596,7 +2613,7 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
         global _view, _status, _status_is_error
         if not _edit_available(self):
             return {'CANCELLED'}
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         intent = _selection.hard_state_intent(_view, self.decision_kind)
@@ -2621,9 +2638,8 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
                 ):
                     raise VtaReviewUiError("The review selection changed during confirmation.")
                 confirmed = True
-            with _review_transaction(context, _location) as guard:
-                _receipt, refreshed = _get_backend(context).apply_hard_state(
-                    _location, request, confirmed=confirmed, **guard)
+            _receipt, refreshed = _get_backend(context).apply_hard_state(
+                _location, request, confirmed=confirmed)
             _accept_mutated_review(context, refreshed)
             _status = f"Recorded {HARD_STATE_LABELS[self.decision_kind]} for the selected Character."
             _status_is_error = False
@@ -2633,7 +2649,8 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
             _status = user_message(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
@@ -2649,7 +2666,7 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
         global _view, _status, _status_is_error
         if not _edit_available(self):
             return {'CANCELLED'}
-        if not refresh(context, force=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         name = ((context.window_manager.blendcap_vta_new_character_name or "").strip()
@@ -2669,7 +2686,7 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             from .vta_scene_session import owned
             if isinstance(context.scene,bpy.types.Scene) and owned(context.scene):
                 from . import vta_scene_characters
-                project=_get_backend(context)._core.load_project_state(_location.companion_root)
+                project=_get_backend(context).observe(_location)
                 vta_scene_characters.add(context.scene,project,character.character_id)
             _view = refreshed
             if not _selection.select_character(refreshed, character.character_id):
@@ -2684,7 +2701,8 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             _status = user_message(exc)
             _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
 def select_timeline_character(context, character_id: str, *, extend=False) -> bool:
@@ -2773,7 +2791,7 @@ def go_to_selected_timeline_key(context) -> bool:
     active_scene = getattr(context, "scene", None)
     if active_scene is not None and active_scene is not scene:
         active_scene.frame_set(target_frame)
-    refresh(context, force=True)
+    refresh(context, check_disk=True)
     _sync_properties(context)
     return True
 
@@ -2943,7 +2961,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if not _edit_available(self):
             return {'CANCELLED'}
         self._pending_request = None
-        if not refresh(context, force=self.action != "rename-character", check_disk=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         try:
@@ -2976,7 +2994,8 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         except Exception as exc:
             _status = user_message(exc); _status_is_error = True
             self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
     def draw(self, _context):
         if self.action == "rename-character":
@@ -2985,6 +3004,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             name = getattr(self, "_pending_character_name", "this Character")
             self.layout.label(text=f"Delete {name} and ALL associated project information?")
             self.layout.label(text="This includes every review key and derived Character data.")
+            self.layout.label(text="Native objects and animation are retained; generated output becomes stale.")
         elif self.action == "clear-assignment":
             name = getattr(self, "_pending_character_name", "selected Character")
             candidate = getattr(self, "_pending_assignment_label", "candidate")
@@ -3003,7 +3023,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if request is None or getattr(self, "_pending_location", None) is None:
             self.report({'ERROR'}, "Use the confirmation dialog for review management.")
             return {'CANCELLED'}
-        if not refresh(context, force=self.action != "rename-character", check_disk=True):
+        if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         renamed = False
@@ -3029,10 +3049,9 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             if self.action in {"clear-review-key", "clear-selected-review-keys"}:
                 if _review_key_selection.keyframe_ids != request.keyframe_ids:
                     raise VtaReviewUiError("The selected review keys changed during confirmation.")
-            with _review_transaction(context, self._pending_location) as guard:
-                _get_backend(context).apply_management(
-                    self._pending_location, request, confirmed=True, **guard)
-            refresh(context, force=self.action != "rename-character", check_disk=True)
+            _get_backend(context).apply_management(
+                self._pending_location, request, confirmed=True)
+            refresh(context, check_disk=True)
             _status = f"VTA review action completed: {self.action}."
             _status_is_error = False
             self.report({'INFO'}, _status)
@@ -3080,6 +3099,25 @@ def _draw_management_actions(layout, *, actions=None, availability=None):
         row.operator("blendcap.vta_review_manage", text=label).action = action
 
 
+class BLENDCAP_OT_vta_restore_protected(bpy.types.Operator):
+    bl_idname='blendcap.vta_restore_protected'
+    bl_label='Restore Last Protected Edit'
+    bl_description='Restore the one previous destructive edit/tracking result in this session, only while domain and evidence inputs remain compatible'
+    @classmethod
+    def poll(cls,context):
+        return bool(_presentation_current(context) and _backend is not None and getattr(_backend,'last_restore_id',None) and not _analysis_locked())
+    def execute(self,context):
+        try:
+            from .vta_review_undo import require_ready
+            require_ready();_get_backend(context).restore_last(_location_from_context(context))
+            self.report({'INFO'},'Protected VTA state restored; native animation retained.')
+            return {'FINISHED'}
+        except Exception as exc:
+            self.report({'ERROR'},user_message(exc))
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
+
+
 class BLENDCAP_MT_vta_commands(bpy.types.Menu):
     bl_label = "VTA Commands"
     bl_idname = "BLENDCAP_MT_vta_commands"
@@ -3104,6 +3142,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
             return
         availability = _action_availability()
         layout.separator()
+        layout.operator('blendcap.vta_restore_protected',text='Restore Last Protected Edit')
         layout.label(text="Review Keys")
         _draw_management_actions(layout, actions={
             "clear-assignment", "clear-review-key", "clear-selected-review-keys",
@@ -3218,7 +3257,7 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             selected_range = selected_repair_range(context)
             if self.action in {'CHANGE_MODE', 'REMOVE', 'RESIZE'} and selected_range is None:
                 raise VtaReviewUiError('Select a repair range first.')
-            if not refresh(context, force=True):
+            if not refresh(context, check_disk=True):
                 raise VtaReviewUiError(_status)
             selection = timeline_character_selection(context)
             if selection is None or selection.character_ids != targets or _location != location:
@@ -3240,7 +3279,7 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             _get_backend(context).set_motion_trust_for_characters(
                 location, targets, start, end, action=action, mode=mode,
                 **({'previous_range': (selected_range.start_frame, selected_range.end_frame)} if action == 'resize' else {}))
-            if not refresh(context, force=True):
+            if not refresh(context, check_disk=True):
                 set_operation_feedback('repair','Repair saved; refresh unavailable.',
                     'Refresh review to display the saved repair.', context=context)
                 return {'FINISHED'}
@@ -3259,7 +3298,8 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             _status, _status_is_error = user_message(exc), True
             set_operation_feedback('repair','Couldn’t edit the repair.',_status,context=context,
                                    disposition='Existing repair ranges were kept unchanged.')
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
 def draw_cleanup_commands(layout, context, *, menu=False):
@@ -3335,16 +3375,15 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             targets = tracking_character_ids(context)
             if not targets:
                 raise VtaReviewUiError("Select Character rows before Update Tracking.")
-            if not refresh(context, force=True):
+            if not refresh(context, check_disk=True):
                 raise VtaReviewUiError("Refresh VTA Review before Update Tracking.")
             if tracking_character_ids(context) != targets or _location != location:
                 raise VtaReviewUiError("Review selection changed; retry Update Tracking.")
             from .vta_camera_cleanup import require_source_aligned
             require_source_aligned(getattr(context,'scene',None), targets)
-            with _review_transaction(context, location) as guard:
-                outcomes, _review, _timeline_result = _get_backend(context).update_tracking_for_characters(
-                    location, targets, **guard)
-            if not refresh(context, force=True):
+            outcomes, _review, _timeline_result = _get_backend(context).update_tracking_for_characters(
+                location, targets)
+            if not refresh(context, check_disk=True):
                 _status = f"Tracking saved, but review refresh failed: {_status}"
                 _status_is_error = True
                 set_operation_feedback('tracking','Tracking saved; refresh unavailable.',_status,context=context)
@@ -3368,7 +3407,8 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             _status_is_error = True
             set_operation_feedback('tracking','Couldn’t update tracking.',_status,context=context,
                                    disposition='Existing tracking was kept unchanged.')
-            return {'CANCELLED'}
+            from .vta_review_undo import AppliedMutationError
+            return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
@@ -3775,6 +3815,7 @@ classes = (
     BLENDCAP_OT_vta_review_create_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
+    BLENDCAP_OT_vta_restore_protected,
     BLENDCAP_OT_vta_goto_tracking_hint,
     BLENDCAP_OT_vta_motion_trust,
     BLENDCAP_MT_vta_commands,

@@ -198,10 +198,15 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
         # A loaded source can legitimately have no analysis yet. Its controls
         # remain available for Analyze; this is not an empty/malformed Scene.
         if info is not None:
-            canonical=project or ui._get_backend(context)._core.load_project_state(location.companion_root)
-            raw=canonical.to_dict()
+            backend=ui._get_backend(context)
+            canonical=project or (backend.observe(location) if getattr(backend,'is_engine_review',False)
+                                  else backend._core.load_project_state(location.companion_root))
             if scene.get(characters.KEY) is None and hasattr(canonical,'characters'):characters.bind(scene,canonical)
-            analyzed = bool(raw.get('active_analysis_revision_by_source',{}).get(source['source_id']))
+            if hasattr(canonical,'members'):
+                from . import vta_character_bindings
+                vta_character_bindings.apply_on_load(location.companion_root,scene,canonical)
+            analyzed = (bool(canonical.value['analysis_revision_id']) if hasattr(canonical,'members') else
+                        bool(canonical.to_dict().get('active_analysis_revision_by_source',{}).get(source['source_id'])))
             ui.record_scene_source(scene, info)
         else:
             analyzed = False

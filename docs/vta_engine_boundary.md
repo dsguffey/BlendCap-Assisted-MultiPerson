@@ -1,5 +1,86 @@
 # Engine boundary — M2 simplification, 2026-10-28
 
+## Current M3 boundary — completed in source, 2026-10-28
+
+M3 moves tracking/review/identity/Character management behind the one-shot private
+engine. `project_state.json` remains the only domain authority. Protocol v4 uses
+explicit schemas, project-wide revision/hash CAS, request IDs, idempotent receipts,
+atomic publication and status recovery. No ordinary domain Ctrl+Z is reintroduced.
+
+Engine-owned: frame/Character/timeline observation, Assign/Repeat/reassign, hard
+presence decisions, Character create/rename/delete, assignment/review-key clear,
+candidate suppression, selected-Character cache-only tracking Update and prior-region
+planning, pending/incorporated transitions, and repair-range edits. Existing private
+rules remain authoritative; duplicate names are rejected, with no implicit merge.
+Hints/dismissal, selections, Scene membership, formatting and native animation stay public.
+
+Purpose-built neutral observations use a strict 16 KiB manifest and a checksum-verified
+artifact in `.vta-engine/views`: maximum 32 MiB, 2048-frame window, bounded Character/
+timeline collections. This contains presentation records, never ProjectState or live
+private types. The public cache is disposable and revision-scoped. Unchanged polls,
+draws and in-window scrubbing make no engine calls. Timers schedule at most one
+background observation worker; they adopt ready DTOs on the main thread. Out-of-window
+frames show loading rather than the previous frame's overlay. Explicit edits refresh
+once; stale inputs fail explicitly. Canonical cache hashing is reused within one request.
+
+**Corrections and Restore.** Assign/reassign/re-review explicitly correct ordinary
+choices. Clear, deletion, suppression, repair replacement and Tracking Update retain
+one protected previous result per companion. The engine stores a bounded compressed
+prior document for exact dependent-state restoration, not a chronological history.
+Restore is a new CAS mutation; it requires the same session, exact after-checkpoint
+and unchanged guarded analysis inputs, then consumes the slot. A later domain change
+invalidates it; restart/reopen clears ordinary UI availability. Native Depth edits
+alone do not invalidate the slot. Durable uncertain-transaction recovery survives
+reopen independently, including the prepared protected candidate/consumption record.
+Generation and retarget output retention remain their existing M4 responsibilities.
+
+The public host retains a bounded creation application receipt under
+`.vta-host-bindings/<request-id>.json`. It records intended Scene/source membership,
+not Character authority or decisions. Explicit Load/Retry can finish adoption after
+lost replies or native Undo, checking current canonical IDs and unique native ownership.
+It never silently selects among ambiguous Scenes, rewinds decisions or recreates animation.
+Save As copies these receipts and recovery closure; derived views, locks/temp files and
+resolved ordinary snapshot history are omitted. Delete removes the private dependency
+closure; native objects/Actions/Depth keys are retained and output becomes stale.
+
+**Actual separation.** Eighteen migrated methods were removed from production
+`PrivateCoreBackend`; its frozen pre-M3 adapter is test-only. There is no in-process
+fallback for migrated edits. Raw direct import sites remain **20 in six files**:
+17 statements in analysis/reconstruction/rotation workers, two core import loaders,
+and one computed camera import. Shared loaders now serve deferred generation,
+retargeting and source bootstrap only. Existing provider workers remain mixed;
+M3 does not claim zero host imports or completed provider separation.
+
+**Measurements.** Same 29,186,332-byte owner document, 163-frame source: old cached
+projection serialized analysis 163 times in 1.753 s; new observation serializes it
+once, and 489 cached queries took 0.042 s with zero IPC. Uninstrumented new cold
+observation measured 0.574 s plus 0.024 s public decode. Diagnostic command + refresh:
+create 1.24–1.26 s, assign 1.286 s, reassign 1.284 s, hard state 1.330 s; old in-process
+adapters measured about 0.50–0.57 s. Project parses fall from three to two per edit
+(one mutation, one refresh). Two-Character tracking planning: 0.449 s. Instrumented
+startup was 0.091–0.102 s; round trips about 0.47 s for observation, 0.57–0.62 s for
+review mutations, 0.342 s for planning. Parsing, hashing and separate refresh dominate.
+These are diagnostic samples, not thresholds or a claim of faster explicit edits.
+One-shot remains appropriate; no persistent engine or per-Character revisioning added.
+
+**Validation/deployment.** 834 public + 472 private full tests passed, zero skips/errors/failures. Fresh factory Blender under a private-import
+blocker passes real assignment/hard-state/Restore, cached polls, native Undo isolation,
+creation/Undo/explicit Load, lost-create reply, pending Save/Reopen/independent Save As
+and Retry. Native Depth group drag/AutoKey/delete/three Undo/Redo cycles pass with
+VTA Mode on and off. All 69 canonical owner QA files remain hash-identical. No owner
+migration or installed deployment; source-only matching protocol packages are required.
+Resolve experimental legacy general-Undo pending state in its prior build before upgrading.
+No push/tag/release. Manual owner QA is deferred, not represented as completed.
+
+M3 was harder than the initial estimate because bounded observation delivery and
+native creation adoption needed real lifecycle proofs. Remaining estimate: M4 **4–6**
+focused passes (generation planning/jobs/progress/cancel/providers/results/application),
+M5 **2–3** (residual imports, recovery/process supervision, deployment/installer/security).
+Total **6–9**, estimates rather than deadlines. M4 has not started.
+
+This section supersedes earlier M1/M2 scope, Undo and proposed-Restore descriptions
+below. Those sections remain historical evidence, not current implementation guidance.
+
 Source-only Architecture C: **minimal VTA Undo**. Source coverage and Character
 rename use the standalone private engine. Other domain operations/presentation
 remain legacy in-process. No installed deployment, owner migration or full

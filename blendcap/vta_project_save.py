@@ -57,11 +57,12 @@ def restore(changes):
 
 def prepare(source,target,scenes):
     """Validate closure and stage host rebindings, without writing authority."""
+    from . import vta_review_ui as ui
+    # Engine validates canonical schema and resolves journal publication status
+    # before the copy plan freezes recovery metadata. No host private import.
+    ui._engine_client(bpy.context).call('project-state',dict(companion_root=str(Path(source).resolve())))
     plan=CopyPlan(source,companion_root_for_blend(target))
     raw=plan.project()
-    from . import vta_review_ui as ui
-    # Core validates canonical schema; the transport does not reinterpret it.
-    ui._get_backend(bpy.context)._core.load_project_state(source)
     sources={row['source_id']:row for row in raw['sources']}
     updates=[]
     for scene in scenes:

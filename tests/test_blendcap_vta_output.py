@@ -189,7 +189,7 @@ class BlenderOutputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, \
              mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
                  Path(directory), Path(directory)/'video.mp4', 0, 1)), \
-             mock.patch.object(ui, '_get_backend', return_value=backend), \
+             mock.patch.object(ui, '_get_generation_backend', return_value=backend), \
              mock.patch.object(ui, 'tracking_character_ids', return_value=('selected-character',)), \
              mock.patch.object(ui, 'require_loaded_context') as require_loaded, \
              mock.patch.object(ui, '_edit_available', return_value=True), \
