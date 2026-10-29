@@ -26,13 +26,26 @@ def run(folder,bundle):
     # Trusted live configuration selects the existing offline runtime. Saved job
     # input cannot select an executable, import module or checkpoint.
     sys.path.insert(0,str(Path(__file__).resolve().parent))
+    from vta_protocol.process import watch_parent
+    if os.environ.get('VTA_PROVIDER_PARENT'):watch_parent(int(os.environ.pop('VTA_PROVIDER_PARENT')))
     from vta_protocol import fields,require
     from vta_protocol.jobs import finite_tree
+    from vta_protocol.runtime import user_data_root
+    # Adapter logic must come from this component, before the explicit model
+    # bundle can contribute its own modules to the provider's import path.
+    from blendcap_vta_body_provider import infer_reviewed_pose,runtime_identity,export_command,digest
+    # Trusted runtime bundle selects architecture/weights. Inherited research
+    # overrides cannot silently select another checkout or experimental backend.
+    os.environ.update(DINOV3_HUB_DIR=str(bundle/'models/dinov3_hub/facebookresearch_dinov3_main'),
+        BLENDCAP_MOGE_BASE=str(bundle/'checkpoints'),FOV_TRT='0',USE_TRT_BACKBONE='0')
     sys.path.insert(0,str(bundle))
     from save_mhr_data import load_estimator_fast
+    cache=user_data_root()/'cache';cache.mkdir(parents=True,exist_ok=True)
+    # The legacy loader sets these during import. Override before any model
+    # load so immutable program/model directories never own mutable hub caches.
+    os.environ.update(TORCH_HOME=str(cache/'torch'),HF_HOME=str(cache/'huggingface'))
     import numpy as np,cv2,torch
     cv2.setNumThreads(1)
-    from blendcap_vta_body_provider import infer_reviewed_pose,runtime_identity,export_command,digest
     estimator=None;number=0;source=None;video=None;idle_deadline=time.monotonic()+1200
     requests=root/'requests';responses=root/'responses';requests.mkdir(exist_ok=True);responses.mkdir(exist_ok=True)
     def decode(frame):

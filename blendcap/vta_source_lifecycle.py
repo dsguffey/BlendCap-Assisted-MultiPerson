@@ -65,18 +65,8 @@ def configure(context, filename):
     if not path.is_file():
         raise ValueError('Choose an existing video file.')
     root = companion_root_for_blend(bpy.data.filepath)
-    backend = ui._get_backend(context)
-    if getattr(backend,'is_engine_review',False):
-        # Source bootstrap/provider setup remains a specifically deferred M4
-        # legacy path; migrated review never imports this core.
-        backend=ui._get_source_backend(context)
-    core = backend._core
-    state_path = root / 'project_state.json'
-    if not state_path.exists() and root.exists() and any(root.iterdir()):
-        raise ValueError('Companion data exists without its project state; restore it before configuring a source.')
-    # Never reinterpret a corrupt/unsupported existing project as a fresh one.
-    project = core.load_project_state(root) if state_path.exists() else core.ProjectState()
-    original_bytes = state_path.read_bytes() if state_path.exists() else None
+    from ..blendcap_vta_source import stage
+    client=ui._engine_client(context)
     had_editor = scene.sequence_editor is not None
     seq = scene.sequence_editor_create()
     before = (seq.active_strip, scene.render.fps, scene.render.fps_base,
@@ -94,21 +84,8 @@ def configure(context, filename):
         width, height = int(element.orig_width), int(element.orig_height)
         if not math.isfinite(fps) or fps <= 0 or min(count, width, height) <= 0:
             raise ValueError('Video metadata is unavailable or invalid.')
-        digest = backend._source_hash(path)
-        matches = [s for s in project.to_dict()['sources'] if s.get('video_sha256') == digest]
-        if len(matches) > 1:
-            raise ValueError('Video matches multiple project sources; cannot bind ambiguously.')
-        if matches:
-            source = matches[0]
-            if (not math.isclose(source['fps'], fps, rel_tol=1e-6, abs_tol=1e-3)
-                    or (source['width'], source['height']) != (width, height)
-                    or not 0 <= source['start_frame'] <= source['end_frame'] < count):
-                raise ValueError('Video metadata differs from its existing source record.')
-        else:
-            source = core.SourceReference('source-' + uuid.uuid4().hex, fps, 0, count - 1,
-                                          digest, width, height).to_dict()
-            project.add_source(core.SourceReference(source['source_id'], fps, 0, count - 1,
-                                                    digest, width, height))
+        value,project,publish=stage(client,root,path,fps=fps,count=count,width=width,height=height)
+        source=value['source'];digest=source['video_sha256']
         source_rate(source)  # Reject unsupported timing before publishing anything.
         scene[SCENE_TAG] = SCENE_VERSION
         scene['vta_project_id'] = project.project_id
@@ -129,12 +106,6 @@ def configure(context, filename):
         finally: properties._SETTING_DEFAULT_SOURCE = previous
         scene.render.use_sequencer = before[-1]
         info = (project.project_id, source, ReviewLocation(root, path, 0, 1), strip)
-        def publish():
-            current = state_path.read_bytes() if state_path.exists() else None
-            if current != original_bytes:
-                raise ValueError('Project changed during source setup; retry without concurrent edits.')
-            if not matches:
-                core.save_project_state(project, root)
         session.load(context, scene, source_info=info, project=project, commit=publish)
         return scene
     except Exception:

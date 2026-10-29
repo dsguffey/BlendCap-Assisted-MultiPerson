@@ -15,10 +15,10 @@ from uuid import uuid4
 
 try:
     from . import vta_protocol as wire
-    from .blendcap_vta_runtime import default_roots
+    from .blendcap_vta_runtime import load_runtime
 except ImportError:
     import vta_protocol as wire
-    from blendcap_vta_runtime import default_roots
+    from blendcap_vta_runtime import load_runtime
 
 LOG=logging.getLogger(__name__)
 
@@ -35,7 +35,13 @@ class EngineEndpoint:
 
 def resolve_engine(configured_root='', *, python=None):
     """Resolve executable files only; never discover/import a private module."""
-    roots=(Path(configured_root),) if configured_root else default_roots()
+    try:
+        if configured_root:
+            roots=(wire.path_form(str(configured_root)),)
+        else:
+            runtime=load_runtime();roots=(runtime['engine_root'],)
+            if python is None:python=runtime['control_python']
+    except ValueError as exc:raise EngineError(getattr(exc,'code','ENGINE_UNAVAILABLE'),str(exc)) from exc
     root=next((p for p in roots if (p/'vta_engine.py').is_file()),None)
     if root is None:raise EngineError('ENGINE_UNAVAILABLE','VTA engine launcher is unavailable; check the Core location.')
     if python is None:

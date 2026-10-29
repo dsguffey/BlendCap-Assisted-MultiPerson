@@ -1,5 +1,63 @@
 # Engine boundary — Architecture Cleanup M4
 
+## Current Architecture Cleanup M5 — source checkpoint, 2026-10-29
+
+M1–M5 architecture is complete in source: **zero production public-to-private
+implementation imports** (M4: five). M5 removes import discovery, mixed rotation/
+legacy worker/timer/native validation/presentation paths and implicit runtime
+fallbacks. One-shot authority, durable inference jobs, private acceptance and
+public native application/Depth/retargeting remain. Camera decoding stays GPL in
+a bounded neutral-frame provider; the private solver/authority never imports it.
+Source setup has staged, hash-guarded idempotent private publication. Camera
+preflight correctly uses generation authority rather than output bookkeeping.
+
+Explicit source/installed/test runtime roots, coherent protocol v6/layout v1,
+provider contract checks, parent-loss/orphan recovery, protected artifact cleanup,
+writable cache ownership, error categories and a deterministic package/repair
+proof establish the setup foundation. Blender remains user-installed; VTA setup
+will provision matching adapter/engine/control/provider/runtime/assets under
+managed per-user roots. Models remain warm within a job only. No authoritative
+daemon or cross-job warm service. Load AI means readiness; Unload releases owned
+provider resources without touching authority. No new AI controls were invented.
+
+Owner approved retiring legacy in-addon Install/Reinstall/Uninstall mutation
+paths; stable command IDs now return setup/repair messages. Old wizard UI/vendor
+setup exposure is removed in the later UI/final package pass. A private old Undo
+export remains solely for the still-undeployed installed host until coordinated
+replacement; no M5 public route uses it. No migration/recreation/deployment.
+
+Validation: **848 public + 525 private tests**, zero failures/errors/skips;
+compile/register, actual body/SAM3 jobs, real camera decoder/solver, private-import-
+blocked native application/manual Depth/Save/Reopen/independent Save As/Restore/
+retarget and relocated control/adapter proofs pass. All 69 owner QA files are
+hash-identical. No owner manual QA needed for this source checkpoint.
+
+The relocated proof does not include freshly provisioned GPU runtimes/models;
+full clean-machine/offline install remains final setup validation. Actual body
+cv2 is 5.0.0 despite overlapping 4.13/5.0 package metadata; freeze one reviewed
+tested wheel rather than copy the dev environment. Dependency inventory records
+35 component groups plus 51 body/40 analysis loaded-distribution observations,
+not all installed research. Final wheel/native/codec SBOM, Meta/model assent,
+GPL source delivery, NVIDIA/VC terms, workspace provenance, signed/authentic update
+masters and exact-payload counsel review remain release gates. No new licensing
+restriction requiring a different architecture was found; no shipping clearance.
+
+Next is dedicated pre-1.0 UX: Mark → Assign Marked / Suppress Marked, batch-first
+actions, honest generation progress/phases/Cancel, immediate busy feedback,
+refresh/action latency, labels/layout/Advanced and deferred key presentation.
+Benchmark realistic cold/warm throughput before considering cross-job residency.
+Then final installer/update/repair/uninstall UX and clean-machine proof, then
+final regression/owner QA, ARAP T2, licensing review and RC. None began
+automatically. No push/tag/release.
+
+Authoritative detail: public `docs/vta_runtime_installation.md` and
+`docs/vta_package_provenance.md`; private
+`docs/research/vta_architecture_cleanup_m5_packaging_foundation_20261029.md` and
+`docs/research/vta_m5_package_provenance_20261029.json`.
+Local commit hashes follow in the external checkpoint receipt/owner report.
+This section supersedes historical M1–M4 remaining-work claims below.
+
+
 ## Current Architecture Cleanup M4 — source checkpoint, 2026-10-29
 
 M4 completes generation/analysis jobs, provider isolation, result acceptance and

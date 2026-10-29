@@ -3,7 +3,7 @@ import math
 from . import fields,require,text,frame,digest,identifier,checkpoint,revision,path_form
 from .domain import ids
 
-CONTROL_OPS=('generation-prepare','analysis-prepare','job-start','job-status','job-cancel',
+CONTROL_OPS=('job-cleanup','generation-prepare','analysis-prepare','job-start','job-status','job-cancel',
              'job-decision','job-result','job-application','generation-validate','retarget-bindings','retarget-export')
 STATES=('prepared','starting','running','awaiting-decision','ready','accepted','cancelled','failed','unknown')
 COMMON=('companion_root','project_id','expected_revision','source_id','source_path')
@@ -21,6 +21,8 @@ def runtime(value):
 
 def request(op,p):
     if op not in CONTROL_OPS:return False
+    if op=='job-cleanup':
+        fields(p,('companion_root','job_id'));path_form(p['companion_root']);identifier(p['job_id']);return True
     if op=='retarget-bindings':
         fields(p,('companion_root',));path_form(p['companion_root']);return True
     if op=='retarget-export':
@@ -79,6 +81,10 @@ def manifest(value):
     digest(value['sha256']);require(type(value['bytes']) is int and 0<value['bytes']<=32*1024*1024,'Invalid job artifact size.')
 
 def response(op,value):
+    if op=='job-cleanup':
+        fields(value,('files','bytes','protected'));require(type(value['protected']) is bool and all(type(value[k]) is int and value[k]>=0 for k in ('files','bytes')),'Invalid cleanup report.');return
+    if op=='job-cleanup':
+        fields(p,('companion_root','job_id'));path_form(p['companion_root']);identifier(p['job_id']);return True
     if op=='retarget-bindings':
         fields(value,('bindings',));require(type(value['bindings']) is list and 0<len(value['bindings'])<=64,'Invalid source bindings.')
         seen=set()

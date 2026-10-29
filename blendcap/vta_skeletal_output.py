@@ -213,30 +213,6 @@ def limit_source_visibility(action, first, last, *, preserve_object_transforms=F
         fc.update()
 
 
-def resolve_scene_reference(plan, records, previous, core, output_path):
-    """Reuse the fixed derived reference; bounded updates never recenter it."""
-    saved = previous.data.get('vta_scene_reference') if previous is not None else None
-    if saved is not None:
-        reference = json.loads(saved)
-        evidence = reference['reference']
-        origin_report = Path(reference['output_file'])
-        if not origin_report.is_file() or _hash(origin_report) != reference['output_sha256']:
-            raise ValueError('VTA scene-reference reconstruction changed or is unavailable')
-        origin = json.loads(origin_report.read_text(encoding='utf-8'))
-        original_samples = [{'character_id': r['character_id'],
-            'samples': r['camera_registration']['samples']} for r in origin['characters']
-            if (r.get('camera_registration') or {}).get('samples')]
-        expected = core.scene_reference_from_samples(original_samples, plan['width'], plan['height'])
-        if (evidence != expected or reference['source_video_sha256'] != plan['source_video_sha256']
-                or origin['plan']['source_video_sha256'] != plan['source_video_sha256']):
-            raise ValueError('VTA scene reference is incompatible or was edited')
-        return reference
-    participants = [{'character_id': r['character_id'],
-                     'samples': r['camera_registration']['samples']}
-                    for r in records if (r.get('camera_registration') or {}).get('samples')]
-    return {'reference': core.scene_reference_from_samples(participants, plan['width'], plan['height']),
-            'source_video_sha256': plan['source_video_sha256'],
-            'output_file': str(Path(output_path).resolve()), 'output_sha256': _hash(output_path)}
 
 
 def scene_translation(reference):
@@ -262,37 +238,6 @@ def _remove_staged(obj):
         bpy.data.actions.remove(action)
 
 
-def validate_camera_registration(record, plan, root, core, reconstruction=None):
-    """Bind derived calibration to the hashed raw NPZ, not object placement."""
-    import numpy as np
-    registration = record.get('camera_registration')
-    if not record['source_frames']:
-        if registration is not None:
-            raise ValueError('Empty pose record must not contain camera registration')
-        return []
-    path = _inside(root, record['npz'])
-    if _hash(path) != record['npz_sha256']:
-        raise ValueError('Camera registration NPZ hash changed')
-    with np.load(path, allow_pickle=False) as raw:
-        if reconstruction is not None:
-            if ('reconstruction_fingerprint' not in raw
-                    or raw['reconstruction_fingerprint'].item() != reconstruction['fingerprint']):
-                raise ValueError('Raw reconstruction calibration fingerprint differs from output')
-            if reconstruction['mode'] == 'FIRST':
-                if not np.allclose(raw['focal_length'], reconstruction['calibration']['intrinsics'][0][0],
-                                   atol=1e-3, rtol=0):
-                    raise ValueError('Raw FIRST focal lengths differ from fixed source calibration')
-        if list(raw['frame_indices']) != record['source_frames']:
-            raise ValueError('Camera registration source frames differ from NPZ')
-        samples = [core.source_camera_sample(f, (raw['joint_coords'][i, 1] + raw['cam_t'][i]).tolist(),
-            float(raw['focal_length'][i]), plan['width'], plan['height'])
-            for i, f in enumerate(record['source_frames'])]
-    expected = {'version': 1,
-        'convention': 'camera-centred-metres; world=(cv-x,cv-z,-cv-y); centred-square-pixels',
-        'samples': samples}
-    if registration != expected:
-        raise ValueError('Camera registration differs from raw reconstruction calibration')
-    return samples
 
 
 def register_camera_root(obj, samples):
@@ -405,65 +350,28 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
     report = _read_report(path)
     if report.get('schema') != 'vta-reviewed-skeletal-output' or report.get('version') not in (1, 2, 3, 4):
         raise ValueError('Unsupported skeletal output schema; regenerate with ProjectState 0.8')
-    engine_route=bool(getattr(backend,'is_engine_generation',False))
-    if engine_route:
-        from types import SimpleNamespace
-        identity=report['plan']
-        cameras=[o for o in bpy.context.scene.objects if o.type=='CAMERA' and o.get('vta_project_id')==identity['project_id'] and o.get('vta_source_id')==identity['source_id']]
-        existing=[o for o in bpy.context.scene.objects if o.get('vta_project_id')==identity['project_id'] and o.get('vta_source_id')==identity['source_id'] and o.type in ('ARMATURE','CAMERA')]
-        from .vta_generation import fingerprint as previous_fingerprint
-        stamps=sorted({previous_fingerprint(o) for o in existing})
-        saved=json.loads(cameras[0].data['vta_scene_reference']) if len(cameras)==1 and cameras[0].data.get('vta_scene_reference') else None
-        validated=validated or backend.validate_output(location,path,previous_fingerprints=stamps,saved_reference=saved,migration_approved=migration_approved)
-        report=validated['report'];plan=report['plan'];bounded=plan.get('generation_scope')=='range'
-        if depth_mode!=validated['depth_mode']:raise ValueError('Native Depth mode differs from the accepted job setting.')
-        if _hash(path)!=validated['output_sha256']:raise ValueError('Validated output report changed.')
-        cache=SimpleNamespace(revision_id=plan['analysis_revision_id'],source=SimpleNamespace(**validated['source']))
-        reconstruction=report['reconstruction'];fingerprint=reconstruction['fingerprint']
-        expected={c['character_id']:c for c in plan['characters']};records=report['characters'];registration=validated['registration'];paths={}
-        from .vta_camera_cleanup import require_source_aligned
-        require_source_aligned(bpy.context.scene,expected,plan['project_id'],plan['source_id'])
-        for record in records:
-            if record['bvh'] is not None:
-                bvh=_inside(root,record['bvh'])
-                if _hash(bvh)!=record['bvh_sha256']:raise ValueError('Validated BVH changed.')
-                paths[record['character_id']]=bvh
-    else:
-        project, cache, _revision = backend._load_context(location)
-        bounded = (report['plan'].get('generation_scope') == 'range'
-                   or report['version'] == 2 or report['plan'].get('version') == 2)
-        options = {'frame_range': report['plan']['source_range']} if bounded else {}
-        if 'character_scope' in report['plan']:
-            options['character_ids'] = report['plan']['character_scope']
-        plan = backend._core.build_skeletal_plan(project, cache, **options)
-        if report['plan'] != plan:
-            raise ValueError('Skeletal output is stale; Generate Animation again from current review')
-        reconstruction = report.get('reconstruction')
-        fingerprint = backend._core.reconstruction_fingerprint(reconstruction, plan.get('source_video_sha256'))
-        expected = {c['character_id']: c for c in plan['characters']}
-        from .vta_camera_cleanup import require_source_aligned
-        require_source_aligned(bpy.context.scene, expected, plan['project_id'], plan['source_id'])
-        records = report['characters']
-        if len(records) != len(expected) or {r['character_id'] for r in records} != set(expected):
-            raise ValueError('Skeletal output Character set differs from reviewed plan')
-        paths = {}
-        registration = {}
-        for record in records:
-            character = expected[record['character_id']]
-            if record['schedule'] != backend._core.resolve_pose_schedule(
-                    character['samples'], record['source_frames'],
-                    repair_context=character.get('repair_context', ())):
-                raise ValueError('Skeletal schedule differs from authoritative repair policy')
-            if record['bvh'] is not None:
-                bvh = _inside(root, record['bvh'])
-                if _hash(bvh) != record['bvh_sha256']:
-                    raise ValueError('Skeletal BVH hash changed')
-                paths[record['character_id']] = bvh
-            if report['version'] == 4:
-                registration[record['character_id']] = validate_camera_registration(
-                    record, plan, root, backend._core, reconstruction)
-        if not paths or not any(s['state'] != 'unavailable' for r in records for s in r['schedule']):
-            raise ValueError('Animation has no successful trustworthy or repaired pose; prior output retained')
+    if not getattr(backend,'is_engine_generation',False):raise ValueError('Native output requires a validated engine result.')
+    from types import SimpleNamespace
+    identity=report['plan']
+    cameras=[o for o in bpy.context.scene.objects if o.type=='CAMERA' and o.get('vta_project_id')==identity['project_id'] and o.get('vta_source_id')==identity['source_id']]
+    existing=[o for o in bpy.context.scene.objects if o.get('vta_project_id')==identity['project_id'] and o.get('vta_source_id')==identity['source_id'] and o.type in ('ARMATURE','CAMERA')]
+    from .vta_generation import fingerprint as previous_fingerprint
+    stamps=sorted({previous_fingerprint(o) for o in existing})
+    saved=json.loads(cameras[0].data['vta_scene_reference']) if len(cameras)==1 and cameras[0].data.get('vta_scene_reference') else None
+    validated=validated or backend.validate_output(location,path,previous_fingerprints=stamps,saved_reference=saved,migration_approved=migration_approved)
+    report=validated['report'];plan=report['plan'];bounded=plan.get('generation_scope')=='range'
+    if depth_mode!=validated['depth_mode']:raise ValueError('Native Depth mode differs from the accepted job setting.')
+    if _hash(path)!=validated['output_sha256']:raise ValueError('Validated output report changed.')
+    cache=SimpleNamespace(revision_id=plan['analysis_revision_id'],source=SimpleNamespace(**validated['source']))
+    reconstruction=report['reconstruction'];fingerprint=reconstruction['fingerprint']
+    expected={c['character_id']:c for c in plan['characters']};records=report['characters'];registration=validated['registration'];paths={}
+    from .vta_camera_cleanup import require_source_aligned
+    require_source_aligned(bpy.context.scene,expected,plan['project_id'],plan['source_id'])
+    for record in records:
+        if record['bvh'] is not None:
+            bvh=_inside(root,record['bvh'])
+            if _hash(bvh)!=record['bvh_sha256']:raise ValueError('Validated BVH changed.')
+            paths[record['character_id']]=bvh
     prior = [o for o in bpy.context.scene.objects if o.get('vta_project_id') == plan['project_id']
              and o.get('vta_source_id') == plan['source_id'] and o.type == 'ARMATURE']
     all_prior = prior
@@ -481,9 +389,6 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             raise ValueError('Calibration migration does not cover all existing animation; previous animation retained')
         if fingerprint == 'legacy-per-frame-intrinsics':
             raise ValueError('Calibration migration requires current reconstruction metadata')
-    if not engine_route:
-        backend._core.require_compatible_reconstruction(fingerprint, previous_fingerprints,
-                                                       bounded=bounded and not replacing_calibration)
     if (not bounded or replacing_calibration) and any(value != fingerprint for value in previous_fingerprints):
         if any(o.get('vta_character_id') not in paths for o in prior):
             raise ValueError('Calibration migration requires replacement for every existing Character; previous animation retained')
@@ -505,7 +410,7 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
         if len(cameras) > 1:
             raise ValueError('Multiple VTA source cameras own this source')
-        reference = validated['reference'] if engine_route else resolve_scene_reference(plan, records, cameras[0] if cameras else None, backend._core, path)
+        reference = validated['reference']
         if prior and (not cameras or not cameras[0].data.get('vta_scene_reference')):
             raise ValueError('Existing VTA rigs lack a fixed registration base; preserve them in a separate scene before calibrated regeneration')
         offset = location.blender_frame - location.source_frame
@@ -567,7 +472,7 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             if report['version'] == 4:
                 register_camera_root(obj, registration[cid])
             retime_reviewed_action(obj, record['source_frames'], record['schedule'],
-                                  offset, repair_math=_NATIVE_REPAIR_MATH if engine_route else backend._core)
+                                  offset, repair_math=_NATIVE_REPAIR_MATH)
             if report['version'] == 4:
                 # Fresh canonical camera/rig share the same gauge before the
                 # common scene translation. User Object keys are merged later.
@@ -576,8 +481,8 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             obj['vta_character_id'], obj['vta_project_id'] = cid, plan['project_id']
             obj['vta_source_id'] = plan['source_id']
             obj['vta_output_file'] = str(Path(path).resolve())
-            obj['vta_project_file_hash'] = validated['authority_sha256'] if engine_route else _hash(location.companion_root / 'project_state.json')
-            if engine_route:obj['vta_generation_job_id']=validated['job_id']
+            obj['vta_project_file_hash'] = validated['authority_sha256']
+            obj['vta_generation_job_id']=validated['job_id']
             obj['vta_cache_file_hash'] = _hash(location.companion_root / 'analysis' / (cache.revision_id + '.json'))
             obj['vta_analysis_revision_id'] = cache.revision_id
             obj['vta_output_stale'] = False
@@ -618,7 +523,7 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             camera_previous, camera_stage = stage_source_camera(plan, records, location,
                 bounded and not replacing_calibration, bounds, reference)
             camera_stage.data['vta_reconstruction_fingerprint'] = fingerprint
-        if engine_route and _hash(location.companion_root/'project_state.json')!=validated['checkpoint']['revision']['sha256']:
+        if _hash(location.companion_root/'project_state.json')!=validated['checkpoint']['revision']['sha256']:
             raise ValueError('VTA authority changed before native publication; prior animation retained.')
         # Commit only after all new armatures validate. Old generated output is
         # retained on disk; only owned Blender projections are replaced.

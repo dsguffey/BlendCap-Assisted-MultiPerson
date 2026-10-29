@@ -75,12 +75,13 @@ def _context(job):
 
 def _runtime(context):
     from . import vta_review_ui as ui
-    from .helpers import _python_exe
-    ui._get_backend(context) # Resolve the trusted engine root, without importing it.
-    python,kinesia,checkpoint=ui._configured_analysis_paths(context)
-    public=Path(__file__).resolve().parents[1]
-    return dict(public_root=str(public),body_root=str(public),body_python=str(Path(_python_exe())),
-        analysis_python=str(python),kinesia_root=str(kinesia),sam3_checkpoint=str(checkpoint))
+    from ..blendcap_vta_runtime import load_runtime
+    from ..vta_protocol.runtime import provider_runtime
+    runtime=load_runtime();engine=ui._engine_client(context).endpoint.launcher.parent
+    if runtime['public_root']!=Path(__file__).resolve().parents[1] or runtime['engine_root']!=engine:
+        raise ValueError('Runtime configuration does not match the loaded adapter/engine. Run setup/repair.')
+    return provider_runtime(runtime)
+
 
 def _launch(job,phase,fn):
     job['phase']=phase;job['task'].submit(fn);job['next']=time.monotonic()+.3
@@ -252,7 +253,8 @@ def _status(job,status):
         _launch(job,'starting',lambda:job['handle'].call('job-start',runtime=job['runtime']));return
     if state in ('cancelled','failed'):
         if state=='failed':_failure_feedback(job,(status['error'] or {}).get('message','Job failed.'))
-        _settled(job,'Cancelled; prior animation retained.' if state=='cancelled' else 'Job failed; prior animation retained. See Details and the job log.');return
+        from ..blendcap_vta_errors import primary
+        _settled(job,'Cancelled; prior animation retained.' if state=='cancelled' else primary((status['error'] or {}).get('code')));return
     if state=='unknown':raise ValueError('Job outcome is unknown. No rerun or application was attempted. Inspect logs, then discard explicitly.')
     if state in ('ready','accepted'):
         if job['pointer']['kind']=='analysis':_settled(job,'Analysis complete; candidate checkpoints saved.');return

@@ -306,14 +306,6 @@ def restore_source(obj):
         raise
 
 
-def _rotation_core(backend):
-    import importlib
-    try:
-        return importlib.import_module(backend._core.__name__+'.camera_rotation')
-    except ImportError as exc:
-        raise ValueError('Update the private VTA Core to use rotation cleanup.') from exc
-
-
 def prepare(context, obj=None):
     from . import vta_review_ui as ui
     from .vta_skeletal_output import _hash
@@ -327,11 +319,7 @@ def prepare(context, obj=None):
     if obj.get('vta_output_stale'):
         raise ValueError('Generate the current reviewed animation before camera cleanup.')
     _,_,bounds = validate_rig(obj)
-    backend = ui._get_source_backend(context)
-    project,cache,revision = backend._load_context(info[2])
-    if (obj.get('vta_project_file_hash') != _hash(info[2].companion_root/'project_state.json')
-            or obj.get('vta_cache_file_hash') != _hash(info[2].companion_root/'analysis'/(revision+'.json'))):
-        raise ValueError('Review or analysis changed since this animation was generated. Generate it before cleanup.')
+    backend = ui._engine_client(context)
     if not context.scene.get(SCENE_ID):context.scene[SCENE_ID]=uuid4().hex
     scene_id=context.scene[SCENE_ID]
     if sum(s.get(SCENE_ID) == scene_id for s in bpy.data.scenes) != 1:
@@ -345,17 +333,19 @@ def prepare(context, obj=None):
     reconstruction = output.get('reconstruction') or {}
     if reconstruction.get('mode') != 'FIRST':
         raise ValueError('Rotation cleanup requires current fixed-initial (Sample first frame) animation. Generate it first.')
-    calibration = backend._core.reconstruction_fingerprint(reconstruction,info[1]['video_sha256'])
+    observed=backend.call('camera-prepare',dict(companion_root=str(info[2].companion_root),source_path=str(info[2].source_path),
+        source_id=info[1]['source_id'],project_sha256=obj.get('vta_project_file_hash'),cache_sha256=obj.get('vta_cache_file_hash'),reconstruction=reconstruction))
+    calibration=observed['calibration'];revision=observed['revision']
     if (obj.get('vta_reconstruction_fingerprint') != calibration
             or camera.data.get('vta_reconstruction_fingerprint') != calibration):
         raise ValueError('Character/source-camera calibration differs; regenerate before cleanup.')
     focal = float(reconstruction['calibration']['intrinsics'][0][0])
     offset = info[2].blender_frame-info[2].source_frame
-    first,last = cache.source.start_frame,bounds[1]-offset
-    if bounds[0]-offset < first or last > cache.source.end_frame:
+    first,last = observed['start_frame'],bounds[1]-offset
+    if bounds[0]-offset < first or last > observed['end_frame']:
         raise ValueError('Generated Root coverage is outside the source.')
     preflight_generation_paths(info[2].companion_root)
-    core = _rotation_core(backend)
+    from ..vta_protocol import rotation as core
     request = dict(algorithm=core.ALGORITHM,scene_id=scene_id,project_id=info[0],
         source_id=info[1]['source_id'],video_sha256=info[1]['video_sha256'],
         cache_sha256=_hash(info[2].companion_root/'analysis'/(revision+'.json')),
@@ -567,14 +557,13 @@ class BLENDCAP_OT_vta_camera_cleanup(bpy.types.Operator):
             write_new_json(directory/'request.json',dict(identity=request,revision=revision,
                 companion_root=str(info[2].companion_root),video=str(info[2].source_path)))
             log = directory/'worker.log'
-            bundle = Path(__file__).resolve().parents[1]
-            python = Path(ui._python_exe())
-            if not python.is_file(): raise ValueError('Install the BlendCap runtime before camera cleanup.')
-            command = [str(python),str(bundle/'blendcap_vta_rotation_worker.py'),
-                       '--core-root',str(ui._backend_root),'--request',str(directory/'request.json')]
+            from ..blendcap_vta_runtime import load_runtime
+            runtime=load_runtime()
+            if runtime['engine_root']!=backend.endpoint.launcher.parent:raise ValueError('Configured engine/runtime roots differ; run setup/repair.')
+            command=[str(runtime['body_python']),'-I','-B','-X','faulthandler',str(runtime['engine_root']/'vta_camera_job.py'),str(directory/'request.json')]
             with open(filesystem_path(log),'x',encoding='utf-8') as stream:
-                process = subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=stream,stderr=stream,
-                    cwd=str(bundle),env={**os.environ,'PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'},
+                process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=stream,stderr=stream,
+                    env={**os.environ,'VTA_CAMERA_RUNTIME':json.dumps({k:str(runtime[k]) for k in ('public_root','body_python')}),'VTA_PROVIDER_PARENT':str(os.getpid()),'PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'},shell=False,
                     creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             _job = dict(process=process,directory=directory,log=log,objects=objects,selected=selected,scene=context.scene,
                 snapshots=tuple((obj,obj.animation_data.action,action_signature(obj.animation_data.action)) for obj in objects),

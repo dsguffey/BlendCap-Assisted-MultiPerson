@@ -1,4 +1,4 @@
-# Neutral VTA protocol v5
+# Neutral VTA protocol v6
 
 Original protocol-only definitions, dedicated under **CC0-1.0** for verbatim use
 by the GPL public adapter, proprietary engine and future standalone clients.
@@ -9,7 +9,7 @@ Full dedication: https://creativecommons.org/publicdomain/zero/1.0/legalcode
 
 The public repository is the editable source; the private repository vendors an
 identical copy under `vta_protocol/`. Hash parity is tested. The ready handshake
-fingerprints the exact bytes of `__init__.py`, `observation.py`, `domain.py` and `jobs.py` in
+fingerprints the exact bytes of `__init__.py`, `observation.py`, `domain.py`, `jobs.py`, `bootstrap.py`, `rotation.py`, `runtime.py`, and `process.py` in
 that order. Neither implementation imports the other repository for definitions.
 Changes require compatibility review and synchronized deployment.
 
@@ -37,3 +37,12 @@ Generation authority excludes accepted-output bookkeeping; full-document CAS sti
 includes it. Native application acknowledgements describe delivery, not a native
 Save, current Blender Action, or domain rollback. A native Restore does not rewind
 the engine's accepted artifact. No M5 packaging or general-history API is added.
+
+V6 completes source staging/publication and camera preflight, neutral rotation
+result validation, explicit runtime-layout/version definitions and provider parent
+supervision. Source candidates/results are file-backed and independently checked;
+the wire never transports ProjectState. Explicit job-cleanup can remove only
+terminal provider scratch under leases, never accepted output/authority. Runtime
+configuration is setup-owned, not project data. Layout v1 distinguishes source,
+installed and test roots without implicit developer/installed fallback. The
+authoritative engine remains one-shot; models remain job-scoped.

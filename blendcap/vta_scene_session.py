@@ -199,8 +199,7 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
         # remain available for Analyze; this is not an empty/malformed Scene.
         if info is not None:
             backend=ui._get_backend(context)
-            canonical=project or (backend.observe(location) if getattr(backend,'is_engine_review',False)
-                                  else backend._core.load_project_state(location.companion_root))
+            canonical=project or backend.observe(location)
             if scene.get(characters.KEY) is None and hasattr(canonical,'characters'):characters.bind(scene,canonical)
             if hasattr(canonical,'members'):
                 from . import vta_character_bindings

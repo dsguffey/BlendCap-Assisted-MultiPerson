@@ -150,17 +150,6 @@ class CorePolishTests(unittest.TestCase):
             scene.objects=[];context.workspace={}
             self.assertEqual(self.workspace.blank_animation_guidance(context),())
 
-    def test_first_snap_only_first_success_and_same_context(self):
-        workspace={self.workspace.WORKSPACE_TAG:1};scene=NS(frame_current=22)
-        context=NS(scene=scene,workspace=workspace,screen=NS(areas=[]))
-        with mock.patch.object(self.workspace,'configure_source_camera_views',return_value=1) as snap:
-            self.assertEqual(self.workspace.snap_first_output(context,scene,True,workspace),1)
-            self.assertEqual(self.workspace.snap_first_output(context,scene,False,workspace),0)
-            self.assertEqual(self.workspace.snap_first_output(context,NS(),True,workspace),0)
-            self.assertEqual(self.workspace.snap_first_output(context,scene,True,{}),0)
-            snap.assert_called_once_with(scene,(workspace,))
-        self.assertEqual(scene.frame_current,22)
-        self.assertIn('snap_first_output',inspect.getsource(self.ui._reconstruction_timer))
 
     def test_depth_math_arbitrary_camera_and_parent_only_translation(self):
         depth=self.depth

@@ -275,73 +275,8 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         finally:
             self.addon.unregister()
 
-    def test_analysis_timer_redraws_progress_and_completion(self):
-        ui = self.ui
-        area = SimpleNamespace(tag_redraw=mock.Mock())
-        window = SimpleNamespace(screen=SimpleNamespace(areas=[area]))
-        process = SimpleNamespace(poll=mock.Mock(side_effect=[None, 0]))
-        fake_bpy = SimpleNamespace(context=SimpleNamespace(
-            window_manager=SimpleNamespace(windows=[window])))
-        with mock.patch.object(ui, "bpy", fake_bpy), \
-             mock.patch.object(ui, "_analysis_process", process):
-            self.assertEqual(ui._analysis_timer(), 0.5)
-            self.assertIsNone(ui._analysis_timer())
-            self.assertIsNone(ui._analysis_process)
-        self.assertEqual(area.tag_redraw.call_count, 2)
 
-    def test_analysis_timer_updates_native_progress_and_invalidates_cache(self):
-        ui = self.ui
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            area = SimpleNamespace(tag_redraw=mock.Mock())
-            manager = SimpleNamespace(
-                windows=[SimpleNamespace(screen=SimpleNamespace(areas=[area]))],
-                progress_update=mock.Mock(), progress_end=mock.Mock(),
-            )
-            fake_bpy = SimpleNamespace(context=SimpleNamespace(window_manager=manager))
-            process = SimpleNamespace(poll=mock.Mock(side_effect=[None, 0]))
-            with mock.patch.object(ui, "bpy", fake_bpy), \
-                 mock.patch.object(ui, "_analysis_process", process), \
-                 mock.patch.object(ui, "_analysis_root", root), \
-                 mock.patch.object(ui, "_analysis_progress_started", True), \
-                 mock.patch.object(ui, "_analysis_total", 7), \
-                 mock.patch.object(ui, "_cache_signature", (1, 2)), \
-                 mock.patch.object(ui, "_analysis_status_for", return_value={
-                     "completed_in_requested_range": 4,
-                 }):
-                self.assertEqual(ui._analysis_timer(), 0.5)
-                self.assertIsNone(ui._analysis_timer())
-                self.assertIsNone(ui._cache_signature)
-                self.assertFalse(ui._analysis_progress_started)
-            self.assertEqual(manager.progress_update.call_args_list,
-                             [mock.call(4), mock.call(4)])
-            manager.progress_end.assert_called_once()
 
-    def test_nonzero_worker_exit_exposes_error_when_status_cannot_publish(self):
-        ui = self.ui
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'analysis').mkdir()
-            (root / 'analysis' / 'vta-analysis.log').write_text(
-                'warning\nVTA analysis failed: Could not update analysis status file: '
-                '[WinError 5] target\n', encoding='utf-8')
-            manager = SimpleNamespace(windows=[], blendcap_vta_analysis_progress=0.0)
-            fake_bpy = SimpleNamespace(context=SimpleNamespace(window_manager=manager))
-            process = SimpleNamespace(poll=lambda: 1, pid=22)
-            with mock.patch.object(ui, 'bpy', fake_bpy), \
-                 mock.patch.object(ui, '_analysis_process', process), \
-                 mock.patch.object(ui, '_analysis_root', root), \
-                 mock.patch.object(ui, '_analysis_start', 11), \
-                 mock.patch.object(ui, '_analysis_end', 162), \
-                 mock.patch.object(ui, '_analysis_fallback_status', None), \
-                 mock.patch.object(ui, '_analysis_status_for', return_value={
-                     'state': 'complete', 'pid': 21, 'completed_in_requested_range': 0,
-                     'total_analyzed_frames': 15,
-                 }):
-                self.assertIsNone(ui._analysis_timer())
-                self.assertEqual(ui._analysis_fallback_status['state'], 'failed')
-                self.assertIn('WinError 5', ui._analysis_fallback_status['error'])
-                self.assertEqual(ui._analysis_fallback_status['total_analyzed_frames'], 15)
 
     def test_analysis_lock_blocks_mutations_but_not_read_only_selection(self):
         ui = self.ui
@@ -377,34 +312,12 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                         None, None, event), {'FINISHED'})
 
     def test_ui_uses_resolved_runtime_and_reports_missing_environment(self):
-        ui = self.ui
-        root = Path("C:/private-core")
-        runtime = SimpleNamespace(python=Path("C:/cuda/python.exe"),
-                                  source=Path("C:/sam3/source"),
-                                  checkpoint=Path("C:/sam3/sam3.pt"))
-        prefs = SimpleNamespace(vta_analysis_python="", vta_kinesia_root="",
-                                vta_sam3_checkpoint="")
-        with mock.patch.object(ui, "addon_prefs", return_value=prefs), \
-             mock.patch.object(ui, "_backend_root", root), \
-             mock.patch.object(ui, "_python_exe", return_value="C:/blendcap/python.exe"), \
-             mock.patch.object(ui, "resolve_analysis_runtime", return_value=runtime) as resolve:
-            self.assertEqual(ui._configured_analysis_paths(None),
-                             (runtime.python, runtime.source, runtime.checkpoint))
-            self.assertEqual(resolve.call_args.args,
-                             (root, Path("C:/blendcap/python.exe")))
-            self.assertEqual(resolve.call_args.kwargs["configured_python"], "")
-        with mock.patch.object(ui, "addon_prefs", return_value=None), \
-             mock.patch.object(ui, "_backend_root", root), \
-             mock.patch.object(ui, "resolve_analysis_runtime", return_value=runtime):
-            self.assertEqual(ui._configured_analysis_paths(None)[0], runtime.python)
-        with mock.patch.object(ui, "addon_prefs", return_value=prefs), \
-             mock.patch.object(ui, "_backend_root", root), \
-             mock.patch.object(ui, "resolve_analysis_runtime", side_effect=
-                               ui.AnalysisRuntimeUnavailable("Analysis environment unavailable. "
-                                   "Open BlendCap Preferences → Video to Animation.")):
-            with self.assertRaisesRegex(ui.VtaReviewUiError,
-                                        "Analysis environment unavailable.*BlendCap Preferences"):
-                ui._configured_analysis_paths(None)
+        module=importlib.import_module(self.ui.__package__.rsplit('.',1)[0]+'.blendcap_vta_runtime')
+        runtime=dict(analysis_python=Path('C:/runtime/python.exe'),kinesia_root=Path('C:/runtime/source'),sam3_checkpoint=Path('C:/runtime/sam3.pt'))
+        with mock.patch.object(module,'load_runtime',return_value=runtime) as resolve:
+            self.assertEqual(self.ui._configured_analysis_paths(None),tuple(runtime.values()));resolve.assert_called_once()
+        with mock.patch.object(module,'load_runtime',side_effect=ValueError('Run setup/repair')):
+            with self.assertRaisesRegex(ValueError,'setup/repair'):self.ui._configured_analysis_paths(None)
 
     def test_analyze_panel_uses_frame_units_and_offers_configuration_on_failure(self):
         ui = self.ui

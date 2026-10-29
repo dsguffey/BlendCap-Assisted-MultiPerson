@@ -52,6 +52,7 @@ class SceneBindingTests(unittest.TestCase):
             query=lambda loc, **kw: ReviewView('analysis','s',loc.source_frame,16,16,
                 'analyzed-with-candidates','Candidates',(),()),
             query_timeline=lambda _: TimelineView('s',(),()))
+        self.backend.observe=lambda location:self.backend._core.load_project_state(location.companion_root)
         def location(context, **kw):
             return ReviewLocation(self.fixture.root,self.path,context.scene.frame_current-1,
                                   context.scene.frame_current)
@@ -78,8 +79,8 @@ class SceneBindingTests(unittest.TestCase):
         for _ in range(3):
             self.ui._scene_observer_timer()
             self.ui._presentation_timer()
-            self.ui._analysis_timer()
-            self.ui._reconstruction_timer()
+            import importlib
+            importlib.import_module(self.ui.__package__+'.vta_jobs_ui').tick()
             self.ui.refresh(bpy.context)
 
     def verify_loaded(self, scene):
@@ -261,7 +262,7 @@ class SceneBindingTests(unittest.TestCase):
     def test_failure_snapshot_retries_when_missing_evidence_appears(self):
         backend=self.display_backend();a=self.owned()
         location=self.ui._location_from_context(bpy.context)
-        presentation=importlib.import_module(self.ui.__package__+'.vta_presentation').Presentation()
+        presentation=type(self.ui._display)()
         backend._core.load_analysis_cache.side_effect=FileNotFoundError('missing evidence')
         presentation.observe(backend,location,self.source)
         self.assertIsNotNone(presentation.error)

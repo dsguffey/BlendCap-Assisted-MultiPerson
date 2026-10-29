@@ -46,7 +46,8 @@ class MutationProcessTests(unittest.TestCase):
         self.assertIsNone(self.client.last_pid)
 
     def test_no_legacy_rename_or_snapshot_restore_fallback(self):
-        from blendcap_vta_review import PrivateCoreBackend,VtaReviewUiError
+        from tests.legacy_source_backend import PrivateCoreBackend
+        from blendcap_vta_review import VtaReviewUiError
         backend=PrivateCoreBackend(core=mock.Mock())
         self.assertFalse(hasattr(backend,'prepare_management'))
         self.assertFalse(hasattr(backend,'apply_management'))

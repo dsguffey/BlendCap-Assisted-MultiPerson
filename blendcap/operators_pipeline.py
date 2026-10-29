@@ -404,29 +404,8 @@ class BLENDCAP_OT_install_dependencies(bpy.types.Operator):
         default=False, options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
-        # Start (or restart) the inline wizard at the intro page.
-        if not self.force and is_dependencies_installed():
-            self.report({'INFO'},
-                        "AI dependencies already installed - nothing to do.")
-            return {'CANCELLED'}
-        # macOS can't be driven from here: Gatekeeper blocks launching the
-        # installer from Blender, so point the user at the manual path.
-        if sys.platform == "darwin":
-            self.report({'ERROR'},
-                        "On macOS, run installer/install.sh from a terminal "
-                        "yourself (Gatekeeper blocks launching it from Blender).")
-            return {'CANCELLED'}
-        wm = context.window_manager
-        wm.blendcap_install_force = self.force
-        wm.blendcap_install_agreed = False
-        wm.blendcap_install_page = 'INTRO'
-        _load_license_lines(context, "SAM_LICENSE.txt")
-        wm.blendcap_install_active = True
-        # The Preferences window doesn't auto-redraw when an operator changes a
-        # WindowManager prop, so the panel would keep showing the idle view
-        # ("nothing happens") without this nudge.
-        _tag_redraw('PREFERENCES')
-        return {'FINISHED'}
+        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        return {'CANCELLED'}
 
 
 class BLENDCAP_OT_install_cancel(bpy.types.Operator):
@@ -451,101 +430,8 @@ class BLENDCAP_OT_install_run(bpy.types.Operator):
     bl_options = {'REGISTER', 'INTERNAL'}
 
     def execute(self, context):
-        installer_dir = _installer_dir()
-        launcher = os.path.join(
-            installer_dir, "install.bat" if sys.platform == "win32" else "install.sh")
-        if not os.path.exists(launcher):
-            self.report({'ERROR'}, f"Installer not found: {launcher}")
-            return {'CANCELLED'}
-
-        # Under Flatpak the installer runs on the host via flatpak-spawn;
-        # without the one-time grant it fails silently (portal error). Block
-        # here with the exact fix rather than launching into a no-op.
-        if _in_flatpak() and not _host_spawn_ok():
-            self.report({'ERROR'},
-                        "Flatpak needs a one-time permission first. Run this "
-                        "in a terminal, then restart Blender:  "
-                        + _host_spawn_grant_cmd())
-            return {'CANCELLED'}
-
-        try:
-            if sys.platform == "win32":
-                # Launch in its own console so the user can watch progress;
-                # install.bat runs as the invoking user and pauses when
-                # finished (only a missing VC++ runtime triggers a Windows
-                # permission prompt, from inside install.ps1).
-                os.startfile(launcher)  # noqa: Windows-only, guarded at intro
-            else:
-                # Linux: launch in a VISIBLE terminal so install.sh's own
-                # git/sudo bootstrap can prompt for a password and the user
-                # can watch the multi-GB download. A blind detached process
-                # (the old behaviour) can't prompt for anything, which is why
-                # the git step silently failed. Under Flatpak the sandbox has
-                # no git/toolchain, so the whole thing runs on the HOST via
-                # flatpak-spawn (prefix is [] on native Linux); the host
-                # terminal needs the GUI env (DISPLAY etc.) forwarded.
-                # IMPORTANT: bash, not sh. install.sh uses bash features
-                # (set -o pipefail, [[ ]], process substitution); on
-                # Debian/Ubuntu/Mint /bin/sh is dash, which aborts at line 1
-                # of pipefail and writes nothing - the old Popen(["/bin/sh",
-                # launcher]) silently died there.
-                run = 'cd %s; bash ./install.sh' % shlex.quote(installer_dir)
-                # Try common terminals in order; fall back to a headless
-                # detached run (servers / minimal images with no terminal).
-                pick = (
-                    'SUF="; echo; echo \\"[BlendCap] Installer finished. '
-                    'Press Enter to close.\\"; read _"; '
-                    'if command -v gnome-terminal >/dev/null 2>&1; then '
-                    'exec gnome-terminal -- bash -lc "$BLENDCAP_RUN$SUF"; '
-                    'elif command -v x-terminal-emulator >/dev/null 2>&1; then '
-                    'exec x-terminal-emulator -e bash -lc "$BLENDCAP_RUN$SUF"; '
-                    'elif command -v konsole >/dev/null 2>&1; then '
-                    'exec konsole -e bash -lc "$BLENDCAP_RUN$SUF"; '
-                    'elif command -v xfce4-terminal >/dev/null 2>&1; then '
-                    'exec xfce4-terminal -x bash -lc "$BLENDCAP_RUN$SUF"; '
-                    'elif command -v xterm >/dev/null 2>&1; then '
-                    'exec xterm -e bash -lc "$BLENDCAP_RUN$SUF"; '
-                    'else bash -lc "$BLENDCAP_RUN"; fi'
-                )
-                launch_env = {"BLENDCAP_RUN": run}
-                # Forward the display env so a host terminal can open under
-                # Flatpak (flatpak-spawn gives the host process a bare env).
-                # Deliberately NOT forwarding XAUTHORITY: in the sandbox it
-                # points at /run/flatpak/Xauthority, which doesn't exist on
-                # the host. A host login shell (bash -lc) resolves the host's
-                # own ~/.Xauthority, which is the valid cookie for :0.
-                for var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
-                    val = os.environ.get(var)
-                    if val:
-                        launch_env[var] = val
-                prefix = _host_spawn_prefix(directory=installer_dir,
-                                            extra_env=launch_env)
-                if prefix:
-                    subprocess.Popen(prefix + ["bash", "-lc", pick],
-                                     cwd=installer_dir)
-                else:
-                    # Native Linux: pass BLENDCAP_RUN through the Popen env.
-                    # _subprocess_env strips the Steam runtime's library
-                    # overrides when Blender was launched through Steam -
-                    # without that, the terminal emulator itself (and every
-                    # host tool install.sh runs) starts against the Steam
-                    # runtime's old libs and can fail or misdetect the GPU.
-                    native_env = _subprocess_env({"BLENDCAP_RUN": run})
-                    subprocess.Popen(["bash", "-lc", pick],
-                                     cwd=installer_dir, env=native_env)
-        except Exception as e:
-            self.report({'ERROR'}, f"Couldn't launch the installer: {e}")
-            return {'CANCELLED'}
-
-        # Collapse the wizard back to the idle prefs view.
-        wm = context.window_manager
-        wm.blendcap_install_active = False
-        wm.blendcap_install_page = 'INTRO'
-        _tag_redraw('PREFERENCES')
-        self.report({'INFO'},
-                    "Installer launched in a new window. First run downloads "
-                    "several GB and can take a while.")
-        return {'FINISHED'}
+        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        return {'CANCELLED'}
 
 
 class BLENDCAP_OT_install_open_prefs(bpy.types.Operator):
@@ -605,67 +491,8 @@ class BLENDCAP_OT_uninstall_dependencies(bpy.types.Operator):
         default='ARM', options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
-        wm = context.window_manager
-        if self.mode == 'ARM':
-            wm.blendcap_uninstall_armed = True
-            _tag_redraw('PREFERENCES')
-            return {'FINISHED'}
-        if self.mode == 'CANCEL':
-            wm.blendcap_uninstall_armed = False
-            _tag_redraw('PREFERENCES')
-            return {'FINISHED'}
-
-        # mode == 'RUN': perform the delete.
-        wm.blendcap_uninstall_armed = False
-        if blendcap_state.get('running') or bvh_state.get('running'):
-            self.report({'ERROR'},
-                        "Finish or cancel the running job before uninstalling.")
-            _tag_redraw('PREFERENCES')
-            return {'CANCELLED'}
-
-        addon_dir = _addon_dir()
-        targets = [os.path.join(addon_dir, "venv"),
-                   os.path.join(addon_dir, "checkpoints")]
-        removed, failed = [], []
-        for path in targets:
-            if not os.path.isdir(path):
-                continue
-            try:
-                shutil.rmtree(path, onerror=_rm_readonly)
-            except Exception as e:
-                failed.append(f"{os.path.basename(path)} ({e})")
-                continue
-            # onerror swallows per-file failures, so confirm the dir is gone.
-            if os.path.isdir(path):
-                failed.append(f"{os.path.basename(path)} (some files remain)")
-            else:
-                removed.append(os.path.basename(path))
-
-        # Drop the marker so the panel resets to "Install" and stale GPU /
-        # version details clear (is_dependencies_installed keys off the venv,
-        # but the marker still drives the display text).
-        try:
-            marker = _install_marker_path()
-            if os.path.isfile(marker):
-                os.remove(marker)
-        except Exception:
-            pass
-
-        _tag_redraw('PREFERENCES')
-
-        if failed:
-            self.report({'ERROR'},
-                        "Uninstall incomplete - couldn't remove "
-                        + "; ".join(failed)
-                        + ". Close anything using those files and retry.")
-            return {'CANCELLED'}
-        if not removed:
-            self.report({'INFO'}, "Nothing to uninstall - no files found.")
-            return {'CANCELLED'}
-        self.report({'INFO'},
-                    "Uninstalled " + " + ".join(removed)
-                    + ". Reinstall from this panel when you need capture again.")
-        return {'FINISHED'}
+        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        return {'CANCELLED'}
 
 
 class BLENDCAP_OT_deps_missing(bpy.types.Operator):

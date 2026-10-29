@@ -7,6 +7,7 @@ by runtime discovery. Retains GPL public adapter provenance.
 from pathlib import Path
 import hashlib
 from blendcap_vta_review import *
+from tests.legacy_source_backend import PrivateCoreBackend
 from blendcap_vta_timeline import present_timeline
 
 class LegacyReviewBackend(PrivateCoreBackend):

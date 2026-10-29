@@ -1,4 +1,4 @@
-"""Focused tests for public discovery of the separately installed VTA Core."""
+"""Frozen pre-M5 discovery parity fixtures; not a production runtime API."""
 
 from tests.legacy_review_backend import LegacyReviewBackend
 
@@ -7,7 +7,7 @@ import tempfile
 import types
 import unittest
 
-import blendcap_vta_runtime as runtime
+import tests.legacy_runtime as runtime
 
 
 class RuntimeDiscoveryTests(unittest.TestCase):

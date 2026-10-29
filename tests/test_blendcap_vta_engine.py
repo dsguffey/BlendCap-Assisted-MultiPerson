@@ -86,12 +86,12 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(wire.validate_response(error,RID,'source-coverage')['status'],'error')
 
     def test_shared_package_is_identical_and_has_no_host_domain_imports(self):
-        for name in ('__init__.py','README.md','observation.py','domain.py','jobs.py'):
+        for name in ('__init__.py','README.md','observation.py','domain.py','jobs.py','bootstrap.py','rotation.py','runtime.py','process.py'):
             self.assertEqual((P/'vta_protocol'/name).read_bytes(),(K/'vta_protocol'/name).read_bytes())
         tree=ast.parse((P/'vta_protocol/__init__.py').read_text())
         mods=[n.module for n in ast.walk(tree) if isinstance(n,ast.ImportFrom)]
         mods += [a.name for n in ast.walk(tree) if isinstance(n,ast.Import) for a in n.names]
-        self.assertEqual(set(mods),{'json','math','re','pathlib','hashlib','domain','jobs'})
+        self.assertEqual(set(mods),{'json','math','re','pathlib','hashlib','domain','jobs','bootstrap'})
 
 
 class ProcessTests(unittest.TestCase):

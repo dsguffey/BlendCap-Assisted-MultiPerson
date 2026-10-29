@@ -127,7 +127,7 @@ class SourceLifecycleTests(unittest.TestCase):
         user['vta_project_id'],user['vta_source_id']=pid,sid  # Not a sufficient ownership marker.
         ad=s.sequence_editor.strips.new_movie('user movie',str(self.path),channel=10,frame_start=20)
         history=(self.root/'project_state.json').read_bytes()
-        cache=self.root/'analysis'/'history.bin';cache.parent.mkdir();cache.write_bytes(b'preserve')
+        cache=self.root/'analysis'/'history.bin';cache.parent.mkdir(exist_ok=True);cache.write_bytes(b'preserve')
         self.lifecycle.clear(bpy.context)
         self.assertEqual(tuple(s.objects),(user,));self.assertEqual(tuple(s.sequence_editor.strips),(ad,))
         for obj in (root,camera,rig):self.assertIn(obj.name,bpy.data.objects);self.assertTrue(obj.use_fake_user)
@@ -175,7 +175,11 @@ class SourceLifecycleTests(unittest.TestCase):
         self.configure();self.lifecycle.clear(bpy.context)
         old=(self.root/'project_state.json').read_bytes()
         other=self.path.with_name('another.mp4');other.write_bytes(self.path.read_bytes()+b'\0')
-        with mock.patch.object(self.core,'save_project_state',side_effect=OSError('injected publish failure')):
+        client=self.ui._engine_client(bpy.context);original=client.call
+        def fail_publish(operation,payload,**kw):
+            if operation=='source-publish':raise OSError('injected publish failure')
+            return original(operation,payload,**kw)
+        with mock.patch.object(client,'call',side_effect=fail_publish),mock.patch.object(self.ui,'_engine_client',return_value=client):
             with self.assertRaisesRegex(OSError,'publish failure'):
                 self.lifecycle.configure(bpy.context,str(other))
         self.assert_blank();self.assertEqual((self.root/'project_state.json').read_bytes(),old)
@@ -222,7 +226,7 @@ class SourceLifecycleTests(unittest.TestCase):
 
     def test_missing_or_corrupt_existing_project_is_not_silently_replaced(self):
         self.root.mkdir();(self.root/'analysis-history').write_bytes(b'protected')
-        with self.assertRaisesRegex(ValueError,'Companion data'):self.configure()
+        with self.assertRaisesRegex(Exception,'Companion data'):self.configure()
         self.assert_blank()
         (self.root/'project_state.json').write_bytes(b'bad JSON')
         with self.assertRaises(Exception):self.configure()

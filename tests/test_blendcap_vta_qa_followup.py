@@ -125,21 +125,6 @@ class QaFollowupTests(unittest.TestCase):
         self.assertTrue(result.startswith('Generation worker exited unexpectedly'))
         self.assertEqual(generation.worker_failure(1,['warning','RuntimeError: actual failure']),'RuntimeError: actual failure')
 
-    def test_abrupt_generation_failure_releases_runtime_eligibility_and_keeps_animation(self):
-        ui=self.ui
-        with tempfile.TemporaryDirectory() as folder:
-            path=Path(folder)/'worker.log';path.write_text("Ignored kwargs: {'drop_path': 0.1}\n")
-            process=NS(poll=lambda:27,returncode=27)
-            with mock.patch.object(ui,'_reconstruction_process',process),mock.patch.object(ui,'_generation_job',None), \
-                    mock.patch.object(ui,'_reconstruction_log',path),mock.patch.object(ui,'_reconstruction_stop',None), \
-                    mock.patch.object(ui,'_reconstruction_scene',None),mock.patch.object(ui,'_reconstruction_location',None), \
-                    mock.patch.object(ui,'_analysis_process',None), \
-                    mock.patch(ui.__package__+'.vta_skeletal_output.import_reviewed_output') as publish:
-                self.assertIsNone(ui._reconstruction_timer())
-                self.assertIsNone(ui._reconstruction_process);self.assertIsNone(ui._generation_job)
-                publish.assert_not_called()
-                self.assertIn('exit code 27',ui._generation_details)
-                self.assertIn('unchanged',ui._generation_status)
 
     @unittest.skipUnless(__import__('os').name=='nt','Legacy empty-lock evaluation is Windows-specific')
     def test_reopened_abandoned_empty_lock_is_not_permanent_ui_busy_state(self):

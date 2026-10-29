@@ -88,7 +88,8 @@ class ProcessProbeTests(unittest.TestCase):
 import json
 from pathlib import Path
 from types import SimpleNamespace as NS
-from blendcap_vta_review import PrivateCoreBackend, ReviewLocation
+from tests.legacy_source_backend import PrivateCoreBackend
+from blendcap_vta_review import ReviewLocation
 raw=json.loads((Path(sys.argv[1])/'project_state.json').read_text(encoding='utf-8'))
 backend=PrivateCoreBackend(core=NS(load_project_state=lambda root:NS(to_dict=lambda:raw)))
 _,source=backend._load_project_source(ReviewLocation(Path(sys.argv[1]),Path(sys.argv[2]),0,1))
@@ -190,7 +191,8 @@ def fixture_proof(arguments):
     """Factory-startup Blender only; never load/save the user's .blend."""
     import bpy
     from blendcap_vta_process_probe import SourceCoverageProcessClient, private_import_guard
-    from blendcap_vta_review import PrivateCoreBackend, ReviewLocation
+    from tests.legacy_source_backend import PrivateCoreBackend
+    from blendcap_vta_review import ReviewLocation
     root,video,python,report=map(Path,arguments)
     addons=[addon.module for addon in bpy.context.preferences.addons]
     if (bpy.data.filepath or '--factory-startup' not in sys.argv or '--disable-autoexec' not in sys.argv

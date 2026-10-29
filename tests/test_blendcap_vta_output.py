@@ -247,58 +247,6 @@ class BlenderOutputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'NLA'):
             self.output.merge_reviewed_range(obj, action, 1, 2)
 
-    def test_draw_refresh_scrub_defers_id_writes_completion_and_failure_preserve_review(self):
-        import sys
-        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
-        view = present_review(Review(), source_dimensions=(100, 100))
-        process = SimpleNamespace(poll=mock.Mock(return_value=None), returncode=0)
-        with tempfile.TemporaryDirectory() as directory:
-            location = ReviewLocation(Path(directory), Path(directory)/'video.mp4', 0, 1)
-            log = Path(directory)/'generation.log'
-            log.write_text('VTA_OUTPUT=' + str(Path(directory)/'output.json'))
-            backend = SimpleNamespace(query=mock.Mock(return_value=view), query_timeline=mock.Mock(return_value=object()))
-            writes = []
-            in_draw = [True]
-            def guarded_write(*args):
-                if in_draw[0]:
-                    raise RuntimeError('Writing to ID classes in this context is not allowed')
-                writes.append('safe-main-thread')
-            with mock.patch.object(ui, '_get_backend', return_value=backend), \
-                 mock.patch.object(ui, '_location_from_context', return_value=location), \
-                 mock.patch.object(ui, '_owning_vse_scene', return_value=bpy.context.scene), \
-                 mock.patch.object(ui._review_key_selection, 'reconcile'), \
-                 mock.patch.object(ui, '_sync_properties', side_effect=guarded_write), \
-                 mock.patch.object(ui, 'ensure_vta_preview_context', side_effect=guarded_write), \
-                 mock.patch.object(self.output, 'mark_stale_outputs', side_effect=guarded_write), \
-                 mock.patch.object(ui, '_reconstruction_process', process), \
-                 mock.patch.object(ui, '_reconstruction_location', location), \
-                 mock.patch.object(ui, '_reconstruction_scene', bpy.context.scene), \
-                 mock.patch.object(ui, '_reconstruction_log', log), \
-                 mock.patch.object(self.output, 'import_reviewed_output', return_value=((), {'characters': []})) as commit:
-                try:
-                    for frame in (1, 4, 9, 2):
-                        bpy.context.scene.frame_set(frame)
-                        self.assertTrue(ui.refresh(bpy.context, force=True))
-                        self.assertIs(ui._view, view)
-                        self.assertEqual(ui._reconstruction_timer(), .5)
-                    self.assertFalse(writes)
-                    in_draw[0] = False
-                    ui._presentation_timer()
-                    self.assertEqual(len(writes), 2)  # No editor binding in presentation timer.
-                    process.poll.return_value = 0
-                    self.assertIsNone(ui._reconstruction_timer())
-                    commit.assert_called_once()
-                    self.assertFalse(commit.call_args.kwargs['configure_views'])
-                    self.assertIs(ui._view, view)
-                    ui._reconstruction_process = SimpleNamespace(poll=lambda: 1, returncode=1)
-                    ui._reconstruction_timer()
-                    self.assertIs(ui._view, view)
-                    self.assertTrue(ui._status_is_error)
-                finally:
-                    if bpy.app.timers.is_registered(ui._presentation_timer):
-                        bpy.app.timers.unregister(ui._presentation_timer)
-                    ui._pending_presentation = None
-                    ui._view = ui._timeline = ui._location = None
 
     @classmethod
     def setUpClass(cls):
@@ -311,7 +259,11 @@ class BlenderOutputTests(unittest.TestCase):
         spec.loader.exec_module(module)
         cls.addon = module
         cls.output = __import__(name + '.blendcap.vta_skeletal_output', fromlist=['retime_reviewed_action'])
+        from tests.native_output_fixture import install
+        install(cls.output)
         cls.overlay = __import__(name + '.blendcap.vta_overlay', fromlist=['OverlapCycle'])
+        from tests.legacy_presentation import install as install_presentation
+        install_presentation(sys.modules[name+'.blendcap.vta_review_ui'])
 
     def test_overlap_cycles_and_resets_on_frame_pointer_and_transform(self):
         c = self.overlay.OverlayRegionCandidate

@@ -352,7 +352,7 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertEqual(conflicts, [])
 
     def real_backend_fixture(self):
-        from blendcap_vta_runtime import discover_vta_core
+        from tests.legacy_runtime import discover_vta_core
         resolution = discover_vta_core()
         if not resolution.available:
             self.skipTest('requires separately installed private VTA core')

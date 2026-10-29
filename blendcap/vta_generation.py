@@ -125,8 +125,8 @@ def import_generation(paths, location, backend, *, migration=False, depth_mode='
     if len(paths) != 2:
         raise ValueError('Update requires migration and requested output; previous animation retained')
     reports = [output._read_report(p) for p in paths]
-    stamps = ([v['report']['reconstruction']['fingerprint'] for v in validated] if validated is not None else
-        [backend._core.reconstruction_fingerprint(r.get('reconstruction'),r['plan'].get('source_video_sha256')) for r in reports])
+    if validated is None:raise ValueError('Migration requires privately validated result artifacts.')
+    stamps=[v['report']['reconstruction']['fingerprint'] for v in validated]
     if stamps[0] == LEGACY or stamps[0] != stamps[1]:
         raise ValueError('Migration and requested reconstruction fingerprints differ')
     scene = bpy.context.scene

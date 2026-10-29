@@ -23,6 +23,25 @@ class GenerationFlowTests(unittest.TestCase):
         cls.ui = sys.modules[BlenderOutputTests.addon.__name__+'.blendcap.vta_review_ui']
         cls.output = BlenderOutputTests.output
         cls.generation = __import__(BlenderOutputTests.addon.__name__+'.blendcap.vta_generation', fromlist=['migration_range'])
+        if not getattr(cls.generation.import_generation,'_fixture_adapter',False):
+            original=cls.generation.import_generation
+            def import_generation(paths,location,backend,**kw):
+                if kw.get('migration') and kw.get('validated') is None:
+                    from tests.native_output_fixture import validate
+                    values=[]
+                    for path in paths:
+                        report=cls.output._read_report(path)
+                        fingerprint=backend._core.reconstruction_fingerprint(report.get('reconstruction'),report['plan'].get('source_video_sha256'))
+                        values.append(dict(report=dict(reconstruction=dict(fingerprint=fingerprint))))
+                    if values[0]['report']['reconstruction']['fingerprint']!=values[1]['report']['reconstruction']['fingerprint']:
+                        raise ValueError('Migration and requested reconstruction fingerprints differ')
+                    # Native per-output fixture will do the full old input
+                    # validation. The transaction only needs these stamps.
+                    kw['validated']=values
+                return original(paths,location,backend,**kw)
+            import_generation._fixture_adapter=True
+            cls.generation.import_generation=import_generation
+
 
     def fixture(self):
         from tests.test_blendcap_vta_source_calibration import BlenderCalibrationTests
@@ -73,19 +92,6 @@ class GenerationFlowTests(unittest.TestCase):
         report=json.loads(path.read_text())
         self.assertIsNone(self.generation.migration_range(bpy.context.scene,report['plan'],report['reconstruction']['fingerprint'],(0,5),1))
 
-    def test_cancel_writes_stop_only_and_preserves_animation(self):
-        t=self.fixture(); f=t.fixture
-        before=[f.curves(o) for o in f.rigs]
-        import blendcap_vta_generation_ipc as ipc
-        job=ipc.new_request(f.root,decision_required=True)
-        decision,stop=job['decision'],job['stop']
-        operator=SimpleNamespace(job_id=job['id'])
-        with mock.patch.object(self.ui,'_generation_job',job), mock.patch.object(self.ui,'_reconstruction_stop',stop):
-            self.ui.BLENDCAP_OT_vta_update_animation.cancel(operator,bpy.context)
-        self.assertTrue(stop.exists())
-        self.assertFalse(decision.exists())
-        self.assertEqual([f.curves(o) for o in f.rigs],before)
-        self.assertFalse(self.ui._status_is_error)
 
     def test_first_bounded_40_60_then_compatible_bounded_preserves_outside(self):
         t=self.fixture(); f=t.fixture
@@ -117,22 +123,6 @@ class GenerationFlowTests(unittest.TestCase):
                 self.generation.import_generation(paths,f.location,f.backend,migration=True)
         self.assertEqual([f.curves(o) for o in f.rigs],before)
 
-    def test_accept_sends_migration_and_original_request_without_mutation(self):
-        process=SimpleNamespace(poll=lambda:None)
-        with mock.patch.object(self.ui,'_reconstruction_process',process), mock.patch.object(self.ui,'_source_actions_available',return_value=False):
-            self.assertTrue(self.ui.BLENDCAP_OT_vta_generate_animation.poll(bpy.context))
-        t=self.fixture(); f=t.fixture
-        before=[f.curves(o) for o in f.rigs]
-        import blendcap_vta_generation_ipc as ipc
-        job=ipc.new_request(f.root,decision_required=True)
-        job.update(plan={'source_range':[2,3]},required=(0,5),process=process)
-        decision=job['decision']
-        decision.parent.mkdir(parents=True,exist_ok=True)
-        operator=SimpleNamespace(job_id=job['id'])
-        with mock.patch.object(self.ui,'_generation_job',job), mock.patch.object(self.ui,'_reconstruction_scene',bpy.context.scene), mock.patch.object(self.ui,'require_loaded_context'):
-            self.assertEqual(self.ui.BLENDCAP_OT_vta_update_animation.execute(operator,bpy.context),{'FINISHED'})
-        self.assertEqual(json.loads(decision.read_text()), {'version':1,'generation_id':job['id'],'requested_range':[2,3],'migration_range':[0,5]})
-        self.assertEqual([f.curves(o) for o in f.rigs],before)
 
     def reports(self,t):
         first,_=t.calibrated_report(False)
@@ -222,81 +212,8 @@ class GenerationFlowTests(unittest.TestCase):
         self.assertNotIn('accept the update',calibration_error)
         self.assertIn('both sides', self.generation.failure_message('Cannot interpolate repair gap: valid trustworthy pose required on both sides'))
 
-    def test_true_host_cancel_retry_accept_and_late_old_dialog_isolated(self):
-        import blendcap_vta_generation_ipc as ipc
-        t=self.fixture();f=t.fixture
-        paths=self.reports(t)
-        ready=json.loads(paths[1].read_text())
-        before=[f.curves(o) for o in f.rigs]
-        pending=SimpleNamespace(poll=mock.Mock(return_value=None),returncode=0)
-        job=ipc.new_request(f.root,decision_required=True)
-        job.update(plan=ready['plan'],domain=(0,5),offset=1,process=pending)
-        def log_ready(current):
-            current['log'].write_text('VTA_READY='+json.dumps({'generation_id':current['id'],
-                'plan':ready['plan'],'reconstruction':ready['reconstruction']})+'\n')
-        log_ready(job)
-        patches={'_generation_job':job,'_reconstruction_process':pending,'_reconstruction_scene':bpy.context.scene,
-                 '_reconstruction_location':f.location,'_reconstruction_stop':job['stop'],'_reconstruction_log':job['log']}
-        with mock.patch.multiple(self.ui,**patches), mock.patch.object(self.ui,'_get_generation_backend',return_value=f.backend), mock.patch.object(self.ui,'_location_from_context',return_value=f.location), mock.patch.object(self.ui,'require_loaded_context'), mock.patch.object(self.ui,'_request_generation_confirmation',return_value={'RUNNING_MODAL'}) as dialog:
-            self.assertEqual(self.ui._reconstruction_timer(),.5)
-            self.assertEqual(job['required'],(0,5));dialog.assert_called_once()
-            old=SimpleNamespace(job_id=job['id'])
-            self.ui.BLENDCAP_OT_vta_update_animation.cancel(old,bpy.context)
-            pending.poll.return_value=0
-            job['log'].write_text('VTA_CANCELLED='+job['id']+'\n')
-            self.assertIsNone(self.ui._reconstruction_timer())
-            self.assertIsNone(self.ui._generation_job);self.assertFalse(self.ui._status_is_error)
-            self.assertFalse(job['stop'].exists());self.assertFalse(job['decision'].exists())
-            self.assertEqual([f.curves(o) for o in f.rigs],before)
-            retry=ipc.new_request(f.root,decision_required=True)
-            pending2=SimpleNamespace(poll=mock.Mock(return_value=None),returncode=0)
-            retry.update(plan=ready['plan'],domain=(0,5),offset=1,process=pending2)
-            self.ui._generation_job=retry;self.ui._reconstruction_process=pending2
-            self.ui._reconstruction_stop=retry['stop'];self.ui._reconstruction_log=retry['log']
-            log_ready(retry)
-            self.assertEqual(self.ui._reconstruction_timer(),.5)
-            old_status=self.ui._generation_status
-            self.ui.BLENDCAP_OT_vta_update_animation.cancel(old,bpy.context)
-            self.assertEqual(self.ui.BLENDCAP_OT_vta_update_animation.execute(old,bpy.context),{'CANCELLED'})
-            self.assertEqual(self.ui._generation_status,old_status)
-            self.assertFalse(retry['stop'].exists())
-            actor=SimpleNamespace(job_id=retry['id'])
-            for _ in range(2):
-                self.assertEqual(self.ui.BLENDCAP_OT_vta_update_animation.execute(actor,bpy.context),{'FINISHED'})
-            self.assertEqual(ipc.read_decision(retry['decision'],f.root,retry['id'],ready['plan']['source_range']),[0,5])
-            pending2.poll.return_value=0
-            retry['log'].write_text(''.join('VTA_OUTPUT='+str(p)+'\n' for p in paths))
-            self.assertIsNone(self.ui._reconstruction_timer())
-            self.assertIsNone(self.ui._generation_job);self.assertFalse(self.ui._status_is_error)
-            self.assertFalse(retry['decision'].exists())
-            fp=ready['reconstruction']['fingerprint']
-            self.assertEqual({o['vta_reconstruction_fingerprint'] for o in f.rigs},{fp})
 
-    def test_cancel_after_worker_published_never_imports_and_load_cancel_is_scoped(self):
-        import blendcap_vta_generation_ipc as ipc
-        import tempfile
-        with tempfile.TemporaryDirectory() as temporary:
-            job=ipc.new_request(temporary)
-            job['log'].parent.mkdir(parents=True)
-            process=SimpleNamespace(poll=mock.Mock(return_value=None),returncode=0)
-            job['process']=process
-            job['log'].write_text('VTA_OUTPUT=must-not-import.json\n')
-            with mock.patch.object(self.ui,'_generation_job',job), mock.patch.object(self.ui,'_reconstruction_process',process), mock.patch.object(self.ui,'_reconstruction_stop',job['stop']), mock.patch.object(self.ui,'_reconstruction_log',job['log']), mock.patch.object(self.output,'import_reviewed_output') as importer:
-                self.ui._cancel_generation_before_load()
-                self.assertTrue(job['cancelled'])
-                process.poll.return_value=0
-                self.assertIsNone(self.ui._reconstruction_timer())
-                importer.assert_not_called();self.assertFalse(self.ui._status_is_error)
 
-    def test_incomplete_ready_record_waits_for_completed_write(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as temporary:
-            path=Path(temporary)/'generation.log'
-            with mock.patch.object(self.ui,'_reconstruction_log',path):
-                path.write_text('progress\nVTA_READY={"plan":')
-                self.assertEqual(self.ui._generation_log_lines(),['progress'])
-                path.write_text('progress\nVTA_READY={"plan":{}}\n')
-                self.assertEqual(self.ui._generation_log_lines(),['progress','VTA_READY={"plan":{}}'])
 
     def test_preview_sync_uses_existing_row_state_without_time_scene_data_or_navigation_changes(self):
         from blendcap_vta_timeline import TimelineView,TimelineCharacter
