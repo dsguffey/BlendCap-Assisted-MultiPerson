@@ -69,7 +69,7 @@ def configure(context, filename):
     if getattr(backend,'is_engine_review',False):
         # Source bootstrap/provider setup remains a specifically deferred M4
         # legacy path; migrated review never imports this core.
-        backend=ui._get_generation_backend(context)
+        backend=ui._get_source_backend(context)
     core = backend._core
     state_path = root / 'project_state.json'
     if not state_path.exists() and root.exists() and any(root.iterdir()):

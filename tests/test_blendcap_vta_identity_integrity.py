@@ -3,7 +3,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 import unittest
 import numpy as np
-from blendcap_vta_reconstruct_worker import infer_reviewed_pose
+from tests.legacy_reconstruct_worker import infer_reviewed_pose
 
 
 class WorkerIdentityIntegrityTests(unittest.TestCase):

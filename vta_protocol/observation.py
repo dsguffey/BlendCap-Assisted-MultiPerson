@@ -56,8 +56,9 @@ def frame_view(value,characters,source_id,revision_id):
 
 def validate(value):
     fields(value,('schema','version','checkpoint','source','analysis_revision_id','cache_sha256',
-                  'characters','source_member_ids','frames','timeline','coverage'))
+                  'characters','source_member_ids','frames','timeline','coverage','generation_authority_sha256'))
     require(value['schema']=='vta-review-observation' and type(value['version']) is int and value['version']==1,'Unsupported observation schema.')
+    digest(value['generation_authority_sha256'])
     checkpoint(value['checkpoint']);source(value['source']);optional_id(value['analysis_revision_id'])
     if value['cache_sha256'] is not None:digest(value['cache_sha256'])
     characters=set()

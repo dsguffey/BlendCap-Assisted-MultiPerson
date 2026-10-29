@@ -498,7 +498,7 @@ def character_name_exists(view: ReviewView, display_name: str) -> bool:
 
 
 class PrivateCoreBackend:
-    """Deferred M4 generation/retarget adapter; no review mutation methods."""
+    """M5 source/camera compatibility adapter; production jobs/retarget use IPC."""
 
     def __init__(
         self,

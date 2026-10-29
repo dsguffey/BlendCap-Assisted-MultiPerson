@@ -174,7 +174,55 @@ class CopyPlan:
             if revision in required or exists(path):self.add(path,Path('analysis')/leaf)
         if any((self.source/'analysis').glob('evidence-*.json')):
             raise ValueError('Deferred Recovery evidence is unsupported; no VTA copy was made.')
+        self.jobs()
         return raw
+
+    def jobs(self):
+        """Terminal receipts/results travel; processes, leases and raw rounds do not."""
+        if __package__:
+            from .blendcap_vta_jobs import read_artifact
+            from .vta_protocol import identifier
+            from .vta_protocol.jobs import status as validate_status
+        else:
+            from blendcap_vta_jobs import read_artifact
+            from vta_protocol import identifier
+            from vta_protocol.jobs import status as validate_status
+        jobs=self.source/'.vta-engine/jobs'
+        folders=list(jobs.iterdir()) if jobs.exists() else []
+        if len(folders)>2048:raise ValueError('Too many VTA job records for an independent copy.')
+        for folder in folders:
+            identifier(folder.name)
+            state=validate_status(read_json(folder/'status.json'))
+            if state['job_id']!=folder.name:raise ValueError('Copied job identity differs from directory.')
+            if state['state'] in ('starting','running','awaiting-decision'):
+                raise ValueError('A durable VTA job is active; wait or cancel it before Save As.')
+            if state['state'] in ('prepared','unknown'):continue # No executable continuation in a copy.
+            for name in ('request.json','plan.json','plan-manifest.json','status.json','result.json','calibration.json','decision.json','previous-accepted.json'):
+                path=folder/name
+                if exists(path):
+                    if path.stat().st_size>32*1024*1024 or not path.resolve().is_relative_to(self.source) or path.stat().st_nlink!=1:raise ValueError('Unsafe or excessive saved job record.')
+                    self.add(path,path.relative_to(self.source))
+            if state['result'] is not None:
+                result=read_artifact(self.source,state['result'])
+                if state['kind']=='generation':
+                    for name in result['outputs']:self.output(self.source/name)
+                    # Hash every declared immutable payload before byte-copying.
+                    for item in result['artifacts']:
+                        path=(self.source/item['path']).resolve()
+                        if not path.is_relative_to((self.source/'reconstruction'/('job-'+folder.name)).resolve()):raise ValueError('Job result escapes its output directory.')
+                        self.add(path,path.relative_to(self.source),item['sha256'])
+                    wrapper=read_artifact(self.source,read_json(folder/'plan-manifest.json'))
+                    sha=wrapper['source']['video_sha256'];owned=list((self.source/'sources').glob(sha+'.*'))
+                    video=next((p for p in owned if p.is_file() and file_hash(p)==sha),Path(wrapper['source_path']))
+                    self.video(video,sha)
+        pointers=self.source/'.vta-host-jobs'
+        for path in pointers.glob('*.json'):
+            record=read_json(path);identifier(record['job_id'])
+            if not record['settled']:
+                state=validate_status(read_json(jobs/record['job_id']/'status.json'))
+                if state['state'] in ('prepared','unknown'):raise ValueError('Resolve or discard the saved VTA job before Save As.')
+            if path.stat().st_size>16384 or not path.resolve().is_relative_to(self.source) or path.stat().st_nlink!=1:raise ValueError('Unsafe host job pointer.')
+            self.add(path,path.relative_to(self.source))
 
     def output(self,path,expected=None):
         original=Path(path).resolve()

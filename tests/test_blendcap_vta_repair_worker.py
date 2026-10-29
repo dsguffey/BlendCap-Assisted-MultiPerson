@@ -10,7 +10,7 @@ from contextlib import nullcontext
 from unittest import mock
 import unittest
 
-import blendcap_vta_reconstruct_worker as worker
+import tests.legacy_reconstruct_worker as worker
 
 
 class RepairWorkerTests(unittest.TestCase):
@@ -101,7 +101,7 @@ class RepairWorkerTests(unittest.TestCase):
                     mock.patch.object(vta_core,'load_project_state',return_value=project), \
                     mock.patch.object(vta_core,'load_analysis_cache',return_value=object()), \
                     mock.patch.object(vta_core,'build_skeletal_plan',side_effect=build_plan), \
-                    mock.patch('blendcap_vta_analyze_worker._source_for_video',return_value=source), \
+                    mock.patch('tests.legacy_analyze_worker._source_for_video',return_value=source), \
                     mock.patch.object(preflight,'preflight_source'), \
                     mock.patch.object(decode,'decode_source_frame',side_effect=lambda _v,r:
                         SimpleNamespace(pixels_bgr=np.full((10,10,3),r.frame,dtype=np.uint8))), \

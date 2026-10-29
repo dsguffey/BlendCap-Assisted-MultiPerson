@@ -90,6 +90,8 @@ def prepare(source,target,scenes):
             reference=json.loads(data['vta_scene_reference'])
             reference['output_file']=str(plan.output(reference['output_file'],reference['output_sha256']))
             updates.append((data,'vta_scene_reference',json.dumps(reference,sort_keys=True),False))
+    from .vta_output_restore import copy_dependencies
+    copy_dependencies(plan)
     for block in (*bpy.data.images,*bpy.data.movieclips):
         if not block.filepath:continue
         path=Path(bpy.path.abspath(block.filepath)).resolve()

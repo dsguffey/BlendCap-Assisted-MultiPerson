@@ -271,8 +271,8 @@ class RetargetTests(unittest.TestCase):
                 row=snapshot['rest'][joint['id']];joint['rest']=row['matrix'];joint['direction']=row['direction']
             result['provenance']['state_token']=hashlib.sha256(b'unchanged private authority').hexdigest()
             return result
-        backend=SimpleNamespace(_core=SimpleNamespace(retarget_source_bindings=lambda **_options:bindings),export_retarget_motion=mock.Mock(side_effect=export),
-            _load_project_source=lambda loc:(SimpleNamespace(to_json=lambda:'unchanged private authority'),None))
+        backend=SimpleNamespace(retarget_source_bindings=lambda _location,**_options:bindings,export_retarget_motion=mock.Mock(side_effect=export),
+            client=SimpleNamespace(call=lambda *_a,**_k:dict(revision=dict(sha256=hashlib.sha256(b'unchanged private authority').hexdigest()))))
         self.scene.frame_set(0)
         location=ReviewLocation(Path('project_vta'),Path('clip.mp4'),-1,0)
         with mock.patch.object(ui,'loaded_context_matches',return_value=True),mock.patch.object(ui,'require_loaded_context'),mock.patch.object(ui,'_analysis_locked',return_value=False),mock.patch.object(ui,'cached_scene_source',return_value=('project',dict(source_id='source',start_frame=0,end_frame=162))),mock.patch.object(ui,'_get_generation_backend',return_value=backend),mock.patch.object(ui,'_location_from_context',return_value=location):
@@ -466,7 +466,7 @@ class RetargetTests(unittest.TestCase):
 
     def test_read_only_mapping_uses_real_names_and_optional_toes(self):
         source,target,settings,backend,ui=self.ui_fixture(toes=False)
-        with mock.patch.object(ui,'_get_generation_backend',return_value=backend):rows=self.rt.mapping_preview(bpy.context,settings)
+        with mock.patch.object(self.rt,'_preview_bindings',return_value=backend._core.retarget_source_bindings()):rows=self.rt.mapping_preview(bpy.context,settings)
         self.assertEqual(len(rows),20)
         self.assertIn(('Sourceleft_forearm','mixamorig:LeftForeArm'),rows)
         self.assertFalse(any(name.endswith('ToeBase') for _,name in rows))
@@ -475,7 +475,7 @@ class RetargetTests(unittest.TestCase):
     def test_repeated_mapping_draws_do_not_reload_private_state_or_offer_remapping(self):
         source,target,settings,backend,ui=self.ui_fixture();settings.show_mapping=True
         before=self.signature(target);layout=RecordingLayout()
-        with mock.patch.object(ui,'_get_generation_backend',return_value=backend):
+        with mock.patch.object(self.rt,'_preview_bindings',return_value=backend._core.retarget_source_bindings()):
             for _ in range(10):self.assertTrue(self.rt.draw_rig_choices(layout,bpy.context))
         self.assertEqual(self.signature(target),before);backend._load_project_source.assert_not_called()
         self.assertEqual({c[1] for c in layout.calls if c[0]=='prop'},{'source','target','show_mapping','target_profile'})

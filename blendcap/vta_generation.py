@@ -110,7 +110,7 @@ def failure_message(detail, cancelled=False):
     return 'Couldn’t update the animation. Your existing animation was kept unchanged. ' + reason
 
 
-def import_generation(paths, location, backend, *, migration=False, depth_mode='AUTOMATIC'):
+def import_generation(paths, location, backend, *, migration=False, depth_mode='AUTOMATIC', validated=None):
     """Publish migration + requested output in one rollback boundary.
 
     Worker failures never enter here. Existing generated Actions/camera data are
@@ -120,12 +120,13 @@ def import_generation(paths, location, backend, *, migration=False, depth_mode='
     if not migration:
         if len(paths) != 1:
             raise ValueError('Unexpected generation output count')
-        return output.import_reviewed_output(paths[0], location, backend, configure_views=False, depth_mode=depth_mode)
+        return output.import_reviewed_output(paths[0], location, backend, configure_views=False, depth_mode=depth_mode,
+            **({'validated':validated[0]} if validated is not None else {}))
     if len(paths) != 2:
         raise ValueError('Update requires migration and requested output; previous animation retained')
-    reports = [json.loads(Path(p).read_text(encoding='utf-8')) for p in paths]
-    stamps = [backend._core.reconstruction_fingerprint(r.get('reconstruction'),
-              r['plan'].get('source_video_sha256')) for r in reports]
+    reports = [output._read_report(p) for p in paths]
+    stamps = ([v['report']['reconstruction']['fingerprint'] for v in validated] if validated is not None else
+        [backend._core.reconstruction_fingerprint(r.get('reconstruction'),r['plan'].get('source_video_sha256')) for r in reports])
     if stamps[0] == LEGACY or stamps[0] != stamps[1]:
         raise ValueError('Migration and requested reconstruction fingerprints differ')
     scene = bpy.context.scene
@@ -144,8 +145,10 @@ def import_generation(paths, location, backend, *, migration=False, depth_mode='
     camera = scene.camera
     render = (scene.render.resolution_x, scene.render.resolution_y, scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)
     try:
-        output.import_reviewed_output(paths[0], location, backend, configure_views=False, migration_approved=True, depth_mode=depth_mode)
-        return output.import_reviewed_output(paths[1], location, backend, configure_views=False, depth_mode=depth_mode)
+        output.import_reviewed_output(paths[0], location, backend, configure_views=False, migration_approved=True, depth_mode=depth_mode,
+            **({'validated':validated[0]} if validated is not None else {}))
+        return output.import_reviewed_output(paths[1], location, backend, configure_views=False, depth_mode=depth_mode,
+            **({'validated':validated[1]} if validated is not None else {}))
     except Exception:
         scene.camera = camera
         for obj, old_data, action, slot, meta, parent, ptype, bone, inverse, basis, front, hidden, render_hidden, name in snapshots:

@@ -14,7 +14,7 @@ try:
     from vta_core import source_calibration as calibration
 except ImportError:
     calibration=None
-import blendcap_vta_reconstruct_worker as worker
+import tests.legacy_reconstruct_worker as worker
 
 
 @unittest.skipUnless(calibration is not None,'private calibration runtime required')

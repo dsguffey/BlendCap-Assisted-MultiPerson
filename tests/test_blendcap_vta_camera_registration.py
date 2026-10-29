@@ -188,7 +188,7 @@ class CameraRegistrationTests(unittest.TestCase):
     def test_missing_or_invalid_focal_metadata_fails_without_guessing(self):
         import numpy as np
         from contextlib import nullcontext
-        from blendcap_vta_reconstruct_worker import infer_reviewed_pose
+        from tests.legacy_reconstruct_worker import infer_reviewed_pose
         pose = {'bbox': [0,0,10,10], 'pred_global_rots': np.tile(np.eye(3),(2,1,1)),
                 'pred_joint_coords': np.zeros((2,3)), 'pred_cam_t': np.ones(3)}
         estimator = SimpleNamespace(process_one_image=lambda *a, **kw: [pose])

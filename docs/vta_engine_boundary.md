@@ -1,4 +1,62 @@
-# Engine boundary — M2 simplification, 2026-10-28
+# Engine boundary — Architecture Cleanup M4
+
+## Current Architecture Cleanup M4 — source checkpoint, 2026-10-29
+
+M4 completes generation/analysis jobs, provider isolation, result acceptance and
+retarget handoff in source. Prior M1–M3 sections below are historical where they
+conflict with this section. This is a local architecture checkpoint, not Public 1.0.
+
+One-shot authoritative control commands launch a durable private job orchestrator,
+which calls a separate job-scoped provider. Models remain warm within a job, then
+unload; there is no authoritative daemon or cross-job resident service. Generate and
+Analyze use the public background controller and cached progress/cancel/recovery.
+Native objects/Actions/Depth/Undo and retarget profile/FK/finger application remain
+public. Strict protocol v5/file-backed results and journaled CAS/receipts govern
+private acceptance. Optional accepted-output records in schema 0.9 do not invalidate
+motion authority by themselves. Native delivery acknowledgement is not native Save.
+
+Fixed Depth remains default; Automatic remains opt-in and switching still requires
+confirmation/regeneration. FIRST/EVERY FOV, selected-Character scope, prior tracking,
+manual native Location/Depth and supported target behavior are preserved. One guarded
+native previous-output slot supports explicit Restore without rolling back domain
+state/settings. Restore refuses later manual edits or incompatible source/structure.
+Retarget retains the prior Action through existing native workflows, not new history.
+
+Reopen never automatically reruns inference or applies saved output. Explicit recovery
+checks Scene/source, authority/evidence and native fingerprints. Cancel, process loss,
+late cleanup, corrupt/stale results and uncertain acceptance preserve usable native
+output. Save As carries terminal artifact/media closure and the retained output slot;
+active/unknown work requires resolution. Existing Windows path-length guards remain.
+
+Validation: 848 public + 508 private full tests passed, zero skips/errors/failures;
+source compile/register and private-import-blocked factory-Blender native, recovery,
+Save/Reopen/independent Save As/Restore/retarget proofs pass. Real body generation
+(three frames) and real SAM3 candidate analysis (one frame) pass in disposable copies.
+All 69 owner QA files are hash-identical. No migration/recreation, installed deployment
+or new manual QA is required for this source checkpoint. One initial SAM3 attempt
+exited without reply and failed safely; retry succeeded, cause unconfirmed and retained
+as runtime QA debt. No broad architecture rollback was made for the localized Blender
+Action/dependency-graph sequencing regression.
+
+Measured diagnostic samples: 41.93 s cold three-frame generation, 12.44 s provider
+load; separate warm-inference probe 0.23 s versus 21.04 s first inference. Control
+startup ~0.06–0.09 s, native prevalidated apply ~0.20–0.29 s, private validation ~1.64 s.
+Status/long controls are asynchronous; these numbers are not acceptance thresholds.
+
+Production private-import sites: 20/six files -> 5/four files. Remaining: source
+bootstrap/compatibility loaders and camera rotation/cleanup, deliberately M5. Retired
+mixed workers are no-private-import shims; frozen implementations are test-only.
+M5 estimate: 3–5 focused passes for final import/shim retirement, parent-death/process
+supervision, runtime/model layout, installer/update/repair/uninstall, clean-machine
+and security/diagnostic/release QA. Paid-installer/offline redistribution audit remains
+unresolved. Recommend a separate 1–2-pass pre-1.0 batch Mark/Assign/Suppress and
+latency/busy-feedback/presentation polish milestone. No marking UI, proportion-aware
+retargeter, facial work or M5 implementation was started. No push/tag/release.
+
+Detailed private report:
+`docs/research/vta_architecture_cleanup_m4_generation_providers_20261028.md`.
+Local commit identities follow in the canonical checkpoint receipt/owner report;
+they are not self-referenced inside their own commits.
 
 ## Current M3 boundary — completed in source, 2026-10-28
 

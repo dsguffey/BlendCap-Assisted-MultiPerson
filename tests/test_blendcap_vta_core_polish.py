@@ -33,29 +33,17 @@ class CorePolishTests(unittest.TestCase):
             'repair_context':[dict(frame=77,mode='infer',repair_mode=None,continuity=0)]}]}
 
     def test_host_invalid_repair_fails_before_runtime_checks_or_launch_names_range(self):
-        import vta_core
-        ui = self.ui
-        project = NS(repair_intervals=lambda *_: (NS(mode='interpolate',start_frame=78,end_frame=89),))
-        cache = NS(source=NS(start_frame=0,end_frame=162))
-        backend = NS(_load_context=lambda _: (project,cache,'r'), _core=NS(
-            build_skeletal_plan=lambda *_a,**_kw:self.invalid_plan(), validate_skeletal_repairs=vta_core.validate_skeletal_repairs))
-        context = NS(window_manager=NS(blendcap_vta_animation_start=79,blendcap_vta_animation_end=90),scene=NS())
-        operator = NS(action='RANGE',report=mock.Mock())
-        with tempfile.TemporaryDirectory() as folder, mock.patch.object(ui,'_location_from_context',return_value=ReviewLocation(Path(folder),Path('video.mp4'),0,1)), \
-                mock.patch.object(ui,'_get_generation_backend',return_value=backend), mock.patch.object(ui,'_edit_available',return_value=True), \
-                mock.patch.object(ui,'_reconstruction_process',None), mock.patch.object(ui,'_python_exe') as python, \
-                mock.patch.object(ui,'tracking_character_ids',return_value=('yellow',)), \
-                mock.patch.object(ui.subprocess,'Popen') as launch:
-            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator,context),{'CANCELLED'})
-            launch.assert_not_called(); python.assert_not_called()
-            self.assertIn('Yellow: Interpolate repair 79–90',ui._generation_details)
-            self.assertIn('outside the repair range',ui._generation_details)
-            self.assertNotIn('Yellow',ui._status)
-            operator.report.assert_not_called()
+        import importlib
+        ui=self.ui;jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
+        message='Yellow: Interpolate repair 79–90 needs trustworthy anchor poses.'
+        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation',side_effect=ValueError(message)),mock.patch.object(ui.subprocess,'Popen') as launch:
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),None),{'CANCELLED'})
+            launch.assert_not_called()
+        self.assertIn(message,ui._generation_details)
 
     def test_worker_invalid_repair_fails_before_estimator_and_writes_no_run(self):
         import vta_core
-        import blendcap_vta_reconstruct_worker as worker
+        import tests.legacy_reconstruct_worker as worker
         import vta_core.source_preflight as preflight
         project = NS(to_dict=lambda:dict(active_analysis_revision_by_source={'s':'r'}),
             repair_intervals=lambda *_:(NS(mode='interpolate',start_frame=78,end_frame=89),))
@@ -66,7 +54,7 @@ class CorePolishTests(unittest.TestCase):
             estimator = mock.Mock()
             with mock.patch.object(vta_core,'load_project_state',return_value=project), \
                     mock.patch.object(vta_core,'load_analysis_cache'), mock.patch.object(vta_core,'build_skeletal_plan',return_value=self.invalid_plan()), \
-                    mock.patch('blendcap_vta_analyze_worker._source_for_video',return_value=NS(source_id='s')), \
+                    mock.patch('tests.legacy_analyze_worker._source_for_video',return_value=NS(source_id='s')), \
                     mock.patch.object(preflight,'preflight_source'), mock.patch.dict('sys.modules',{'save_mhr_data':NS(load_estimator_fast=estimator)}):
                 with self.assertRaisesRegex(vta_core.StateModelError,'Yellow: Interpolate repair 79–90'):
                     worker.run(args)
@@ -75,41 +63,12 @@ class CorePolishTests(unittest.TestCase):
             self.assertFalse((root/'analysis/vta-analysis.lock').exists())
 
     def test_selected_launch_passes_exact_ids_even_with_obsolete_all_setting(self):
-        ui = self.ui
-        with tempfile.TemporaryDirectory() as folder:
-            location=ReviewLocation(Path(folder),Path(folder)/'video.mp4',0,1)
-            wm=NS(blendcap_vta_animation_start=20,blendcap_vta_animation_end=21,blendcap_vta_generation_scope='SELECTED')
-            context=NS(window_manager=wm,scene=NS(objects=[],blendcap_props=NS(fov_mode='FIRST')))
-            build=mock.Mock(return_value=dict(project_id='p',source_id='s',source_video_sha256='a'*64))
-            backend=NS(_load_context=lambda _:(None,NS(source=NS(start_frame=0,end_frame=162)),'r'),
-                _core=NS(build_skeletal_plan=build,validate_skeletal_repairs=mock.Mock()))
-            with mock.patch.object(ui,'_location_from_context',return_value=location), mock.patch.object(ui,'_get_generation_backend',return_value=backend), \
-                    mock.patch.object(ui,'tracking_character_ids',return_value=('white',)), mock.patch.object(ui,'require_loaded_context'), \
-                    mock.patch.object(ui,'_edit_available',return_value=True), mock.patch.object(ui,'_python_exe',return_value='python'), \
-                    mock.patch.object(Path,'is_file',return_value=True), mock.patch.object(ui,'_reconstruction_process',None), \
-                    mock.patch.object(ui,'_backend_root',Path('private')), mock.patch.object(bpy.app.timers,'register'), \
-                    mock.patch.object(ui.subprocess,'Popen',return_value=NS(poll=lambda:None)) as launch:
-                self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
-                self.assertEqual(ui._generation_job['depth_mode'],'FIXED')
-                build.assert_called_once_with(None,mock.ANY,frame_range=(19,20),character_ids=('white',))
-                command=launch.call_args.args[0]
-                self.assertEqual(command[command.index('--character-id')+1],'white')
-                self.assertNotIn('--decision-file',command)
-                # Pretend the already-asserted fake request was never launched.
-                ui._reconstruction_process=None; ui._generation_job=None
-                wm.blendcap_vta_generation_scope='ALL'; build.reset_mock()
-                context.scene.blendcap_vta_automatic_depth=True
-                self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
-                self.assertEqual(ui._generation_job['depth_mode'],'AUTOMATIC')
-                self.assertEqual(build.call_args.kwargs['character_ids'],('white',))
-                self.assertIn('--character-id',launch.call_args.args[0])
-                ui._reconstruction_process=None; ui._generation_job=None
-                build.reset_mock()
-                with mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')):
-                    self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE',report=mock.Mock()),context),{'FINISHED'})
-                self.assertEqual(build.call_args.kwargs['character_ids'],('white','yellow'))
-                self.assertEqual(launch.call_args.args[0].count('--character-id'),2)
-                ui._reconstruction_process=None;ui._generation_job=None
+        import importlib
+        ui=self.ui;jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
+        context=NS(window_manager=NS(blendcap_vta_generation_scope='ALL'))
+        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),context),{'FINISHED'})
+            start.assert_called_once_with(context);launch.assert_not_called()
 
     def test_selected_import_preserves_unrelated_action_curves_visibility_and_transform(self):
         from tests.test_blendcap_vta_source_calibration import BlenderCalibrationTests

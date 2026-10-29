@@ -10,15 +10,15 @@ import hashlib
 from pathlib import Path
 
 PROTOCOL = 'vta-engine'
-VERSION = 4
+VERSION = 5
 OPERATIONS = ('source-coverage','character-state','character-rename',
-              'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last')
+              'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last','generation-prepare','analysis-prepare','job-start','job-status','job-cancel','job-decision','job-result','job-application','analysis-register','generation-accept','generation-validate','retarget-bindings','retarget-export')
 MAX_BYTES = 16384
 MAX_FRAME = 2**31-1
 CODES = frozenset(('INVALID_REQUEST','VERSION_MISMATCH','UNKNOWN_OPERATION','INVALID_PATH',
     'PROJECT_UNAVAILABLE','SOURCE_UNAVAILABLE','SOURCE_MISMATCH','FRAME_OUT_OF_RANGE',
     'INPUT_CHANGED','RESOURCE_LIMIT','INTERNAL_ERROR','CONFLICT','INVALID_NAME',
-    'CHARACTER_UNAVAILABLE','PROJECT_BUSY','RECOVERY_REQUIRED','IDEMPOTENCY_CONFLICT'))
+    'RUNTIME_UNAVAILABLE','CHARACTER_UNAVAILABLE','PROJECT_BUSY','RECOVERY_REQUIRED','IDEMPOTENCY_CONFLICT','JOB_NOT_FOUND'))
 
 
 def digest(value):
@@ -164,6 +164,7 @@ def validate_request(value):
     require(type(value['operation']) is str and value['operation'] in OPERATIONS,
             'Unknown operation.', 'UNKNOWN_OPERATION')
     payload=value['payload'];operation=value['operation']
+    if validate_job_request(operation,payload):return value
     names={'source-coverage':('source_path','source_frame'),
         'character-state':('character_id',),'project-state':(),
         'character-rename':('project_id','character_id','display_name','expected_revision'),
@@ -192,7 +193,7 @@ def validate_request(value):
 
 def ready(pid):
     return dict(protocol=PROTOCOL,version=VERSION,kind='ready',pid=pid,operations=list(OPERATIONS),
-                definition_sha256=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('__init__.py','observation.py','domain.py'))).hexdigest())
+                definition_sha256=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('__init__.py','observation.py','domain.py','jobs.py'))).hexdigest())
 
 
 def validate_ready(value,pid):
@@ -232,6 +233,7 @@ def validate_response(value, request_id, operation):
         require(type(item['coverage']) is list and len(item['coverage'])==2,'Invalid observation coverage.')
         frame(item['coverage'][0]);frame(item['coverage'][1]);require(item['coverage'][0]<=item['coverage'][1],'Reversed observation window.')
     elif operation=='tracking-plan':validate_plan(value['result'])
+    elif operation in JOB_CONTROL_OPS:validate_job_response(operation,value['result'])
     elif operation=='project-state':checkpoint(value['result'])
     elif operation=='character-state':
         item=value['result'];fields(item,('checkpoint','character_id','display_name'))
@@ -250,3 +252,5 @@ def validate_response(value, request_id, operation):
 
 
 from .domain import MUTATIONS,DETAIL_OPS,EXTRA,request_names,validate_payload,validate_details,validate_plan,validate_target
+
+from .jobs import CONTROL_OPS as JOB_CONTROL_OPS,request as validate_job_request,response as validate_job_response

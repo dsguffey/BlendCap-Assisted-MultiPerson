@@ -10,7 +10,7 @@ import unittest
 
 from blendcap_vta_review import CandidateRow, SelectionState, present_review
 from blendcap_vta_review import ReviewLocation, validate_output_mapping, VtaReviewUiError
-from blendcap_vta_reconstruct_worker import bbox_for_backend, export_command, infer_reviewed_pose
+from tests.legacy_reconstruct_worker import bbox_for_backend, export_command, infer_reviewed_pose
 from tests.test_blendcap_vta_review import Review, Candidate
 
 try:
@@ -21,13 +21,13 @@ except ImportError:
 
 class OutputBoundaryTests(unittest.TestCase):
     def test_stop_path_cannot_target_another_project_or_existing_report(self):
-        from blendcap_vta_reconstruct_worker import run
+        from tests.legacy_reconstruct_worker import run
         for stop in ('other/generation-job.stop', 'project/reconstruction/output.json'):
             with self.subTest(stop=stop), self.assertRaisesRegex(RuntimeError, 'stop request'):
                 run(SimpleNamespace(core_root='private', blendcap_root='bundle',
                     companion_root='project', video='video.mp4', stop_file=stop))
     def test_repair_worker_has_no_old_hold_seed_or_repaired_output_reuse(self):
-        import blendcap_vta_reconstruct_worker as worker
+        import tests.legacy_reconstruct_worker as worker
         import inspect
         text = inspect.getsource(worker)
         self.assertNotIn('find_hold_seed', text)
@@ -91,7 +91,7 @@ class OutputBoundaryTests(unittest.TestCase):
         self.assertIsNone(infer_reviewed_pose(estimator, np, torch, rgb, evidence, 300))
 
     def test_immutable_run_publication_rejects_existing_manifest(self):
-        from blendcap_vta_reconstruct_worker import write_new_json
+        from tests.legacy_reconstruct_worker import write_new_json
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'output.json'
             write_new_json(path, {'first': True})
@@ -101,7 +101,7 @@ class OutputBoundaryTests(unittest.TestCase):
             self.assertEqual(original, path.read_bytes())
 
     def test_atomic_publication_race_preserves_unexpected_destination(self):
-        import blendcap_vta_reconstruct_worker as worker
+        import tests.legacy_reconstruct_worker as worker
         import os
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'output.json'
@@ -119,16 +119,11 @@ class OutputBoundaryTests(unittest.TestCase):
 @unittest.skipUnless(bpy is not None, 'Blender runtime required')
 class BlenderOutputTests(unittest.TestCase):
     def test_cooperative_cancel_preserves_review_and_stabilizes_status(self):
-        import sys
-        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
-        view = object()
-        process = SimpleNamespace(poll=lambda: None)
-        import blendcap_vta_generation_ipc as ipc
-        with tempfile.TemporaryDirectory() as directory:
-            job=ipc.new_request(directory)
-            job['stop'].parent.mkdir(parents=True)
-            job['process']=SimpleNamespace(poll=lambda:1)
-            self.check_cancel_job(ui,job,process,view)
+        import importlib
+        ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui');jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
+        with mock.patch.object(jobs,'request_cancel',return_value=True) as cancel,mock.patch.object(ui.subprocess,'Popen') as launch:
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(SimpleNamespace(action='CANCEL'),None),{'FINISHED'})
+            cancel.assert_called_once();launch.assert_not_called()
 
     def check_cancel_job(self,ui,job,process,view):
         with mock.patch.object(ui, '_generation_job',job), \
@@ -175,49 +170,14 @@ class BlenderOutputTests(unittest.TestCase):
         self.assertAlmostEqual(abs(actual.dot(expected)), 1, places=6)
 
     def test_generate_range_launches_source_bounds_and_keeps_hold_controls_distinct(self):
-        import sys
-        ui = sys.modules[self.addon.__name__ + '.blendcap.vta_review_ui']
-        wm = SimpleNamespace(blendcap_vta_animation_start=11, blendcap_vta_animation_end=15,
-            blendcap_vta_motion_start=67, blendcap_vta_motion_end=90)
-        context = SimpleNamespace(window_manager=wm, scene=SimpleNamespace(
-            blendcap_props=SimpleNamespace(fov_mode='FIRST'),objects=[]))
-        operator = SimpleNamespace(action='RANGE', report=mock.Mock())
-        plan = mock.Mock(return_value={'project_id':'p','source_id':'s','source_video_sha256':'a'*64})
-        cache = SimpleNamespace(source=SimpleNamespace(start_frame=0, end_frame=162))
-        backend = SimpleNamespace(_load_context=lambda _: ('project', cache, 'revision'),
-                                  _core=SimpleNamespace(build_skeletal_plan=plan, validate_skeletal_repairs=mock.Mock()))
-        with tempfile.TemporaryDirectory() as directory, \
-             mock.patch.object(ui, '_location_from_context', return_value=ReviewLocation(
-                 Path(directory), Path(directory)/'video.mp4', 0, 1)), \
-             mock.patch.object(ui, '_get_generation_backend', return_value=backend), \
-             mock.patch.object(ui, 'tracking_character_ids', return_value=('selected-character',)), \
-             mock.patch.object(ui, 'require_loaded_context') as require_loaded, \
-             mock.patch.object(ui, '_edit_available', return_value=True), \
-             mock.patch.object(ui, '_python_exe', return_value='managed-python.exe'), \
-             mock.patch.object(Path, 'is_file', return_value=True), \
-             mock.patch.object(ui.subprocess, 'Popen', return_value=SimpleNamespace(poll=lambda: None)) as launch, \
-             mock.patch.object(ui, '_reconstruction_process', None), \
-             mock.patch.object(ui, '_generation_job', None), \
-             mock.patch.object(ui, '_backend_root', Path('private')), \
-             mock.patch.object(bpy.app.timers, 'register'):
-            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'FINISHED'})
-            plan.assert_called_once_with('project', cache, frame_range=(10, 14),character_ids=('selected-character',))
-            require_loaded.assert_called_once_with(context)
-            command = launch.call_args.args[0]
-            self.assertNotIn('--decision-file',command)
-            self.assertNotIn('--previous-fingerprint',command)
-            self.assertIsNone(ui._generation_job['decision'])
-            self.assertIn('--generation-id',command)
-            self.assertEqual(command[command.index('--fov-mode')+1], 'FIRST')
-            self.assertEqual(command[command.index('--start-frame')+1], '10')
-            self.assertEqual(command[command.index('--end-frame')+1], '14')
-            self.assertIn('11–15', ui._generation_status)
-            self.assertEqual((wm.blendcap_vta_motion_start, wm.blendcap_vta_motion_end), (67, 90))
-            launch.reset_mock()
-            wm.blendcap_vta_animation_start = 20
-            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator, context), {'CANCELLED'})
-            launch.assert_not_called()
-            self.assertIn('must not exceed', ui._generation_details)
+        import importlib
+        ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui');jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
+        wm=SimpleNamespace(blendcap_vta_animation_start=11,blendcap_vta_animation_end=15,blendcap_vta_motion_start=67,blendcap_vta_motion_end=90)
+        context=SimpleNamespace(window_manager=wm);operator=SimpleNamespace(action='RANGE',report=mock.Mock())
+        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
+            self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator,context),{'FINISHED'})
+            start.assert_called_once_with(context);launch.assert_not_called()
+        self.assertEqual((wm.blendcap_vta_motion_start,wm.blendcap_vta_motion_end),(67,90))
 
     def test_partial_actions_compose_overlap_hold_independence_and_reload(self):
         obj = self.rig('range-white', list(range(12)))

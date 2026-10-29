@@ -12,7 +12,7 @@ from unittest import mock
 
 import numpy as np
 
-from blendcap_vta_reconstruct_worker import infer_reviewed_pose
+from tests.legacy_reconstruct_worker import infer_reviewed_pose
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,7 +116,7 @@ def install_pose_io(rt):
 
 class DetectorFreeTests(unittest.TestCase):
     def test_worker_cli_owns_utf8_logging_without_ultralytics_side_effects(self):
-        import blendcap_vta_reconstruct_worker as worker
+        import tests.legacy_reconstruct_worker as worker
         out_bytes, err_bytes = io.BytesIO(), io.BytesIO()
         args = ['worker', '--core-root', 'core', '--blendcap-root', 'bundle',
                 '--companion-root', 'project', '--video', 'video.mp4']

@@ -92,7 +92,9 @@ class RollFollowupTests(unittest.TestCase):
     def test_generation_scope_dropdown_removed_and_multi_ids_are_not_collapsed(self):
         import inspect
         ui=self.ui;text=inspect.getsource(ui.BLENDCAP_OT_vta_generate_animation.execute)
-        self.assertIn("options['character_ids']=ids",text)
+        self.assertIn('jobs.start_generation(context)',text)
+        jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
+        self.assertIn('ids=tuple(ui.tracking_character_ids(context))',inspect.getsource(jobs._start))
         self.assertNotIn('blendcap_vta_generation_scope',inspect.getsource(ui))
 
     def test_foreign_scene_character_is_rejected_before_plan_or_worker(self):

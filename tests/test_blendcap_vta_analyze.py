@@ -11,7 +11,7 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest import mock
 
-import blendcap_vta_analyze_worker as worker
+import tests.legacy_analyze_worker as worker
 
 try:
     import bpy
@@ -507,95 +507,28 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
         self.assertEqual(wm.clipboard, '[WinError 5] technical path')
 
     def test_missing_runtime_cancels_without_launch_or_tracking(self):
-        ui = self.ui
-        root = Path("C:/project")
-        context = SimpleNamespace(window_manager=SimpleNamespace(
-            blendcap_vta_analyze_scope='WHOLE'))
-        operator = SimpleNamespace(report=mock.Mock())
-        backend = SimpleNamespace(update_tracking=mock.Mock(),
-                                  source_coverage=lambda _location: (0, 162))
-        with mock.patch.object(ui, "_analysis_process", None), \
-             mock.patch.object(ui, "_location_from_context", return_value=
-                               SimpleNamespace(companion_root=root)), \
-             mock.patch.object(ui, "_get_backend", return_value=backend), \
-             mock.patch.object(ui, "_source_coverage", return_value=(0, 162)), \
-             mock.patch.object(ui, "_backend_root", root), \
-             mock.patch.object(ui, "_configured_analysis_paths", side_effect=
-                               ui.VtaReviewUiError("Analysis environment unavailable. "
-                                   "Open BlendCap Preferences → Video to Animation.")), \
-             mock.patch.object(ui.subprocess, "Popen") as popen:
-            self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
-                             {'CANCELLED'})
-        popen.assert_not_called()
-        backend.update_tracking.assert_not_called()
-        self.assertIn("Analysis environment unavailable", operator.report.call_args.args[1])
+        import importlib
+        ui=self.ui;jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui');operator=SimpleNamespace(report=mock.Mock())
+        with mock.patch.object(jobs,'start_analysis',side_effect=ui.VtaReviewUiError('Analysis environment unavailable')),mock.patch.object(ui.subprocess,'Popen') as launch:
+            self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator,None),{'CANCELLED'})
+            launch.assert_not_called()
+        self.assertIn('Analysis environment unavailable',operator.report.call_args.args[1])
 
     def test_cancel_requests_between_frame_stop_without_killing_worker(self):
-        ui = self.ui
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'analysis').mkdir()
-            operator = SimpleNamespace(report=mock.Mock())
-            with mock.patch.object(ui, '_location_from_context', return_value=
-                                   SimpleNamespace(companion_root=root)), \
-                 mock.patch.object(ui, '_analysis_status_for', return_value={
-                     'state': 'running',
-                 }):
-                self.assertEqual(ui.BLENDCAP_OT_vta_analyze_stop.execute(operator, None),
-                                 {'FINISHED'})
-            self.assertEqual((root / 'analysis' / ui.STOP_NAME).read_text(), 'stop\n')
+        import importlib
+        jobs=importlib.import_module(self.ui.__package__+'.vta_jobs_ui')
+        with mock.patch.object(jobs,'request_cancel',return_value=True) as cancel,mock.patch.object(self.ui.subprocess,'Popen') as launch:
+            self.assertEqual(self.ui.BLENDCAP_OT_vta_analyze_stop.execute(None,None),{'FINISHED'})
+            cancel.assert_called_once();launch.assert_not_called()
 
     def test_whole_and_range_operator_commands_are_external_and_statusful(self):
-        ui = self.ui
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            python = root / "python.exe"
-            kinesia = root / "source"
-            checkpoint = root / "sam3.pt"
-            location = SimpleNamespace(companion_root=root, source_path=root / "video.mp4",
-                                       source_frame=0, blender_frame=1)
-            wm = SimpleNamespace(blendcap_vta_analyze_scope='WHOLE',
-                                 blendcap_vta_analyze_start=4,
-                                 blendcap_vta_analyze_end=10)
-            context = SimpleNamespace(window_manager=wm)
-            operator = SimpleNamespace(report=mock.Mock())
-            process = SimpleNamespace(poll=lambda: None)
-            timers = SimpleNamespace(is_registered=lambda _timer: False,
-                                     register=mock.Mock())
-            fake_bpy = SimpleNamespace(app=SimpleNamespace(timers=timers))
-            with mock.patch.object(ui, "bpy", fake_bpy), \
-                 mock.patch.object(ui, "_analysis_process", None), \
-                 mock.patch.object(ui, "_location_from_context", return_value=location), \
-                 mock.patch.object(ui, "_get_backend", return_value=
-                                   SimpleNamespace(source_coverage=lambda _location: (0, 162))), \
-                 mock.patch.object(ui, "_source_coverage", return_value=(0, 162)), \
-                 mock.patch.object(ui, "_backend_root", root), \
-                 mock.patch.object(ui, "_configured_analysis_paths",
-                                   return_value=(python, kinesia, checkpoint)), \
-                 mock.patch.object(ui, "_analysis_status_for", return_value=None), \
-                 mock.patch.object(ui.subprocess, "Popen", return_value=process) as popen:
-                self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
-                                 {'FINISHED'})
-                command = popen.call_args.args[0]
-                self.assertEqual(command[0], str(python))
-                self.assertNotIn('--start', command)
-                self.assertNotIn('--end', command)
-                self.assertEqual(popen.call_args.kwargs['env']['HF_HUB_OFFLINE'], '1')
-                self.assertEqual(popen.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
-                timers.register.assert_called_once()
-                wm.blendcap_vta_analyze_scope = 'RANGE'
-                ui._analysis_process = None
-                self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
-                                 {'FINISHED'})
-                command = popen.call_args.args[0]
-                self.assertEqual(command[command.index('--start') + 1], '3')
-                self.assertEqual(command[command.index('--end') + 1], '9')
-                wm.blendcap_vta_analyze_start = 11
-                ui._analysis_process = None
-                popen.reset_mock()
-                self.assertEqual(ui.BLENDCAP_OT_vta_analyze.execute(operator, context),
-                                 {'CANCELLED'})
-                popen.assert_not_called()
+        import importlib
+        jobs=importlib.import_module(self.ui.__package__+'.vta_jobs_ui')
+        for scope in ('WHOLE','RANGE'):
+            context=SimpleNamespace(window_manager=SimpleNamespace(blendcap_vta_analyze_scope=scope))
+            with mock.patch.object(jobs,'start_analysis') as start,mock.patch.object(self.ui.subprocess,'Popen') as launch:
+                self.assertEqual(self.ui.BLENDCAP_OT_vta_analyze.execute(None,context),{'FINISHED'})
+                start.assert_called_once_with(context);launch.assert_not_called()
 
     def test_workflow_subpanels_and_direct_keymap_register(self):
         ui = self.ui

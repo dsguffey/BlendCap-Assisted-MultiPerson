@@ -10,7 +10,7 @@ try:
 except ImportError:bpy=None
 
 
-def core(rt):return importlib.import_module(rt.__package__+'.vta_review_ui')._get_generation_backend(bpy.context)._core
+def core(rt):return importlib.import_module('vta_core') # Explicit test-only oracle, not production routing.
 
 
 def add_fingers(rt,rig,family='MIXAMO',prefix='',omit=()):

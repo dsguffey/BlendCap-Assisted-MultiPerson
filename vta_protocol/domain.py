@@ -4,11 +4,13 @@ from . import fields,require,text,frame,revision,digest,identifier,checkpoint
 from .observation import sequence,optional_id
 
 MUTATIONS=('character-rename','character-create','review-assign','review-reassign','review-hard-state',
-           'review-management','candidate-suppress','tracking-update','repair-edit','review-restore-last')
+           'review-management','candidate-suppress','tracking-update','repair-edit','review-restore-last','analysis-register','generation-accept')
 DETAIL_OPS=tuple(op for op in MUTATIONS if op not in ('character-rename','character-create'))
 CACHE=('source_id','source_frame','analysis_revision_id','cache_sha256')
 EXTRA={
  'character-create':('display_name',),
+ 'analysis-register':('job_id','descriptor_sha256'),
+ 'generation-accept':('job_id','artifact_sha256'),
  'review-management':('action','character_id','source_id','frame','keyframe_ids','confirmed','session_id'),
  'candidate-suppress':(*CACHE,'observation_id','suppressed','confirmed','session_id'),
  'tracking-update':(*CACHE,'character_ids','session_id'),
@@ -28,6 +30,8 @@ def request_names(op):
 def validate_payload(op,p):
     if op not in EXTRA:return
     if 'session_id' in p:identifier(p['session_id'])
+    if op in ('analysis-register','generation-accept'):
+        identifier(p['job_id']);digest(p['descriptor_sha256'] if op=='analysis-register' else p['artifact_sha256'])
     if op=='review-management':
         require(p['action'] in ('clear-assignment','clear-review-key','clear-selected-review-keys','clear-all-review-keys-on-frame','delete-character'),'Invalid management action.')
         optional_id(p['character_id']);optional_id(p['source_id'])
@@ -90,6 +94,8 @@ def validate_details(op,item):
             fields(row,('character_id','source_id','action','intervals'));text(row['character_id']);text(row['source_id']);text(row['action'])
             for interval in sequence(row['intervals'],1024):
                 fields(interval,('start_frame','end_frame','mode'));frame(interval['start_frame']);frame(interval['end_frame']);require(interval['start_frame']<=interval['end_frame'] and interval['mode'] in ('freeze','interpolate'),'Invalid repair interval.')
+    elif op in ('analysis-register','generation-accept'):
+        fields(item,('job_id','identity'));identifier(item['job_id']);text(item['identity'])
     elif op=='review-restore-last':fields(item,('restore_id',))
     else:require(False,'Unknown details operation.')
     if item.get('restore_id') is not None:identifier(item['restore_id'])
@@ -127,4 +133,5 @@ def validate_target(operation,payload,result):
     elif operation=='repair-edit':
         rows=result['details']['updates'];require({r['character_id'] for r in rows}==set(payload['character_ids']),'Repair targets mismatch.')
         require(all(r['source_id']==payload['source_id'] and r['action']==payload['action'] for r in rows),'Repair source/action mismatch.')
+    elif operation in ('analysis-register','generation-accept'):require(result['details']['job_id']==payload['job_id'],'Job receipt target mismatch.')
     elif operation=='review-restore-last':require(result['details']['restore_id']==payload['restore_id'],'Protected Restore identity mismatch.')

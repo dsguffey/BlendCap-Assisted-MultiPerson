@@ -327,7 +327,7 @@ def prepare(context, obj=None):
     if obj.get('vta_output_stale'):
         raise ValueError('Generate the current reviewed animation before camera cleanup.')
     _,_,bounds = validate_rig(obj)
-    backend = ui._get_generation_backend(context)
+    backend = ui._get_source_backend(context)
     project,cache,revision = backend._load_context(info[2])
     if (obj.get('vta_project_file_hash') != _hash(info[2].companion_root/'project_state.json')
             or obj.get('vta_cache_file_hash') != _hash(info[2].companion_root/'analysis'/(revision+'.json'))):

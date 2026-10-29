@@ -589,6 +589,40 @@ class VtaRetargetSettings(bpy.types.PropertyGroup):
     target_profile: bpy.props.EnumProperty(name='Target profile',items=PROFILE_ITEMS,default='AUTO')
 
 
+_mapping_cache={}
+_mapping_tasks={}
+
+def _control_wait(fn,label):
+    from ..blendcap_vta_jobs import ControlTask
+    task=ControlTask();task.submit(fn)
+    while task.thread.is_alive():
+        if bpy.app.background:
+            task.thread.join(.01)
+        yield label,None
+    return task.take()
+
+def _preview_bindings(context):
+    from . import vta_review_ui as ui
+    from ..blendcap_vta_jobs import ControlTask
+    location=ui._location
+    if location is None:raise ValueError('Load source mapping first.')
+    key=(str(location.companion_root),ui._configured_core_location(context))
+    if key in _mapping_cache:
+        value=_mapping_cache[key]
+        if isinstance(value,Exception):raise ValueError(str(value))
+        return value
+    task=_mapping_tasks.get(key)
+    if task is None:
+        backend=ui._get_generation_backend(context);task=ControlTask();_mapping_tasks[key]=task
+        task.submit(lambda:backend.retarget_source_bindings(location))
+    elif task.thread is not None and not task.thread.is_alive():
+        try:_mapping_cache[key]=task.take()
+        except Exception as exc:_mapping_cache[key]=exc
+        _mapping_tasks.pop(key,None)
+        return _preview_bindings(context)
+    raise ValueError('Loading source mapping…')
+
+
 def mapping_preview(context, settings):
     """Read-only name/rest preflight; never load project/evidence or bake in draw."""
     from . import vta_review_ui as ui
@@ -598,7 +632,7 @@ def mapping_preview(context, settings):
     if target is None or not target_picker_poll(settings, target):
         raise ValueError('Choose a target armature, not a mesh part.')
     mapping = validate_target(target, context.scene,settings.target_profile)
-    bindings = ui._get_generation_backend(context)._core.retarget_source_bindings()
+    bindings = _preview_bindings(context)
     rows = []
     for binding in bindings:
         semantic, name = binding['id'], binding['bone']
@@ -737,14 +771,16 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         fingerprint=action_fingerprint(source)
         properties=_animated_properties(target)
         try:
-            rest,samples=yield from capture_motion(source,backend._core.retarget_source_bindings(include_fingers=True),self.start,self.end,preserve=(target,))
+            bindings=yield from _control_wait(lambda:backend.retarget_source_bindings(location,include_fingers=True),'source mapping')
+            rest,samples=yield from capture_motion(source,bindings,self.start,self.end,preserve=(target,))
         finally:_restore_properties(properties)
-        motion=backend.export_retarget_motion(location,character_id=source['vta_character_id'],fps=scene.render.fps/scene.render.fps_base,rest=rest,samples=samples)
+        snapshot=dict(character_id=source['vta_character_id'],fps=scene.render.fps/scene.render.fps_base,rest=rest,samples=samples)
+        motion=yield from _control_wait(lambda:backend.export_retarget_motion(location,**snapshot),'normalizing final motion')
         token=motion['provenance']['state_token']
         def unchanged():
             if action_fingerprint(source)!=fingerprint:raise ValueError('Source animation changed; retarget cancelled.')
-            project,_=backend._load_project_source(location)
-            if hashlib.sha256(project.to_json().encode()).hexdigest()!=token:raise ValueError('VTA state changed; retarget cancelled.')
+            current=backend.client.call('project-state',dict(companion_root=str(location.companion_root)))
+            if current['revision']['sha256']!=token:raise ValueError('VTA state changed; retarget cancelled.')
         job=RetargetJob(scene,target,motion,before_publish=unchanged,profile_id=self.target_profile)
         source_state=_rig_state(source);source_properties=_animated_properties(source)
         try:yield from job.steps()

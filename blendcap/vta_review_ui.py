@@ -429,9 +429,10 @@ def _configured_core_location(context) -> str:
 
 
 def _engine_client(context):
-    python = Path(_python_exe())
-    return EngineClient(resolve_engine(_configured_core_location(context),
-        python=python if python.is_file() else None))
+    # Control is stdlib/numpy-only and uses Blender's bundled standalone Python.
+    # A Windows model-venv redirector can spawn a different PID; never weaken the
+    # strict child handshake to accept that indirection. Providers keep their venv.
+    return EngineClient(resolve_engine(_configured_core_location(context)))
 
 
 def _source_coverage(context, location):
@@ -442,27 +443,35 @@ def _source_coverage(context, location):
         raise VtaReviewUiError(f'VTA engine [{exc.code}]: {exc}') from exc
 
 
-_generation_backend=None
-_generation_backend_location=None
-_generation_backend_root=None
+_source_backend=None
+_source_backend_location=None
+_source_backend_root=None
 
-def _get_generation_backend(context, *, force: bool = False):
-    global _generation_backend, _generation_backend_location, _generation_backend_root
+def _get_source_backend(context, *, force: bool = False):
+    global _source_backend, _source_backend_location, _source_backend_root
     configured = _configured_core_location(context)
-    cached_root_missing = _generation_backend_root is not None and not (
-        _generation_backend_root / "vta_core" / "__init__.py"
+    cached_root_missing = _source_backend_root is not None and not (
+        _source_backend_root / "vta_core" / "__init__.py"
     ).is_file()
-    if force or _generation_backend is None or configured != _generation_backend_location or cached_root_missing:
+    if force or _source_backend is None or configured != _source_backend_location or cached_root_missing:
         resolution = discover_vta_core(configured)
         if not resolution.available:
-            _generation_backend = None
-            _generation_backend_location = configured
-            _generation_backend_root = None
+            _source_backend = None
+            _source_backend_location = configured
+            _source_backend_root = None
             raise VtaReviewUiError(resolution.message)
-        _generation_backend = PrivateCoreBackend(core=resolution.core)
-        _generation_backend_location = configured
-        _generation_backend_root = resolution.root
-    return _generation_backend
+        _source_backend = PrivateCoreBackend(core=resolution.core)
+        _source_backend_location = configured
+        _source_backend_root = resolution.root
+    return _source_backend
+
+
+def _get_generation_backend(context, *, force=False):
+    from ..blendcap_vta_jobs import EngineGenerationBackend
+    from ..blendcap_vta_engine_review import EngineReviewBackend
+    client=_engine_client(context)
+    return EngineGenerationBackend(client,EngineReviewBackend(client),
+        mutate=lambda op,payload,before:_domain_mutation(context,op,payload,before))
 
 
 def _domain_mutation(context,operation,payload,observed):
@@ -1073,20 +1082,14 @@ def next_generic_character_name(view) -> str:
 
 
 def _analysis_status_for(root: Path, source_id: str | None = None) -> dict | None:
-    path = root / "analysis" / STATUS_NAME
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict) or value.get("version") != 1:
-            return None
-        if source_id is not None and value.get("source_id") not in (None, source_id):
-            return None
-        return value
-    except (OSError, ValueError):
-        return None
+    from .vta_jobs_ui import analysis_presentation
+    return analysis_presentation(root,source_id)
 
 
 def _analysis_locked(root: Path | None = None) -> bool:
     """One conservative VTA mutation lock, including an external worker."""
+    from . import vta_jobs_ui
+    if vta_jobs_ui.busy(root):return True
     from .vta_camera_cleanup import busy
     if busy():
         return True
@@ -1222,74 +1225,11 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
     bl_description = "Analyze missing video frames with the existing offline SAM3 provider"
 
     def execute(self, context):
-        global _analysis_process, _analysis_progress_started, _analysis_root, _analysis_total
-        global _analysis_start, _analysis_end, _analysis_fallback_status
-        global _status, _status_is_error
         try:
-            require_loaded_context(context)
-            context = _context_for_main_scene(context)
-            location = _location_from_context(context)
-            if _analysis_locked(location.companion_root):
-                raise VtaReviewUiError("Unavailable while candidate analysis is running.")
-            backend = _get_backend(context)
-            source_root = _backend_root
-            if source_root is None:
-                raise VtaReviewUiError("Configure the private VTA core location.")
-            first_source, last_source = _source_coverage(context, location)
-            scope = context.window_manager.blendcap_vta_analyze_scope
-            if scope == 'RANGE':
-                start, end = map_visible_analysis_range(
-                    location, first_source, last_source,
-                    context.window_manager.blendcap_vta_analyze_start,
-                    context.window_manager.blendcap_vta_analyze_end,
-                )
-            else:
-                start, end = first_source, last_source
-            python, kinesia, checkpoint = _configured_analysis_paths(context)
-            root = location.companion_root
-            command = [
-                str(python), str(Path(__file__).resolve().parents[1] /
-                                 "blendcap_vta_analyze_worker.py"),
-                "--core-root", str(source_root), "--kinesia-root", str(kinesia),
-                "--checkpoint", str(checkpoint), "--companion-root", str(root),
-                "--video", str(location.source_path),
-            ]
-            if scope == 'RANGE':
-                command += ["--start", str(start), "--end", str(end)]
-            log_path = root / "analysis" / "vta-analysis.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            env = os.environ.copy()
-            env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", PYTHONNOUSERSITE="1")
-            with log_path.open("a", encoding="utf-8") as log:
-                _analysis_process = subprocess.Popen(
-                    command, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                    cwd=str(Path(__file__).resolve().parents[1]), env=env,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            _analysis_root = root
-            _analysis_total = end - start + 1
-            _analysis_start, _analysis_end = start, end
-            _analysis_fallback_status = None
-            manager = context.window_manager
-            manager.blendcap_vta_analysis_progress = 0.0
-            if hasattr(manager, "progress_begin"):
-                try:
-                    manager.progress_begin(0, _analysis_total)
-                    _analysis_progress_started = True
-                except RuntimeError:
-                    _analysis_progress_started = False
-            if not bpy.app.timers.is_registered(_analysis_timer):
-                bpy.app.timers.register(_analysis_timer, first_interval=0.5)
-            _status = (f"Analyzing Blender frames {visible_frame(location, start)}–"
-                       f"{visible_frame(location, end)} (inclusive).")
-            _status_is_error = False
-            self.report({'INFO'}, _status)
-            return {'FINISHED'}
+            from .vta_jobs_ui import start_analysis
+            start_analysis(context);return {'FINISHED'}
         except Exception as exc:
-            _status = user_message(exc)
-            _status_is_error = True
-            self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
+            self.report({'ERROR'},user_message(exc));return {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_analyze_stop(bpy.types.Operator):
@@ -1298,17 +1238,8 @@ class BLENDCAP_OT_vta_analyze_stop(bpy.types.Operator):
     bl_description = "Cancel between frames; completed candidate checkpoints remain valid"
 
     def execute(self, context):
-        try:
-            root = _location_from_context(context).companion_root
-            status = _analysis_status_for(root, _view.source_id if _view else None)
-            if status is None or status.get("state") not in {"analyzing", "running"}:
-                raise VtaReviewUiError("No candidate analysis is running for this source.")
-            (root / "analysis" / STOP_NAME).write_text("stop\n", encoding="utf-8")
-            self.report({'INFO'}, "Cancel requested; completed frame checkpoints will remain.")
-            return {'FINISHED'}
-        except Exception as exc:
-            self.report({'ERROR'}, user_message(exc))
-            return {'CANCELLED'}
+        from .vta_jobs_ui import request_cancel
+        return {'FINISHED'} if request_cancel() else {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_copy_analysis_error(bpy.types.Operator):
@@ -2093,130 +2024,17 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
         ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='RANGE')
 
     def execute(self, context):
-        global _reconstruction_process, _reconstruction_location, _reconstruction_log
-        global _reconstruction_scene, _reconstruction_range, _generation_status
-        global _reconstruction_stop
-        global _generation_job, _generation_details
-        global _status, _status_is_error
-        if self.action == 'CANCEL':
-            if _reconstruction_process is None or _reconstruction_process.poll() is not None:
-                return {'CANCELLED'}
-            try:
-                if not _cancel_generation_request():
-                    return {'CANCELLED'}
-                _generation_status = f'Animation {_reconstruction_range or "Whole Source"}: stopping after current work…'
-                return {'FINISHED'}
-            except Exception as exc:
-                self.report({'ERROR'}, user_message(exc))
-                return {'CANCELLED'}
-        if not _edit_available(self, quiet=True):
-            _generation_failure('Another operation is running. Wait or cancel it before generating.', context=context)
-            return {'CANCELLED'}
-        if self.action in ('START_CURRENT', 'END_CURRENT'):
-            name = 'blendcap_vta_animation_' + ('start' if self.action == 'START_CURRENT' else 'end')
-            setattr(context.window_manager, name, context.scene.frame_current)
-            return {'FINISHED'}
-        # Settle a worker that finished just before its next timer tick, then
-        # start with fresh request-scoped state (never inherit a previous Cancel).
-        if _reconstruction_process is not None and _reconstruction_process.poll() is not None:
-            _reconstruction_timer()
-        _generation_job = None
-        _reconstruction_log = _reconstruction_stop = None
-        _generation_details = ''
-        clear_operation_feedback('animation', context)
         try:
-            location = _location_from_context(context)
-            backend = _get_generation_backend(context)
-            project, cache, _revision = backend._load_context(location)
-            from ..blendcap_vta_generation_ipc import preflight_generation_paths
-            preflight_generation_paths(location.companion_root)
-            from .vta_generation import plan_options
-            start = context.window_manager.blendcap_vta_animation_start
-            end = context.window_manager.blendcap_vta_animation_end
-            offset = location.blender_frame - location.source_frame
-            source_range = (start - offset, end - offset)
-            domain = (cache.source.start_frame, cache.source.end_frame)
-            options = plan_options(source_range, domain)
-            ids=tracking_character_ids(context)
-            if not ids:
-                raise VtaReviewUiError('Select at least one Character.')
-            options['character_ids']=ids
-            from . import vta_scene_characters
-            from .vta_scene_session import owned
-            scene_ids=None
-            if isinstance(context.scene,bpy.types.Scene) and owned(context.scene):
-                scene_ids=vta_scene_characters.allowed(context.scene,project)
-                ids=tuple(options.get('character_ids',sorted(scene_ids)))
-                if not ids or not set(ids)<=scene_ids:
-                    raise VtaReviewUiError('Create/select reviewed Characters belonging to this Scene before generation.')
-                options['character_ids']=ids
-            plan = backend._core.build_skeletal_plan(project, cache, **options)
-            from .vta_camera_cleanup import require_source_aligned
-            require_source_aligned(context.scene, [c['character_id'] for c in plan.get('characters',())],
-                                   plan['project_id'], plan['source_id'])
-            backend._core.validate_skeletal_repairs(project, plan, frame_offset=offset)
-            depth_mode = 'AUTOMATIC' if getattr(context.scene, 'blendcap_vta_automatic_depth', False) else 'FIXED'
-            from .vta_depth_generation import preflight as depth_preflight
-            from .vta_generation import owners as generation_owners
-            depth_preflight([o for o in generation_owners(context.scene,plan['project_id'],plan['source_id'])
-                             if o.type=='ARMATURE' and o.get('vta_character_id') in ids],
-                            depth_mode, plan['source_video_sha256'], bounded='frame_range' in options)
-            visible_range = f'{start}–{end}'
-            bundle = Path(__file__).resolve().parents[1]
-            python = Path(_python_exe())
-            if not python.is_file() or not (bundle / 'checkpoints/sam-3d-body-dinov3/model.ckpt').is_file():
-                raise VtaReviewUiError('Skeletal environment unavailable. Install BlendCap body models in Preferences.')
-            # Generation never activates a Scene or repairs editor choices.
-            require_loaded_context(context)
-            location = _location_from_context(context)
-            command = [str(python), '-u', '-X', 'faulthandler', str(bundle / 'blendcap_vta_reconstruct_worker.py'),
-                       '--core-root', str(_backend_root), '--blendcap-root', str(bundle),
-                       '--companion-root', str(location.companion_root), '--video', str(location.source_path)]
-            mode = context.scene.blendcap_props.fov_mode
-            if mode not in ('FIRST', 'EVERY'):
-                raise VtaReviewUiError('Reviewed VTA animation supports Sample first frame or Sample every frame; manual focal entry is not supported.')
-            command += ['--fov-mode', mode]
-            if 'frame_range' in options:
-                command += ['--start-frame', str(source_range[0]), '--end-frame', str(source_range[1])]
-            for cid in options.get('character_ids', ()):
-                command += ['--character-id', cid]
-            for cid in sorted(scene_ids or ()):
-                command += ['--scene-character-id',cid]
-            from .vta_generation import owners, fingerprint
-            from ..blendcap_vta_generation_ipc import filesystem_path, new_request
-            previous = sorted({fingerprint(o) for o in owners(context.scene, plan['project_id'], plan['source_id'])})
-            job = new_request(location.companion_root, decision_required=bool(previous))
-            job.update(plan=plan, domain=domain, offset=offset, depth_mode=depth_mode,
-                       workspace=getattr(context, 'workspace', None),
-                       first_output=not any(o.type == 'ARMATURE' for o in owners(context.scene, plan['project_id'], plan['source_id'])))
-            _reconstruction_log = job['log']
-            os.makedirs(filesystem_path(_reconstruction_log.parent), exist_ok=True)
-            _reconstruction_stop = job['stop']
-            command += ['--stop-file', str(job['stop']), '--generation-id', job['id']]
-            for value in previous:
-                command += ['--previous-fingerprint', value]
-            if job['decision'] is not None:
-                command += ['--decision-file', str(job['decision'])]
-            environment = os.environ.copy()
-            environment.update(HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', PYTHONNOUSERSITE='1')
-            with open(filesystem_path(_reconstruction_log), 'x', encoding='utf-8') as log:
-                _reconstruction_process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                    stdout=log, stderr=log, cwd=str(bundle), env=environment,
-                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            _reconstruction_location = location
-            _reconstruction_scene = context.scene
-            _reconstruction_range = visible_range
-            job['process'] = _reconstruction_process
-            _generation_job = job
-            _generation_details = 'Log: ' + str(_reconstruction_log)
-            if not bpy.app.timers.is_registered(_reconstruction_timer):
-                bpy.app.timers.register(_reconstruction_timer, first_interval=0.5)
-            _generation_status = f'Checking source calibration for animation {visible_range}…'
-            _status, _status_is_error = _generation_status, False
-            return {'FINISHED'}
+            from . import vta_jobs_ui as jobs
+            if self.action=='CANCEL':return {'FINISHED'} if jobs.request_cancel() else {'CANCELLED'}
+            if self.action in ('START_CURRENT','END_CURRENT'):
+                name='blendcap_vta_animation_'+('start' if self.action=='START_CURRENT' else 'end')
+                setattr(context.window_manager,name,context.scene.frame_current);return {'FINISHED'}
+            if not _edit_available(self,quiet=True):raise VtaReviewUiError('Another VTA operation is pending.')
+            if not tracking_character_ids(context):raise VtaReviewUiError('Select at least one Character.')
+            jobs.start_generation(context);return {'FINISHED'}
         except Exception as exc:
-            _generation_failure(exc, context=context, location=locals().get('location'), reconstruction_started=False)
-            return {'CANCELLED'}
+            _generation_failure(exc,context=context,reconstruction_started=False);return {'CANCELLED'}
 
 
 class BLENDCAP_OT_vta_suppress_candidate(bpy.types.Operator):
@@ -3501,6 +3319,8 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
         launch = layout.row()
         launch.enabled = not active and expected is not None
         launch.operator("blendcap.vta_analyze", text="Analyze Candidates", icon='VIEWZOOM')
+        from . import vta_jobs_ui
+        vta_jobs_ui.draw(layout,context,'analysis')
         if active:
             layout.label(text="Unavailable while candidate analysis is running.", icon='INFO')
         if _status_is_error and "Analysis environment unavailable" in _status:
@@ -3725,6 +3545,8 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
             self.layout.label(text=_generation_status, icon='TIME' if _reconstruction_process is not None else 'INFO')
         if _reconstruction_process is not None and _reconstruction_process.poll() is None:
             self.layout.operator('blendcap.vta_generate_animation', text='Cancel Generation').action = 'CANCEL'
+        from . import vta_jobs_ui
+        vta_jobs_ui.draw(self.layout,context,'generation')
         draw_operation_feedback(self.layout, context, 'animation')
 
 
@@ -3834,6 +3656,8 @@ def register_properties() -> None:
     vta_review_undo.register()
     from . import vta_project_save
     vta_project_save.register()
+    from . import vta_jobs_ui
+    vta_jobs_ui.register()
     bpy.types.WorkSpace.blendcap_vta_mode_enabled = bpy.props.BoolProperty(default=False)
     bpy.types.WorkSpace.blendcap_vta_loaded_scene = bpy.props.PointerProperty(type=bpy.types.Scene)
     _reset_repeat_assignment_session()
@@ -3917,6 +3741,8 @@ def unregister_properties() -> None:
     vta_review_undo.unregister()
     from . import vta_project_save
     vta_project_save.unregister()
+    from . import vta_jobs_ui
+    vta_jobs_ui.unregister()
     from .vta_camera_cleanup import cancel_job
     cancel_job()
     # Cooperative release also covers the worker waiting for consent.
