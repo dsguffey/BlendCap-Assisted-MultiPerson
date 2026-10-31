@@ -2,13 +2,14 @@ schema_version = "1.0.0"
 
 # Unique add-on id (lowercase). Becomes the module name bl_ext.<repo>.blendcap.
 id = "blendcap"
-version = "1.0.5"
-name = "BlendCap"
-tagline = "Markerless video-to-BVH performance capture"
-maintainer = "Arcomade <arcomade@users.noreply.github.com>"
+# Provisional pre-1.0 adapter display version, not an upstream BlendCap version.
+version = "0.9.0"
+name = "VTA"
+tagline = "Video to reviewed, editable Character animation"
+maintainer = "VTA contributors"
 type = "add-on"
 
-website = "https://github.com/Arcomade/BlendCap"
+website = "https://github.com/dsguffey/BlendCap-Assisted-MultiPerson"
 
 # First Blender version with the extension/manifest system. BlendCap's code
 # also uses Blender 5.x APIs with 4.3/4.4 fallbacks already in place.
@@ -32,8 +33,7 @@ tags = [
 ]
 
 [permissions]
-network = "Download the AI model weights and Python dependencies on first install."
-files = "Read input video and write capture caches, BVH files, and the bundled Python environment."
+files = "Read video/project data, manage VTA job artifacts, and export animation."
 
 [build]
 # Only consulted by `blender --command extension build`. Keeps runtime

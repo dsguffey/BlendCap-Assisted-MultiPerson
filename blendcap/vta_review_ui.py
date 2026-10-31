@@ -1052,7 +1052,11 @@ def _analysis_status_for(root: Path, source_id: str | None = None) -> dict | Non
 
 
 def _analysis_locked(root: Path | None = None) -> bool:
-    """One conservative VTA mutation lock, including an external worker."""
+    """One conservative mutation lock, including explicit foreground edits."""
+    from . import vta_marks
+    if vta_marks.busy():return True
+    from . import vta_busy
+    if vta_busy.busy():return True
     from . import vta_jobs_ui
     if vta_jobs_ui.busy(root):return True
     from .vta_camera_cleanup import busy
@@ -1766,7 +1770,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
 class BLENDCAP_OT_vta_suppress_candidate(bpy.types.Operator):
     bl_idname = 'blendcap.vta_suppress_candidate'
     bl_label = 'Suppress Candidate'
-    bl_options = set()  # Domain decisions use explicit correction, not native history.
+    bl_options = {'INTERNAL'}  # Ordinary UI uses marks; keep this internal adapter for Repeat/Restore.
     bl_description = 'Ignore this candidate during automatic continuation; retain raw evidence for Restore'
 
     @classmethod
@@ -1896,7 +1900,7 @@ class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
 class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_assign"
     bl_label = "Assign"
-    bl_options = set()  # Domain decisions use explicit correction, not native history.
+    bl_options = {'INTERNAL'}  # Ordinary UI uses marks; keep this internal adapter for Repeat/Restore.
     bl_description = "Assign the selected candidate; confirm if existing assignments must change"
 
     @classmethod
@@ -2956,19 +2960,20 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
 
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
-    bl_label = "VTA Review"
+    bl_label = "Review and Animation"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'VTA'
     bl_parent_id = "VIEW3D_PT_blendcap_ui"
-    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         refresh(context)
         layout = self.layout
         layout.operator('blendcap.open_vta_workspace', text='Open VTA Workspace',
                         icon='WORKSPACE')
+        from . import vta_busy
+        vta_busy.draw(layout)
         draw_scene_workflow(layout, context)
         from .vta_project_save import draw_error
         draw_error(layout,context)
@@ -3164,11 +3169,11 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
                             text='Show Suppressed Candidates')
         selected_row = next((c for c in _view.candidates
                              if c.observation_id == _selection.observation_id), None)
-        suppress_row = assignment_box.row()
-        suppress_row.enabled = selected_row is not None and not _analysis_locked()
-        op = suppress_row.operator('blendcap.vta_suppress_candidate',
-            text='Restore Candidate' if selected_row and selected_row.suppressed else 'Suppress Candidate')
-        op.restore = bool(selected_row and selected_row.suppressed)
+        from . import vta_marks
+        vta_marks.draw(assignment_box,context)
+        if selected_row and selected_row.suppressed:
+            restore=assignment_box.row();restore.enabled=not _analysis_locked()
+            restore.operator('blendcap.vta_suppress_candidate',text='Restore Candidate',icon='HIDE_OFF').restore=True
         if selected_character is not None:
             state = selected_character.decision_state
             if state in HARD_STATE_LABELS:
@@ -3189,9 +3194,6 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
                 assignment_box.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
             else:
                 assignment_box.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
-        assign = assignment_box.row(align=True)
-        assign.enabled = not _analysis_locked() and _selection.can_assign(_view)
-        assign.operator("blendcap.vta_review_assign", text="Assign", icon='CHECKMARK')
         _draw_management_actions(assignment_box, actions={"clear-assignment"})
         decision_box = layout.box()
         decision_box.label(text="Mark Active Character")
@@ -3376,6 +3378,10 @@ classes = (
 
 
 def register_properties() -> None:
+    from . import vta_busy
+    for cls in (BLENDCAP_OT_vta_review_manage,BLENDCAP_OT_vta_update_tracking,
+                BLENDCAP_OT_vta_review_create_character,BLENDCAP_OT_vta_repeat_assignment):
+        vta_busy.install(cls)
     from . import vta_review_undo
     vta_review_undo.register()
     from . import vta_project_save
@@ -3449,6 +3455,8 @@ def register_properties() -> None:
     )
     _register_preview_tools()
     _register_review_context_keymap()
+    from . import vta_marks
+    vta_marks.register()
     _register_repeat_assignment_keymap()
     vta_overlay.register(overlay_state)
     vta_timeline_overlay.register(timeline_state)
@@ -3459,6 +3467,8 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    from . import vta_marks
+    vta_marks.unregister()
     from . import vta_review_undo
     vta_review_undo.unregister()
     from . import vta_project_save

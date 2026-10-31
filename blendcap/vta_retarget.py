@@ -690,7 +690,8 @@ class VIEW3D_PT_vta_retarget(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'VTA'
     bl_parent_id = 'VIEW3D_PT_blendcap_ui'
-    bl_order = -10
+    bl_order = 100
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         from . import vta_review_ui as ui

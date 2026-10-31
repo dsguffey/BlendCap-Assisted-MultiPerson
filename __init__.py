@@ -1,49 +1,11 @@
-"""BlendCap - Blender extension entry point.
+"""VTA public Blender adapter entry point; upstream attribution is in Credits/NOTICE.
 
-Blender 4.2+ discovers this package via the sibling blender_manifest.toml
-and imports it as ``bl_ext.<repo>.blendcap``. This module owns the add-on
-preferences (the dependency-installer UI) and delegates ALL feature
-registration to the blendcap/ subpackage's registration module.
-
-Why a thin root package wrapping a blendcap/ subpackage: the helper scripts
-the addon shells out to (save_mhr_data.py, npz_to_bvh.py), the installer/,
-the venv/, and models/ all live at this root, NEXT TO the blendcap/ package.
-helpers._addon_dir() resolves to this folder (parent of blendcap/), so the
-subprocess pipeline keeps finding those scripts whether running from a dev
-checkout or an installed extension.
+Product naming is provisional. Stable extension/package identifiers are retained.
+Runtime provisioning is external to Preferences and owned by VTA setup/repair.
 """
 import bpy
-import os
-import textwrap
-
+from .blendcap_vta_product import PRODUCT_NAME
 from .blendcap import registration as _registration
-from .blendcap.helpers import (
-    _addon_dir, read_install_marker, is_dependencies_installed,
-    installer_files_present,
-)
-from .blendcap.operators_pipeline import draw_install_wizard
-# Single shared channel flag (evaluated once at registration in panels):
-# True only for the source distribution, where donating is the ask.
-from .blendcap.panels import SHOW_DONATE_BUTTON
-
-
-def _label_wrapped(col, context, text, icon='NONE'):
-    """Draw `text` into `col` as labels wrapped to the panel width.
-
-    Blender UI labels don't wrap on their own. Estimate a character budget
-    from the region width (minus padding, scaled by the UI scale) and split
-    on word boundaries, so help text fills the width like a paragraph instead
-    of breaking at hand-placed points or clipping off the right edge."""
-    try:
-        region = context.region
-        width_px = (region.width if region else 600) - 50
-        ui = context.preferences.system.ui_scale or 1.0
-        chars = max(24, int(width_px / (8.0 * ui)))
-    except Exception:
-        chars = 70
-    lines = textwrap.wrap(text, chars) or [text]
-    for i, line in enumerate(lines):
-        col.label(text=line, icon=(icon if i == 0 else 'NONE'))
 
 
 def _redraw_viewport_panels(self, context):
@@ -244,7 +206,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         default=False,
         update=_redraw_viewport_panels,
         description=(
-            "Hide the \"Setup\" section at the top of the BlendCap sidebar "
+            "Hide workspace and Preferences shortcuts in the VTA sidebar "
             "panel. Turn this on once your workspace is set up and you no "
             "longer need those buttons"))
     hide_clear_all: bpy.props.BoolProperty(  # type: ignore
@@ -262,230 +224,15 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
     # ------------------------------------------------------------------
     def draw(self, context):
         layout = self.layout
-
-        # When the install wizard is active it takes over this panel (it's
-        # drawn inline rather than as a popup so its buttons are greyable,
-        # correctly ordered, and never clipped). Cancel/Install collapse it
-        # back to the idle view below.
-        if getattr(context.window_manager, "blendcap_install_active", False):
-            draw_install_wizard(context, layout)
-            return
-
-        # Mirrors the N-panel's top placement; hidden on paid builds by
-        # the same helpers.is_paid_build-derived flag. On source builds
-        # the honor-system toggle stays visible either way (it's how a
-        # supporter re-shows the buttons), and ticking it swaps the
-        # button for a thank-you.
-        if SHOW_DONATE_BUTTON:
-            if self.hide_donate_buttons:
-                layout.label(text="Thank you for supporting BlendCap!",
-                             icon='FUND')
-            else:
-                row = layout.row()
-                row.operator("blendcap.donate", text="Donate / Support",
-                             icon='FUND')
-            layout.prop(self, "hide_donate_buttons")
-            layout.separator()
-
-        self._draw_dependencies(context, layout)
-        self._draw_locations(context, layout)
-        self._draw_vta_core(context, layout)
-        self._draw_source_options(context, layout)
-        self._draw_interface(context, layout)
-
-    def _draw_dependencies(self, context, layout):
+        layout.label(text=PRODUCT_NAME+' Preferences', icon='PREFERENCES')
+        layout.prop(self, 'hide_setup_section', text='Hide Workspace Shortcuts')
+        layout.label(text='Source, review, generation and retarget settings belong to the project.')
         box = layout.box()
-        box.label(text="AI Tracking Dependencies", icon='CONSOLE')
+        box.label(text='Runtime and diagnostics', icon='INFO')
+        box.label(text='VTA setup/repair manages runtime and model locations.')
+        box.label(text='Use Advanced → Open Logs Folder for project diagnostics.')
+        box.label(text='Developer source configuration is separate from project data.')
 
-        installed = is_dependencies_installed()
-        # The public GitHub repo is a source-availability artifact that
-        # ships WITHOUT the installer/ folder; the paid zips include it.
-        # Derive the UI from what's on disk so one codebase serves both
-        # channels (no forked builds).
-        has_installer = installer_files_present()
-        if installed:
-            box.label(text="Dependencies installed.", icon='CHECKMARK')
-            marker = read_install_marker() or {}
-            details = []
-            gpu = marker.get("gpu_description") or marker.get("gpu_type")
-            if gpu:
-                details.append(f"GPU: {gpu}")
-            if marker.get("torch_version"):
-                details.append(f"torch {marker['torch_version']}")
-            if marker.get("ort_version"):
-                details.append(f"ORT {marker['ort_version']}")
-            if details:
-                box.label(text="    " + "    ".join(details))
-            if has_installer:
-                row = box.row()
-                row.operator("blendcap.install_dependencies",
-                             text="Reinstall Dependencies",
-                             icon='FILE_REFRESH').force = True
-        elif not has_installer:
-            # Source distribution, nothing installed: there is no
-            # installer to launch. A hand-built venv at <root>/venv is
-            # picked up automatically (the `installed` branch above).
-            col = box.column(align=True)
-            _label_wrapped(
-                col, context,
-                "This is the source distribution - the one-click "
-                "dependency installer ships with the paid BlendCap. "
-                "Running from source means building the Python "
-                "environment at venv/ and fetching the model weights "
-                "into checkpoints/ yourself (see requirements.txt; "
-                "unsupported).", icon='INFO')
-        else:
-            col = box.column(align=True)
-            col.label(text="Not installed yet. This sets up the bundled Python")
-            col.label(text="environment and downloads the AI models (about 11 GB).")
-            col.label(text="You'll be shown the Meta SAM License to accept first.")
-            row = box.row()
-            row.scale_y = 1.3
-            row.operator("blendcap.install_dependencies",
-                         text="Install Dependencies",
-                         icon='IMPORT').force = False
-
-        # Resolved install folder - handy when verifying which copy is live.
-        info = box.column(align=True)
-        info.label(text="Install folder:", icon='FILE_FOLDER')
-        info.label(text="    " + _addon_dir())
-        # Open it in the OS file browser. wm.path_open is Blender's built-in
-        # cross-platform opener (Explorer / Finder / xdg-open) and handles
-        # directories, so no dedicated operator is needed here. Uninstall sits
-        # alongside it but is only meaningful when an environment exists.
-        row = box.row(align=True)
-        row.operator("wm.path_open", text="Open Install Folder",
-                     icon='FILE_FOLDER').filepath = _addon_dir()
-        # Uninstall uses an INLINE arm -> confirm flow (no popup: dialogs
-        # launched from the Preferences window get clipped - same reason the
-        # install wizard is inline). First click arms; a red confirm/cancel
-        # block then appears below.
-        armed = getattr(context.window_manager,
-                        "blendcap_uninstall_armed", False)
-        sub = row.row(align=True)
-        sub.enabled = installed and not armed
-        sub.alert = True
-        sub.operator("blendcap.uninstall_dependencies",
-                     text="Uninstall", icon='TRASH').mode = 'ARM'
-        if installed and armed:
-            warn = box.box()
-            warn.alert = True
-            col = warn.column(align=True)
-            _label_wrapped(col, context,
-                           "Delete the Python environment and downloaded AI "
-                           "models (several GB)?", icon='ERROR')
-            _label_wrapped(col, context,
-                           "Blender may freeze briefly while they're removed, "
-                           "and you'll need to reinstall before capturing again.")
-            r = warn.row(align=True)
-            r.operator("blendcap.uninstall_dependencies",
-                       text="Confirm Uninstall", icon='TRASH').mode = 'RUN'
-            r.operator("blendcap.uninstall_dependencies",
-                       text="Cancel", icon='X').mode = 'CANCEL'
-
-    def _draw_locations(self, context, layout):
-        box = layout.box()
-        box.label(text="File & Cache Locations", icon='FILE_FOLDER')
-
-        # Default cache / assets folder.
-        box.prop(self, "cache_use_custom")
-        sub = box.column(align=True)
-        sub.enabled = self.cache_use_custom
-        sub.prop(self, "cache_custom_path")
-        sub.prop(self, "cache_always_use_custom")
-
-        box.separator()
-
-        # BVH library folder.
-        box.prop(self, "bvh_library_use_custom")
-        sub = box.column(align=True)
-        sub.enabled = self.bvh_library_use_custom
-        sub.prop(self, "bvh_library_path")
-
-    def _draw_vta_core(self, context, layout):
-        box = layout.box()
-        box.label(text="Video to Animation", icon='FILE_FOLDER')
-        box.label(text="Optional separate review component", icon='INFO')
-        box.prop(self, "vta_core_location")
-        box.label(text="Leave blank to use an installed default when available.")
-        box.separator()
-        box.label(text="SAM3 Analyze fallback (auto-detected when available):")
-        box.prop(self, "vta_analysis_python")
-        box.prop(self, "vta_kinesia_root")
-        box.prop(self, "vta_sam3_checkpoint")
-
-    def _draw_source_options(self, context, layout):
-        box = layout.box()
-        box.label(text="Source Options", icon='CAMERA_DATA')
-
-        # Which source a fresh scene starts on (File Path vs Video Editor
-        # strip). Applied to new/startup files by registration's load_post
-        # handler + startup timer; saved projects keep their stored choice.
-        box.prop(self, "default_video_source")
-
-        box.separator()
-
-        # Video Editor behaviors.
-        box.label(text="Video Editor:")
-        # Drawn as three side-by-side buttons instead of a dropdown so the
-        # 'Ask each time' item alone can be greyed out: while Default Source
-        # is Video Editor Strip, new files start on a strip with no
-        # interactive switch to hook, so ask-each-time can never fire for
-        # them (the _update_default_video_source dialog converts users off
-        # it; this keeps them from selecting it back).
-        seq_col = box.column(align=True)
-        seq_col.label(text="Sequencer Render Warning:")
-        seq_row = seq_col.row(align=True)
-        ask = seq_row.row(align=True)
-        ask.enabled = self.default_video_source != 'VSE'
-        ask.prop_enum(self, "sequencer_export_behavior", 'NOTIFY')
-        seq_row.prop_enum(self, "sequencer_export_behavior", 'AUTO_DISABLE')
-        seq_row.prop_enum(self, "sequencer_export_behavior", 'LEAVE')
-        if self.default_video_source == 'VSE':
-            note = box.column(align=True)
-            _label_wrapped(note, context,
-                           "\"Ask each time\" is unavailable while Default "
-                           "Source is Video Editor Strip - new files start "
-                           "on a strip, with no source switch to ask on.",
-                           icon='INFO')
-
-    def _draw_interface(self, context, layout):
-        box = layout.box()
-        box.label(text="Interface", icon='HIDE_OFF')
-
-        box.prop(self, "hide_setup_section")
-        box.prop(self, "hide_clear_all")
-
-        box.separator()
-        col = box.column(align=True)
-        _label_wrapped(col, context,
-                       "In order to keep the BlendCap workspace in Blender by "
-                       "default:", icon='INFO')
-        _label_wrapped(col, context,
-                       "1. Open it once from the sidebar Setup section.")
-        _label_wrapped(col, context,
-                       "2. File > Defaults > Save Startup File.")
-        _label_wrapped(col, context,
-                       "3. It's best to do this from a fresh project - the startup "
-                       "saves your entire scene, even which monitor Blender opens on.")
-        _label_wrapped(col, context,
-                       "4. The startup file can be reverted to Blender's default by "
-                       "deleting it (path below).")
-        # Show the startup-file path plus a button that opens its FOLDER, so the
-        # user can find and delete it. Pointing wm.path_open at the .blend itself
-        # would just relaunch the file; opening the folder reveals it instead.
-        cfg = ""
-        try:
-            cfg = bpy.utils.user_resource('CONFIG') or ""
-        except Exception:
-            cfg = ""
-        if cfg:
-            prow = col.row(align=True)
-            prow.label(text="    " + os.path.join(cfg, "startup.blend"))
-            prow.operator("wm.path_open", text="Open Folder",
-                          icon='FILE_FOLDER').filepath = cfg
-        else:
-            col.label(text="    (in Blender's user config folder)")
 
 
 classes = (

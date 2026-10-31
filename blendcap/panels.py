@@ -7,6 +7,7 @@ helpers (for the VSE source label).
 """
 import bpy
 from pathlib import Path
+from ..blendcap_vta_product import PRODUCT_NAME
 
 from .helpers import (
     blendcap_state, bvh_state, retarget_progress_state, arkit_state,
@@ -111,15 +112,10 @@ def _draw_setup_section(layout, hide_setup):
     # --- SETUP --- (suppressed by the "Hide the Setup section" add-on pref)
     if not hide_setup:
         box = layout.box()
-        box.label(text="Setup:", icon='PREFERENCES')
+        box.label(text="Workspace", icon='PREFERENCES')
         row = box.row(align=True)
-        # The dependency installer wizard lives in the Add-on Preferences (drawn
-        # inline there); this button jumps the user to that section.
-        row.operator("blendcap.install_open_prefs", icon='PREFERENCES',
-                     text="Open Preferences")
-        row.operator("blendcap.append_workspace", text="Open Workspace", icon='WORKSPACE')
-        box.operator("blendcap.open_vta_workspace", text="Open VTA Workspace",
-                     icon='WORKSPACE')
+        row.operator('blendcap.install_open_prefs', text='Preferences', icon='PREFERENCES')
+        row.operator('blendcap.open_vta_workspace', text='Open Workspace', icon='WORKSPACE')
 
         layout.separator()
 
@@ -152,34 +148,8 @@ def _draw_source_section(layout, context, props):
         draw_vta_source(box, context)
         layout.separator()
         return
-    box = layout.box()
-    src_header = box.row(align=True)
-    src_header.prop(props, "video_source_expanded",
-                    icon=('TRIA_DOWN' if props.video_source_expanded
-                          else 'TRIA_RIGHT'),
-                    emboss=False, text="")
-    src_header.label(text="Video Source", icon='FILE_MOVIE')
-    if props.video_source_expanded:
-        # Dropdown (not expand=True toggle row): a toggle row selects on
-        # press-drag, so a click that pops the sequencer warning could leave the
-        # row "live" and silently revert to File Path when the mouse moved back
-        # over it. A dropdown commits cleanly and can't change on hover/drag.
-        box.prop(props, "video_source", text="")
-        if props.video_source == 'FILE':
-            box.prop(props, "video_path", text="")
-        else:
-            box.label(text="Uses active Video Sequencer strip.", icon='SEQ_SEQUENCER')
-            seq_ed = context.scene.sequence_editor
-            active = _active_video_strip(seq_ed)
-            if active and active.type in ('MOVIE', 'IMAGE'):
-                vis_start = _strip_visible_start(active)
-                vis_end = _strip_visible_end(active)
-                box.label(text=f"{active.name}  (ch.{active.channel}, {vis_start}-{vis_end})",
-                           icon='SEQUENCE')
-            else:
-                box.label(text="No video strip selected.", icon='ERROR')
+    layout.label(text='Create or load a VTA Scene to choose a clip.', icon='INFO')
 
-    layout.separator()
 
 
 
@@ -1065,16 +1035,14 @@ def draw_blendcap_ui(self, context):
     is_running = blendcap_state['running']
     is_bvh_running = bvh_state['running']
 
-    _draw_bvh_settings_section(layout, context, props, is_running, is_bvh_running)
-    # Legacy retarget UI is intentionally hidden, NOT removed. The public VTA
-    # panel uses the same GPL engine with its validated safety/calibration path.
-    _draw_bvh_library_section(layout, context, props)
+    # Generation consumes its own neutral BVH artifact internally. Legacy
+    # library/import/rebake controls do not belong to the VTA workflow.
 
 # ============================================================
 # UI PANELS
 # ============================================================
 class VIEW3D_PT_blendcap_ui(bpy.types.Panel):
-    bl_label = "VTA"
+    bl_label = PRODUCT_NAME
     bl_idname = "VIEW3D_PT_blendcap_ui"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -1082,7 +1050,7 @@ class VIEW3D_PT_blendcap_ui(bpy.types.Panel):
     def draw(self, context): draw_blendcap_ui(self, context)
 
 class OUTPUT_PT_blendcap_ui(bpy.types.Panel):
-    bl_label = "VTA"
+    bl_label = PRODUCT_NAME
     bl_idname = "OUTPUT_PT_blendcap_ui"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'

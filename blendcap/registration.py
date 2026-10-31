@@ -247,16 +247,10 @@ classes = (
     BLENDCAP_OT_vta_match_source_fps,
     BLENDCAP_OT_vta_toggle_editor_mode,
     BLENDCAP_OT_cancel,
-    BLENDCAP_OT_generate_bvh,
-    BLENDCAP_OT_bake_camera_offset,
     BLENDCAP_OT_revert_strip,
     BLENDCAP_OT_show_warnings,
     BLENDCAP_OT_sequencer_warning,
     BLENDCAP_OT_vse_default_prompt,
-    BLENDCAP_OT_import_lib_bvh,
-    BLENDCAP_OT_export_lib_bvh,
-    BLENDCAP_OT_export_lib_fbx,
-    BLENDCAP_OT_delete_lib_bvh,
     BLENDCAP_OT_clear_current_cache,
     BLENDCAP_OT_clear_all_caches,
     BLENDCAP_OT_retarget_save_preset,
@@ -279,7 +273,6 @@ classes = (
     BLENDCAP_OT_preview_rest_pose_preset,
     BLENDCAP_OT_donate,
     VIEW3D_PT_blendcap_ui,
-    OUTPUT_PT_blendcap_ui,
     VIEW3D_PT_vta_retarget,
     VIEW3D_PT_vta_credits,
     BLENDCAP_OT_vta_suppress_candidate,
@@ -322,6 +315,16 @@ classes = (
     VIEW3D_PT_blendcap_vta_display,
     VIEW3D_PT_blendcap_vta_advanced,
 )
+
+
+# Legacy implementation remains reusable, but its standalone operators are not
+# part of VTA's command search or redo UI. Stable internal identifiers need no
+# package-wide rename. VTA's own controls are registered normally.
+for _class in classes:
+    if (issubclass(_class,bpy.types.Operator)
+            and not _class.bl_idname.startswith('blendcap.vta_')
+            and _class.bl_idname not in ('blendcap.open_vta_workspace','blendcap.append_workspace','blendcap.install_open_prefs')):
+        _class.bl_options=set(getattr(_class,'bl_options',set()))|{'INTERNAL'}
 
 @bpy.app.handlers.persistent
 def _undo_redo_pre(scene, depsgraph=None):
@@ -862,8 +865,6 @@ def register():
     bpy.types.Scene.blendcap_camera_offset_placeholder = bpy.props.PointerProperty(
         type=BlendCapCameraOffset)
 
-    if not bpy.app.timers.is_registered(_bvh_library_timer):
-        bpy.app.timers.register(_bvh_library_timer, first_interval=0.2, persistent=True)
 
     if _clear_dangling_retarget_rigs not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_clear_dangling_retarget_rigs)

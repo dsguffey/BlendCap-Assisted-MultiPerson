@@ -11,7 +11,7 @@ from pathlib import Path
 
 PROTOCOL = 'vta-engine'
 VERSION = 6
-OPERATIONS = ('source-stage','source-publish','camera-prepare','source-coverage','character-state','character-rename',
+OPERATIONS = ('review-batch','source-stage','source-publish','camera-prepare','source-coverage','character-state','character-rename',
               'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last','generation-prepare','analysis-prepare','job-cleanup','job-start','job-status','job-cancel','job-decision','job-result','job-application','analysis-register','generation-accept','generation-validate','retarget-bindings','retarget-export')
 MAX_BYTES = 16384
 MAX_FRAME = 2**31-1
@@ -177,7 +177,7 @@ def validate_request(value):
         **{op:request_names(op) for op in EXTRA}}[operation]
     fields(payload,('companion_root',*names));path_form(payload['companion_root'])
     if operation in ('source-coverage','review-observation'):path_form(payload['source_path']);frame(payload['source_frame'])
-    if 'character_id' in payload and operation!='review-management':text(payload['character_id'])
+    if 'character_id' in payload and operation not in ('review-management','review-batch'):text(payload['character_id'])
     if 'project_id' in payload:text(payload['project_id'])
     if 'expected_revision' in payload:revision(payload['expected_revision'])
     if 'display_name' in payload:text(payload['display_name'],8192,empty=True)

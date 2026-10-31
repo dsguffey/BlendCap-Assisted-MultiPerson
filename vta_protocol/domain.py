@@ -3,11 +3,12 @@ import math
 from . import fields,require,text,frame,revision,digest,identifier,checkpoint
 from .observation import sequence,optional_id
 
-MUTATIONS=('character-rename','character-create','review-assign','review-reassign','review-hard-state',
+MUTATIONS=('review-batch','character-rename','character-create','review-assign','review-reassign','review-hard-state',
            'review-management','candidate-suppress','tracking-update','repair-edit','review-restore-last','analysis-register','generation-accept')
 DETAIL_OPS=tuple(op for op in MUTATIONS if op not in ('character-rename','character-create'))
 CACHE=('source_id','source_frame','analysis_revision_id','cache_sha256')
 EXTRA={
+ 'review-batch':('source_id','analysis_revision_id','cache_sha256','action','character_id','items','confirmed','session_id'),
  'character-create':('display_name',),
  'analysis-register':('job_id','descriptor_sha256'),
  'generation-accept':('job_id','artifact_sha256'),
@@ -32,6 +33,17 @@ def validate_payload(op,p):
     if 'session_id' in p:identifier(p['session_id'])
     if op in ('analysis-register','generation-accept'):
         identifier(p['job_id']);digest(p['descriptor_sha256'] if op=='analysis-register' else p['artifact_sha256'])
+    if op=='review-batch':
+        text(p['source_id']);text(p['analysis_revision_id']);digest(p['cache_sha256'])
+        require(p['action'] in ('assign','suppress','restore'),'Invalid batch action.')
+        optional_id(p['character_id']);require(p['action']!='assign' or p['character_id'] is not None,'Choose a Character.')
+        require(type(p['confirmed']) is bool,'Invalid confirmation.')
+        rows=sequence(p['items'],128);require(bool(rows),'Mark candidates first.')
+        seen=set();frames=set()
+        for row in rows:
+            fields(row,('frame','observation_id'));frame(row['frame']);text(row['observation_id'])
+            key=(row['frame'],row['observation_id']);require(key not in seen,'Duplicate candidate mark.');seen.add(key)
+            if p['action']=='assign':require(row['frame'] not in frames,'Only one assignment candidate per frame.');frames.add(row['frame'])
     if op=='review-management':
         require(p['action'] in ('clear-assignment','clear-review-key','clear-selected-review-keys','clear-all-review-keys-on-frame','delete-character'),'Invalid management action.')
         optional_id(p['character_id']);optional_id(p['source_id'])
@@ -74,6 +86,13 @@ def validate_details(op,item):
         fields(item,('character_id','source_id','frame','keyframe_id'))
         for key in ('character_id','source_id','keyframe_id'):text(item[key])
         frame(item['frame']);return
+    if op=='review-batch':
+        fields(item,('action','character_id','items','restore_id'))
+        require(item['action'] in ('assign','suppress','restore'),'Invalid batch receipt.')
+        optional_id(item['character_id']);sequence(item['items'],128)
+        for row in item['items']:fields(row,('frame','observation_id'));frame(row['frame']);text(row['observation_id'])
+        if item['restore_id'] is not None:identifier(item['restore_id'])
+        return
     if op=='review-management':
         fields(item,('action','character_id','keyframe_ids','restore_id'));text(item['action']);optional_id(item['character_id']);ids(item['keyframe_ids'],512)
     elif op=='candidate-suppress':
@@ -111,6 +130,8 @@ def validate_target(operation,payload,result):
     """Bind a valid response to the submitted revision, scope and explicit IDs."""
     require(result['project_id']==payload['project_id'] and result['before']['revision']==payload['expected_revision'],
             'Receipt project/revision does not match request.')
+    if operation=='review-batch':
+        require(all(result['details'][key]==payload[key] for key in ('action','character_id','items')),'Batch receipt targets mismatch.')
     if operation=='character-rename':require(result['character']['character_id']==payload['character_id'],'Rename target mismatch.')
     elif operation=='character-create':require(result['character']['display_name']==payload['display_name'].strip(),'Created Character name mismatch.')
     elif operation in ('review-assign','review-reassign','review-hard-state'):

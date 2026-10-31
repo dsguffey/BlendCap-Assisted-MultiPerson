@@ -318,9 +318,18 @@ def draw(layout,context,kind):
     key=_key(context.scene,kind);message=_messages.get(key)
     if message:layout.label(text=message,icon='INFO')
     if busy() and _active['scene'] is context.scene and _active['pointer']['kind']==kind:
+        status = _active.get('status') or {}
+        progress = status.get('progress') if _active.get('phase') == 'waiting' else None
+        if progress and progress['total'] > 0:
+            layout.progress(factor=min(1.0, progress['completed']/progress['total']), type='BAR',
+                text=f"{progress['completed']} / {progress['total']}")
+        else:
+            layout.label(text='Working… ' + _active['phase'].replace('-', ' '), icon='TIME')
         if _active['phase']=='awaiting-decision':layout.operator('blendcap.vta_job_decide',text='Review Camera Calibration Update')
-        layout.operator('blendcap.vta_job_control',text='Cancel Job').action='CANCEL'
-    elif key in _saved:
+        cancel=layout.row()
+        cancel.enabled=_active['phase']!='recording-native-application'
+        cancel.operator('blendcap.vta_job_control',text='Cancel Job').action='CANCEL'
+    elif key in _saved and not _saved[key].get('settled',False):
         row=layout.row(align=True)
         op=row.operator('blendcap.vta_job_control',text='Recover / Apply Job');op.action='RECOVER';op.kind=kind
         op=row.operator('blendcap.vta_job_control',text='Discard Job');op.action='DISCARD';op.kind=kind
@@ -370,7 +379,10 @@ class BLENDCAP_OT_vta_job_decide(bpy.types.Operator):
 class BLENDCAP_OT_vta_restore_output(bpy.types.Operator):
     bl_idname='blendcap.vta_restore_output';bl_label='Restore Previous Output';bl_options={'REGISTER','UNDO'}
     @classmethod
-    def poll(cls,context):return not busy()
+    def poll(cls,context):
+        from .vta_output_restore import slot
+        from . import vta_marks,vta_busy
+        return not busy() and not vta_marks.busy() and not vta_busy.busy() and getattr(context,'scene',None) is not None and slot(context.scene) is not None
     def execute(self,context):
         try:
             from .vta_output_restore import restore

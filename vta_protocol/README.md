@@ -46,3 +46,11 @@ terminal provider scratch under leases, never accepted output/authority. Runtime
 configuration is setup-owned, not project data. Layout v1 distinguishes source,
 installed and test roots without implicit developer/installed fallback. The
 authoritative engine remains one-shot; models remain job-scoped.
+
+
+UI pass 1 adds the bounded `review-batch` vocabulary: one Character across
+explicit frame/candidate pairs for assignment, or multiple suppression pairs.
+One item and many share one transaction/receipt with evidence/CAS and protected
+Restore. This is an additive v6 definition change; the full definition hash
+still requires a matching adapter/engine before commands are accepted. ProjectState
+remains 0.9. Marks and UI symbols are never authoritative project data.

@@ -436,9 +436,9 @@ class BLENDCAP_OT_install_run(bpy.types.Operator):
 
 class BLENDCAP_OT_install_open_prefs(bpy.types.Operator):
     bl_idname = "blendcap.install_open_prefs"
-    bl_label = "Open BlendCap Preferences"
-    bl_description = ("Open the Add-on Preferences, where the AI dependency "
-                      "installer lives")
+    bl_label = "Open VTA Preferences"
+    bl_description = ("Open persistent VTA preferences; runtime setup is separate. "
+                      "")
     bl_options = {'REGISTER', 'INTERNAL'}
 
     def execute(self, context):
@@ -456,8 +456,8 @@ class BLENDCAP_OT_install_open_prefs(bpy.types.Operator):
             context.preferences.active_section = 'ADDONS'
         except Exception:
             self.report({'INFO'},
-                        "Open Edit > Preferences > Add-ons > BlendCap to "
-                        "install dependencies.")
+                        "Open Edit > Preferences > Add-ons > VTA. "
+                        "")
         return {'FINISHED'}
 
 
@@ -527,80 +527,11 @@ class BLENDCAP_OT_deps_missing(bpy.types.Operator):
 
 
 class BLENDCAP_OT_append_workspace(bpy.types.Operator):
-    bl_idname = "blendcap.append_workspace"
-    bl_label = "Load Mocap Workspace"
-    bl_description = ("Load the bundled BlendCap workspace, or switch "
-                      "to it if it's already present")
-
-    # Accepted workspace tab names. Users sometimes rename their
-    # BlendCap workspace tab to taste; the operator activates whichever
-    # match exists in the current file, and falls through to loading
-    # whichever match exists in the shipped blendcap_workspace.blend.
-    # Order matters only for tie-breaking when multiple are present.
-    _ACCEPTED_NAMES = (
-        "Performance Capture",
-        "Motion Capture",
-        "MoCap",
-        "Mocap",
-        "BlendCap",
-        "Blendcap",
-        "Capture",
-    )
-
+    bl_idname = 'blendcap.append_workspace'
+    bl_label = 'Open VTA Workspace'
+    bl_description = 'Open the VTA review and animation workspace'
     def execute(self, context):
-        # 1. If any accepted workspace is already in this file, activate it.
-        for name in self._ACCEPTED_NAMES:
-            if name in bpy.data.workspaces:
-                context.window.workspace = bpy.data.workspaces[name]
-                self.report({'INFO'},
-                            f"Workspace '{name}' already loaded.")
-                return {'FINISHED'}
-
-        # 2. Otherwise load from the shipped workspace .blend.
-        ws_file = os.path.join(_addon_dir(), "blendcap_workspace.blend")
-        if not os.path.exists(ws_file):
-            self.report({'ERROR'}, f"Workspace file not found at: {ws_file}")
-            return {'CANCELLED'}
-
-        matched = None
-        try:
-            with bpy.data.libraries.load(ws_file, link=False) as (data_from, data_to):
-                for name in self._ACCEPTED_NAMES:
-                    if name in data_from.workspaces:
-                        matched = name
-                        break
-                if matched:
-                    data_to.workspaces = [matched]
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to append workspace: {e}")
-            return {'CANCELLED'}
-
-        if matched is None:
-            self.report({'ERROR'},
-                        f"No matching workspace found in {ws_file}. "
-                        f"Expected one of: "
-                        f"{', '.join(self._ACCEPTED_NAMES)}")
-            return {'CANCELLED'}
-
-        if matched in bpy.data.workspaces:
-            context.window.workspace = bpy.data.workspaces[matched]
-            self.report({'INFO'}, f"Workspace '{matched}' loaded.")
-        return {'FINISHED'}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return bpy.ops.blendcap.open_vta_workspace()
 
 
 

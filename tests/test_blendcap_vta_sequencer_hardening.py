@@ -164,10 +164,12 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                             SimpleNamespace(layout=Layout(calls)), bpy.context)
                         ui.VIEW3D_PT_blendcap_vta_animation.draw(
                             SimpleNamespace(layout=Layout(calls)), bpy.context)
-                    button = next(c for c in calls if c[:2] == ("operator", "blendcap.vta_suppress_candidate"))
-                    self.assertEqual(button[2], "Restore Candidate" if selected and suppressed else "Suppress Candidate")
-                    self.assertEqual(button[3], selected)
-                    self.assertEqual(button[4].restore, selected and suppressed)
+                    mark_buttons=[c for c in calls if c[:2]==('operator','blendcap.vta_mark_candidate')]
+                    self.assertEqual(len(mark_buttons),2)
+                    self.assertTrue(any(c[:2]==('operator','blendcap.vta_apply_marks') for c in calls))
+                    restore=[c for c in calls if c[:2]==('operator','blendcap.vta_suppress_candidate')]
+                    self.assertEqual(bool(restore),selected and suppressed)
+                    if restore:self.assertTrue(restore[0][4].restore)
                     self.assertIn(("label", "Review Keys"), calls, "Current-frame panel draw stopped early")
                     self.assertTrue(any(c[:2] == ("operator", "blendcap.vta_generate_animation") for c in calls))
                     range_button = next(c for c in calls if c[0] == 'operator' and c[2] == 'Generate Animation Range')

@@ -293,6 +293,8 @@ def _draw() -> None:
             return
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         candidates = build_overlay_region_candidates(view, selected, region.view2d)
+        from .vta_marks import overlay_labels
+        candidates = overlay_labels(candidates,bpy.context)
         blf.size(0, 15)
         label_rects = layout_overlay_labels(
             candidates, lambda label: blf.dimensions(0, label), region.width, region.height

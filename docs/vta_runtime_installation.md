@@ -121,8 +121,9 @@ metadata is historical until final package/version freeze.
 The owner approved retiring the old in-addon Install/Reinstall/Uninstall mutation
 paths. Their stable command IDs now return a setup/repair message and neither
 launch installers nor delete addon-local environments. Obsolete wizard presentation
-and vendor setup scripts are not the new setup architecture; remove their UI in
-the dedicated polish/final packaging pass. Existing owner installation was not
+and vendor setup scripts are not the new setup architecture. The first pre-1.0
+UI pass removed their Preferences/sidebar exposure and internalized legacy command
+search entries; remaining vendor scripts are not the final setup payload. Existing owner installation was not
 modified. Final setup UX is still to be implemented.
 
 ## Update, repair and uninstall
