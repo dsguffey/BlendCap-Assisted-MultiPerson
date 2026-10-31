@@ -237,10 +237,16 @@ class SceneTimingTests(unittest.TestCase):
         from types import SimpleNamespace
         from blendcap_vta_review import ReviewLocation
         source=dict(self.source,fps=30)
-        backend=SimpleNamespace(observe=lambda _:SimpleNamespace(project_id=self.fixture.pid,source=source))
-        with mock.patch.object(self.ui,'_location_from_context',return_value=ReviewLocation(self.fixture.root,self.path,0,1)),mock.patch.object(self.ui,'_get_backend',return_value=backend):
+        backend=SimpleNamespace(observe=mock.Mock(return_value=SimpleNamespace(project_id=self.fixture.pid,source=source)))
+        location=ReviewLocation(self.fixture.root,self.path,0,1)
+        with mock.patch.object(self.ui,'_location_from_context',return_value=location),mock.patch.object(self.ui,'_get_backend',return_value=backend):
             with self.assertRaisesRegex(self.ui.VtaReviewUiError,'Movie FPS differs'):
                 self.ui._timing_source(bpy.context)
+            backend.observe.assert_called_once_with(location,force=False)
+            backend.observe.reset_mock()
+            with self.assertRaisesRegex(self.ui.VtaReviewUiError,'Movie FPS differs'):
+                self.ui._timing_source(bpy.context,force=True)
+            backend.observe.assert_called_once_with(location,force=True)
             self.assertFalse(self.ui.BLENDCAP_OT_vta_match_source_fps.poll(bpy.context))
 
     def test_new_scene_initializes_typed_source_mode_not_shadow_custom_property(self):

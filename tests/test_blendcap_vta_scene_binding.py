@@ -56,7 +56,7 @@ class SceneBindingTests(unittest.TestCase):
         def location(context, **kw):
             return ReviewLocation(self.fixture.root,self.path,context.scene.frame_current-1,
                                   context.scene.frame_current)
-        def timing(context):
+        def timing(context, *, force=False):
             return self.fixture.pid,self.source,location(context),context.scene.sequence_editor.active_strip
         patch=mock.patch.object(self.ui,'_get_backend',return_value=self.backend)
         patch.start();self.addCleanup(patch.stop)
@@ -250,6 +250,92 @@ class SceneBindingTests(unittest.TestCase):
         self.assertTrue(self.ui.refresh(bpy.context,force=True))
         self.assertEqual(backend._core.load_project_state.call_count,1)
         self.assertEqual(backend._core.load_analysis_cache.call_count,1)
+
+    def engine_display_backend(self):
+        """Exercise real observation caching with a counted validated DTO fetch."""
+        from blendcap_vta_engine_review import EngineReviewBackend,signature
+        from blendcap_vta_timeline import TimelineView
+        query=self.backend.query
+        backend=EngineReviewBackend(SimpleNamespace(timeout=1))
+        backend._source_hash=lambda path:'test-hash'
+        def fetch(location):
+            return SimpleNamespace(project_id=self.fixture.pid,source=self.source,
+                value={'analysis_revision_id':'analysis','checkpoint':{'revision':1}},
+                input_stamp=(signature(location.companion_root/'project_state.json'),
+                    signature(location.source_path),signature(location.companion_root/'analysis/analysis.json')),
+                frames=dict.fromkeys(range(4)),
+                coverage=(0,3),characters=(),members=lambda scene:set(),
+                frame=lambda loc,**kw:query(loc,**kw),timeline=TimelineView('s',(),()))
+        backend._fetch=mock.Mock(side_effect=fetch)
+        def timing(context, *, force=False):
+            location=self.ui._location_from_context(context)
+            observation=backend.observe(location,force=force)
+            return observation.project_id,observation.source,location,context.scene.sequence_editor.active_strip
+        for field,fn in (('_get_backend',lambda *args,**kw:backend),('_timing_source',timing)):
+            patch=mock.patch.object(self.ui,field,side_effect=fn);patch.start();self.addCleanup(patch.stop)
+        return backend
+
+    def test_forced_refresh_fetches_once_and_rebuilds_presentation_even_with_unchanged_stamps(self):
+        backend=self.engine_display_backend();scene=self.owned();self.session.load(bpy.context,scene)
+        old_view=self.ui._view
+        for _ in range(2):
+            backend._fetch.reset_mock()
+            self.assertTrue(self.ui.refresh(bpy.context,force=True),self.ui._status)
+            backend._fetch.assert_called_once()
+            self.assertIs(self.ui._display.context,backend.observation)
+            self.assertIsNot(self.ui._view,old_view)
+            old_view=self.ui._view
+        backend._fetch.reset_mock()
+        for _ in range(20):self.ui.refresh(bpy.context)
+        backend._fetch.assert_not_called()
+
+    def test_forced_refresh_changed_input_fails_closed_before_presentation_adoption(self):
+        backend=self.engine_display_backend();scene=self.owned();self.session.load(bpy.context,scene)
+        def get_backend(context, *, force=False):
+            if force:backend.stamp=None  # Change between validation and presentation.
+            return backend
+        with mock.patch.object(self.ui,'_get_backend',side_effect=get_backend):
+            self.assertFalse(self.ui.refresh(bpy.context,force=True))
+        self.assertIsNone(self.ui._view)
+        self.assertIn('Source changed during refresh',self.ui._status)
+        self.assertTrue(self.ui.refresh(bpy.context,force=True),self.ui._status)
+
+    def test_validated_info_force_refresh_still_fetches_authority_once(self):
+        backend=self.engine_display_backend();scene=self.owned();self.session.load(bpy.context,scene)
+        info=self.ui.cached_scene_source(bpy.context);backend._fetch.reset_mock()
+        self.assertTrue(self.ui.refresh(bpy.context,force=True,validated_info=info),self.ui._status)
+        backend._fetch.assert_called_once()
+
+    def test_changed_input_after_send_retains_durable_intent_until_explicit_reconciliation(self):
+        backend=self.engine_display_backend();scene=self.owned();self.session.load(bpy.context,scene)
+        recovery=importlib.import_module(self.ui.__package__+'.vta_review_undo')
+        self.addCleanup(recovery.clear)
+        before=dict(project_id=self.fixture.pid,revision=dict(number=0,sha256='a'*64))
+        root=str(self.fixture.root.resolve())
+        payload=dict(companion_root=root,project_id=self.fixture.pid,expected_revision=before['revision'],
+            source_id='s',analysis_revision_id='analysis',cache_sha256='b'*64,action='assign',
+            character_id='character',items=[dict(frame=0,observation_id='observation')],
+            confirmed=False,session_id='c'*32)
+        def changed(context, *, force=False):
+            if force:backend.stamp=None
+            return backend
+        client=mock.Mock()
+        with mock.patch.object(recovery,'_client',return_value=client), \
+             mock.patch.object(recovery,'_send',return_value={}) as send, \
+             mock.patch.object(self.ui,'_get_backend',side_effect=changed):
+            with self.assertRaisesRegex(recovery.AppliedMutationError,'reconciliation pending'):
+                recovery.submit(bpy.context,root,before,'review-batch',payload)
+        send.assert_called_once()
+        self.assertIn(root,recovery._pending)
+        self.assertTrue((self.fixture.root/recovery.PENDING_FILE).is_file())
+        self.assertIsNone(self.ui._view)
+        # A known-not-applied status refreshes presentation without resending.
+        client.call.side_effect=[before,dict(state='absent')]
+        with mock.patch.object(recovery,'_client',return_value=client):recovery.retry(bpy.context)
+        self.assertEqual([c.args[0] for c in client.call.call_args_list],['project-state','mutation-status'])
+        self.assertFalse(recovery._pending)
+        self.assertFalse((self.fixture.root/recovery.PENDING_FILE).exists())
+        self.assertIs(self.ui._display.context,backend.observation)
 
     def test_failed_source_revalidation_disables_cached_actions(self):
         self.display_backend();a=self.owned();self.session.load(bpy.context,a)

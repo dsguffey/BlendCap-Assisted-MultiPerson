@@ -499,11 +499,11 @@ def _location_from_context(context, *, allow_outside=False) -> ReviewLocation:
     )
 
 
-def _timing_source(context):
+def _timing_source(context, *, force=False):
     """Validated neutral source metadata from one engine observation."""
     location=_location_from_context(context,allow_outside=True)
     backend=_get_backend(context)
-    observation=backend.observe(location)
+    observation=backend.observe(location,force=force)
     source=observation.source
     strip=_active_video_strip(context.scene.sequence_editor)
     from .vta_scene_timing import validate_source_strip
@@ -1231,6 +1231,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
     global _scene_character_ids
     try:
         info = None
+        source_backend = source_observation = None
         if _requires_owned_scene(context):
             if not loaded_context_matches(context, target_scene):
                 _activate_review_scene(None)
@@ -1256,7 +1257,11 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
                 if not force and not check_disk and hasattr(context.workspace, 'blendcap_vta_loaded_scene') and info is None:
                     return False
                 try:
-                    info = validated_info or _timing_source(context)
+                    info = validated_info or _timing_source(context, force=force)
+                    if force and validated_info is None:
+                        owner = _get_backend(context)
+                        if getattr(owner, 'is_engine_review', False):
+                            source_backend, source_observation = owner, owner.observation
                     pid, source, _source_location, _strip = info
                     if not owns_scene(scene, pid, source):
                         raise VtaReviewUiError('Active Scene ownership does not match the validated VTA source.')
@@ -1277,6 +1282,13 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
                    else _get_backend(context, force=force))
         _display_backend = backend
         location = at_frame(info, context.scene) if info else _location_from_context(context)
+        observe_force = force
+        if source_observation is not None and backend is source_backend:
+            # Source validation already performed this explicit forced read.
+            # Reuse it only while its input stamps and cache identity hold.
+            if backend.observation is not source_observation or backend.stamp != backend._signature(location):
+                raise VtaReviewUiError('Source changed during refresh; retry explicitly.')
+            observe_force = False
         capable = info is not None and callable(getattr(backend, 'frame_from_context', None))
         model_changed = False
         if capable:
@@ -1285,7 +1297,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
             if force or check_disk or not _display.current(backend, location):
                 if memory_only:
                     return False
-                model_changed = _display.observe(backend, location, info[1], force=force, asynchronous=asynchronous)
+                model_changed = _display.observe(backend, location, info[1], force=observe_force, asynchronous=asynchronous)
             project_signature = _display.stamp[0] if _display.stamp else None
             cache_signature = _display.stamp[2] if _display.stamp else None
         else:
