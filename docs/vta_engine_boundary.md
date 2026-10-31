@@ -1,5 +1,32 @@
 # Engine boundary — Architecture Cleanup M4
 
+## Review latency optimization — source checkpoint, 2026-10-31
+
+Protocol v7 adds an optional disposable committed review projection, separate
+from the existing durable mutation receipt. Fresh writer validation, CAS,
+publication, idempotency and protected Restore finish synchronously before the
+projection is built from the same leased in-memory snapshot. The public host
+validates exact request/checkpoint/source/frame/evidence identity, neutral artifact
+schema/hash and current project/head/source/cache bytes. Mismatch discards only
+the projection and fetches fresh authority; no blind mutation retry or rollback.
+The reproduced intervening-mutation stale-view race now has regression coverage.
+
+A trusted manifest may select a short-lived review-only standalone Python for
+assignment/reassignment, assign/suppress batches, candidate suppression and
+bounded observation. All complex controls retain the existing control route.
+Processes remain hidden (`CREATE_NO_WINDOW`, `shell=False`), bounded and reaped.
+The ordinary successful path now loads ProjectState once and builds one observation
+in one control process, instead of two loads/processes. Mandatory byte reads for
+CAS/Restore and public freshness verification still occur. No schema/storage
+redesign, daemon, database, state split or deferred authoritative work.
+
+Paired owner-copy median UI helper times (three samples each): one assignment
+1.835 → 1.064 s; two-frame assignment 1.862 → 1.091 s; suppression 1.817 → 1.052 s.
+These include guarded adoption, not foreground pixel rendering. No sub-500-ms
+claim. Details and validation are recorded in the private assignment-latency
+report. This section supersedes v6 runtime details below. No installed deployment,
+push/tag/release or final installer work is implied.
+
 ## Current Architecture Cleanup M5 — source checkpoint, 2026-10-29
 
 M1–M5 architecture is complete in source: **zero production public-to-private

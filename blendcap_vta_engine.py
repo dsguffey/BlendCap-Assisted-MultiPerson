@@ -15,9 +15,11 @@ from uuid import uuid4
 
 try:
     from . import vta_protocol as wire
+    from .vta_protocol.review_reply import OPS as REVIEW_OPS
     from .blendcap_vta_runtime import load_runtime
 except ImportError:
     import vta_protocol as wire
+    from vta_protocol.review_reply import OPS as REVIEW_OPS
     from blendcap_vta_runtime import load_runtime
 
 LOG=logging.getLogger(__name__)
@@ -31,24 +33,25 @@ class EngineError(RuntimeError):
 class EngineEndpoint:
     python: Path
     launcher: Path
+    review_python: Path | None = None
 
 
 def resolve_engine(configured_root='', *, python=None):
     """Resolve executable files only; never discover/import a private module."""
+    review_python=None
     try:
-        if configured_root:
-            roots=(wire.path_form(str(configured_root)),)
-        else:
+        if python is None:
             runtime=load_runtime();roots=(runtime['engine_root'],)
-            if python is None:python=runtime['control_python']
+            if configured_root and wire.path_form(str(configured_root)).resolve()!=runtime['engine_root']:
+                raise ValueError('Core location differs from the trusted runtime configuration.')
+            python=runtime['control_python'];review_python=runtime.get('review_python')
+        else:
+            roots=(wire.path_form(str(configured_root)),) if configured_root else (load_runtime()['engine_root'],)
     except ValueError as exc:raise EngineError(getattr(exc,'code','ENGINE_UNAVAILABLE'),str(exc)) from exc
     root=next((p for p in roots if (p/'vta_engine.py').is_file()),None)
     if root is None:raise EngineError('ENGINE_UNAVAILABLE','VTA engine launcher is unavailable; check the Core location.')
-    if python is None:
-        candidates=(Path(sys.prefix)/'bin/python.exe',Path(sys.prefix)/'bin/python',Path(sys.executable))
-        python=next((p for p in candidates if p.is_file() and 'blender' not in p.name.lower()),None)
     if python is None or not Path(python).is_file():raise EngineError('ENGINE_UNAVAILABLE','Standalone Python is unavailable.')
-    return EngineEndpoint(Path(python).resolve(),(root/'vta_engine.py').resolve())
+    return EngineEndpoint(Path(python).resolve(),(root/'vta_engine.py').resolve(),review_python)
 
 
 class EngineClient:
@@ -56,9 +59,11 @@ class EngineClient:
     def __init__(self,endpoint,*,timeout=15):
         self.endpoint=endpoint;self.timeout=wire.timeout_value(timeout)
         self.last_metrics=None;self.last_diagnostics='';self.last_pid=None
+        self.last_presentation=None;self.last_python=None
 
     def call(self,operation,payload,*,request_id=None):
         self.last_metrics=None;self.last_diagnostics='';self.last_pid=None
+        self.last_presentation=None;self.last_python=None
         try:body=wire.dumps(wire.request(request_id or uuid4().hex,payload,operation));request=wire.loads(body)
         except wire.ProtocolError as exc:raise EngineError(exc.code,str(exc)) from exc
         return self._exchange(request,body)
@@ -66,10 +71,13 @@ class EngineClient:
     def _exchange(self,request,body):
         started=time.perf_counter();deadline=started+self.timeout
         endpoint=self.endpoint
-        if not endpoint.python.is_file() or not endpoint.launcher.is_file():
+        simple=(request['operation'] in REVIEW_OPS and (request['operation']!='review-batch' or request['payload']['action'] in ('assign','suppress')))
+        python=(endpoint.review_python if endpoint.review_python is not None and (simple or request['operation']=='review-observation') else endpoint.python)
+        self.last_python=python
+        if not python.is_file() or not endpoint.launcher.is_file():
             raise EngineError('ENGINE_UNAVAILABLE','Engine executable/launcher is missing.')
         try:
-            process=subprocess.Popen([str(endpoint.python),'-I','-B',str(endpoint.launcher)],
+            process=subprocess.Popen([str(python),'-I','-B',str(endpoint.launcher)],
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),shell=False)
         except OSError as exc:raise EngineError('ENGINE_UNAVAILABLE','Engine process could not start.') from exc
@@ -121,6 +129,8 @@ class EngineClient:
             if request['operation']=='mutation-status' and result['result']['mutation_id']!=request['payload']['mutation_id']:
                 raise EngineError('INVALID_RESPONSE','Mutation status identity mismatch.')
             item=result['result'];payload=request['payload'];operation=request['operation']
+            if operation in REVIEW_OPS and 'presentation' in payload:
+                self.last_presentation=result.get('presentation')
             if operation=='character-state' and item['character_id']!=payload['character_id']:
                 raise EngineError('INVALID_RESPONSE','Observed Character identity mismatch.')
             if operation in wire.MUTATIONS:wire.validate_target(operation,payload,item)

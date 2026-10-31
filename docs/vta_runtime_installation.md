@@ -75,6 +75,16 @@ analysis_source, models. Routes select the three Python interpreters, body
 bundle, analysis source and SAM3 checkpoint. Traversal, network/ADS paths,
 unknown fields, missing components/assets and incompatible versions fail clearly.
 Runtime executables/configuration cannot come from a project companion.
+Protocol v7 optionally pairs an eighth `review_control` root with a relative
+`review_python` route. Both must be present together and pass the same local-root,
+containment, file and interpreter-name checks. This setup-owned, minimal standard-
+library runtime serves assignment/reassignment, assign/suppress batches, candidate
+suppression and bounded review observations only. Other batches, protected Restore,
+Tracking Update, generation, camera and retarget controls keep `control_python`
+and its existing dependencies. If the pair is absent, review uses the explicitly
+configured general control runtime. No executable is guessed. Source benchmarks
+used an already-installed CPython 3.14.6; final setup must separately pin/provision
+and validate its own reviewed interpreter. This does not implement that installer.
 The current adapter's body helper is imported before the separate model bundle
 is added to the provider path. A subprocess regression with a deliberately
 conflicting runtime helper proves that old installed code cannot shadow it.
@@ -83,7 +93,8 @@ Precedence: explicit configuration path, then `VTA_RUNTIME_CONFIG` for deliberat
 developer/test use, then setup's `%LOCALAPPDATA%/VTA/config/runtime.json`. An
 explicit invalid configuration fails; there is no sibling checkout, evaluation
 manifest or unrelated installed-addon fallback. An explicit Core-location
-preference is retained for source control execution only; provider launches
+preference must agree with the trusted manifest's engine root; it cannot bypass
+runtime configuration or implicitly select Blender's Python. Provider launches
 require the loaded adapter, engine and configured roots to agree. The ordinary
 installed route uses the configured standalone control Python, independently of
 Blender's interpreter. No private root is inserted into Blender's `sys.path`.
@@ -110,13 +121,24 @@ assent/download flow and validate exact hashes; never embed the owner's token or
 require manual checkpoint hunting. Driver/VC prerequisites need explicit supported
 vendor acquisition paths. No newly required model family was added by M5.
 
-Protocol v6 and its complete definition hash are checked at control startup.
+Protocol v7 and its complete definition hash are checked at control startup.
 Provider adapter definitions are checked before model launch. One product build
 identifies the coherent adapter/engine/runtime selection; provider/package/model
 hashes describe its contents rather than adding independent user version knobs.
 ProjectState remains 0.9. A component mismatch asks for matching setup/repair;
 it does not silently use an older worker. Legacy Blender extension display
 metadata is historical until final package/version freeze.
+
+Simple review mutations may return a separate optional presentation descriptor
+after durable publication, while the authoritative process still holds its lease.
+The host checks request/project/source/frame/evidence scope, committed checkpoint,
+artifact schema/hash and the current project/head/source/cache bytes before
+adoption. Changed or invalid data causes a fresh observation RPC, not a second
+mutation or rollback. The durable receipt remains unchanged; status/lost-response
+recovery works without this disposable projection. No authority is deferred and
+no synchronous control work was added to draw/poll callbacks. Existing busy
+feedback remains. Matching adapter/engine/protocol deployment is required; this
+optimization was validated in source and was not deployed to the owner install.
 
 The owner approved retiring the old in-addon Install/Reinstall/Uninstall mutation
 paths. Their stable command IDs now return a setup/repair message and neither

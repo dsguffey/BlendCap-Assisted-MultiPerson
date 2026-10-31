@@ -1,16 +1,20 @@
 """GPL neutral review client and disposable presentation cache; no private imports."""
 from pathlib import Path
 from types import SimpleNamespace as NS
-import hashlib,threading
+import hashlib,threading,copy,logging
 from uuid import uuid4
 if __package__:
     from . import vta_protocol as wire
     from .vta_protocol import observation as dto
+    from .vta_protocol import review_reply as reply
+    from .blendcap_vta_review_reply import accept as accept_reply
     from .blendcap_vta_review import present_review,ReviewLocation,VtaReviewUiError,sha256_file
     from .blendcap_vta_timeline import present_timeline
 else:
     import vta_protocol as wire
     from vta_protocol import observation as dto
+    from vta_protocol import review_reply as reply
+    from blendcap_vta_review_reply import accept as accept_reply
     from blendcap_vta_review import present_review,ReviewLocation,VtaReviewUiError,sha256_file
     from blendcap_vta_timeline import present_timeline
 
@@ -70,6 +74,16 @@ class EngineReviewBackend:
         self.is_engine_review=True
         self.session_id=uuid4().hex;self.last_restore_id=None;self.last_restore_after=None
         self._source_digests={}
+        self._prefetched=None
+
+    def offer_presentation(self,location,operation,payload,receipt,value):
+        self._prefetched=None
+        if value is None:return
+        try:
+            reply.validate(value,operation,payload,receipt)
+            self._prefetched=(operation,copy.deepcopy(payload),copy.deepcopy(receipt),copy.deepcopy(value))
+        except Exception as exc:
+            logging.getLogger(__name__).warning('Review presentation discarded request=%s: %s',receipt.get('request_id'),exc)
     def _source_hash(self,path):
         path=Path(path);stamp=signature(path);entry=self._source_digests.get(path)
         if entry is None or entry[0]!=stamp:
@@ -104,7 +118,13 @@ class EngineReviewBackend:
             self._job.join(self.client.timeout)
             if self._job.is_alive():raise VtaReviewUiError('Review observation is still pending; retry shortly.')
             self._job=None;self._result=None
-        observation=self._fetch(location)
+        pending,self._prefetched=self._prefetched,None
+        observation=None
+        if pending is not None:
+            try:observation=accept_reply(location,*pending,read_observation,timeout=self.client.timeout)
+            except Exception as exc:
+                logging.getLogger(__name__).warning('Review presentation fallback: %s',exc)
+        if observation is None:observation=self._fetch(location)
         # A returned manifest is a revision-scoped snapshot, never authority.
         self.observation=observation;self.key=key;self.stamp=observation.input_stamp
         if self.last_restore_after is not None and self.last_restore_after!=observation.value['checkpoint']:
@@ -153,13 +173,21 @@ class EngineReviewBackend:
             self._job.join(self.client.timeout)
             if self._job.is_alive():raise VtaReviewUiError('Review observation is still pending; retry shortly.')
             self._job=None;self._result=None
-        if self.mutate is None:result=self.client.call(operation,payload)
+        if operation in reply.OPS and (operation!='review-batch' or payload['action'] in ('assign','suppress')):
+            candidate={**payload,'presentation':dict(source_path=str(location.source_path),source_frame=location.source_frame)}
+            try:wire.dumps(wire.request('0'*32,candidate,operation))
+            except wire.ProtocolError:pass  # Optional context must not reduce the existing request limit.
+            else:payload=candidate
+        if self.mutate is None:
+            result=self.client.call(operation,payload)
+            self.offer_presentation(location,operation,payload,result,self.client.last_presentation)
         else:result=self.mutate(operation,payload,observed.value['checkpoint'])
         self.last_restore_id=result.get('details',{}).get('restore_id') if operation!='review-restore-last' else None
         self.last_restore_after=result['after'] if self.last_restore_id else None
         # The host recovery adapter may already have refreshed this cache.
         if self.observation is None or self.observation.value['checkpoint']!=result['after']:
             self.observe(location,force=True)
+        else:self._prefetched=None
         return result
     def apply(self,location,*,observation_id,character_id):
         observed,payload=self._cache_payload(location);payload.update(observation_id=observation_id,character_id=character_id)

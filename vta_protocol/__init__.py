@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 
 PROTOCOL = 'vta-engine'
-VERSION = 6
+VERSION = 7
 OPERATIONS = ('review-batch','source-stage','source-publish','camera-prepare','source-coverage','character-state','character-rename',
               'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last','generation-prepare','analysis-prepare','job-cleanup','job-start','job-status','job-cancel','job-decision','job-result','job-application','analysis-register','generation-accept','generation-validate','retarget-bindings','retarget-export')
 MAX_BYTES = 16384
@@ -175,7 +175,11 @@ def validate_request(value):
             ('review-assign',('observation_id',)),('review-reassign',('observation_id','confirmed')),
             ('review-hard-state',('state','confirmed')))},
         **{op:request_names(op) for op in EXTRA}}[operation]
-    fields(payload,('companion_root',*names));path_form(payload['companion_root'])
+    fields(payload,('companion_root',*names,*(('presentation',) if 'presentation' in payload else ())))
+    path_form(payload['companion_root'])
+    if 'presentation' in payload:
+        from .review_reply import context
+        context(payload['presentation'],operation,payload)
     if operation in ('source-coverage','review-observation'):path_form(payload['source_path']);frame(payload['source_frame'])
     if 'character_id' in payload and operation not in ('review-management','review-batch'):text(payload['character_id'])
     if 'project_id' in payload:text(payload['project_id'])
@@ -194,7 +198,7 @@ def validate_request(value):
 
 def ready(pid):
     return dict(protocol=PROTOCOL,version=VERSION,kind='ready',pid=pid,operations=list(OPERATIONS),
-                definition_sha256=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('__init__.py','observation.py','domain.py','jobs.py','bootstrap.py','rotation.py','runtime.py','process.py'))).hexdigest())
+                definition_sha256=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('__init__.py','observation.py','domain.py','jobs.py','bootstrap.py','rotation.py','runtime.py','process.py','review_reply.py'))).hexdigest())
 
 
 def validate_ready(value,pid):
@@ -204,17 +208,23 @@ def validate_ready(value,pid):
     require(value['definition_sha256']==ready(pid)['definition_sha256'],'Protocol definitions differ.','VERSION_MISMATCH')
 
 
-def response(request_id, operation, *, result=None, error=None):
+def response(request_id, operation, *, result=None, error=None, presentation=None):
     value=dict(protocol=PROTOCOL,version=VERSION,kind='response',request_id=request_id,
                operation=operation,status='error' if error is not None else 'ok')
     value['error' if error is not None else 'result']=error if error is not None else result
+    if presentation is not None:value['presentation']=presentation
     return value
 
 
 def validate_response(value, request_id, operation):
     require(type(value) is dict,'Response must be an object.')
     error=value.get('status')=='error'
-    fields(value,('protocol','version','kind','request_id','operation','status','error' if error else 'result'))
+    fields(value,('protocol','version','kind','request_id','operation','status','error' if error else 'result',*(('presentation',) if 'presentation' in value else ())))
+    if 'presentation' in value:
+        from .review_reply import OPS
+        require(not error and operation in OPS,'Unexpected optional presentation.')
+        # Validate this independent optional DTO before adoption. A broken
+        # projection must not invalidate a valid committed receipt.
     envelope(value,'response')
     require(value['request_id']==request_id and value['operation']==operation,'Response identity mismatch.')
     require(value['status'] in ('ok','error'),'Invalid response status.')

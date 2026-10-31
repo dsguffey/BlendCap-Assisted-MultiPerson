@@ -143,8 +143,12 @@ def submit(context,root,before,operation,payload):
         scene['vta_scene_owner_id']=identity
         intent['binding']=dict(scene_owner_id=identity,project_id=before['project_id'],source_id=scene['vta_source_id'],video_sha256=scene['vta_source_video_sha256'])
     _mark(intent)
-    result=_send(intent,_client(context))
+    client=_client(context);result=_send(intent,client)
     try:
+        if 'presentation' in payload:
+            from . import vta_review_ui as ui
+            location=ui._location_from_context(context,allow_outside=True)
+            ui._get_backend(context).offer_presentation(location,operation,payload,result,client.last_presentation)
         _adopt_creation(intent,result,context)
         _refresh()
     except Exception as exc:

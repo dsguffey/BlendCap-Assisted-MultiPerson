@@ -19,7 +19,7 @@ def configuration(root):
         path=Path(roots[owner])/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'fixture-only')
     for name in contract.BODY_MODELS:
         path=Path(roots['body'])/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'model-fixture')
-    return dict(schema='vta-runtime',version=1,product_version=contract.PRODUCT_VERSION,protocol=[6,6],mode='test',roots=roots,routes=routes)
+    return dict(schema='vta-runtime',version=1,product_version=contract.PRODUCT_VERSION,protocol=[contract.PROTOCOL_MIN,contract.PROTOCOL_MAX],mode='test',roots=roots,routes=routes)
 
 class RuntimeRootTests(unittest.TestCase):
     def setUp(self):
@@ -41,6 +41,15 @@ class RuntimeRootTests(unittest.TestCase):
             with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(value)
     def test_partial_config_has_no_installed_asset_fallback(self):
         del self.value['roots']['body']
+        with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(self.value)
+
+    def test_optional_review_runtime_is_explicit_paired_and_contained(self):
+        root=self.root/'review';root.mkdir();(root/'python.exe').write_bytes(b'fixture')
+        self.value['roots']['review_control']=str(root)
+        with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(self.value)
+        self.value['routes']['review_python']='python.exe'
+        self.assertEqual(contract.resolve(self.value)['review_python'],root/'python.exe')
+        self.value['routes']['review_python']='../python.exe'
         with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(self.value)
     def test_explicit_config_precedence_and_missing_never_guesses(self):
         path=self.root/'runtime.json';path.write_text(json.dumps(self.value),encoding='utf-8')

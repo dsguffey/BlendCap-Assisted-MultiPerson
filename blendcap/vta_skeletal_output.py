@@ -648,9 +648,15 @@ def mark_stale_outputs(companion_root):
         return False
     from .vta_camera_cleanup import observe_outputs
     observe_outputs(outputs)
-    current = _cached_hash(root / 'project_state.json')
     from . import vta_review_ui as ui
     observed=getattr(ui._backend,'observation',None)
+    verified=getattr(observed,'verified_project',None)
+    if verified is not None and verified[0]==root.resolve():
+        from ..blendcap_vta_review_reply import token
+        path=(root/'project_state.json').resolve()
+        if token(path)==verified[1] and verified[2]==observed.value['checkpoint']['revision']['sha256']:
+            _file_hash_cache[path]=(verified[1]['size'],verified[1]['mtime_ns'],verified[2])
+    current = _cached_hash(root / 'project_state.json')
     authority=(observed.value['generation_authority_sha256'] if observed is not None
         and getattr(ui._backend,'key',None) is not None and Path(ui._backend.key[0]).resolve()==root.resolve()
         and observed.value['checkpoint']['revision']['sha256']==current else None)

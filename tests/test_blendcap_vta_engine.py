@@ -91,7 +91,7 @@ class ProtocolTests(unittest.TestCase):
         tree=ast.parse((P/'vta_protocol/__init__.py').read_text())
         mods=[n.module for n in ast.walk(tree) if isinstance(n,ast.ImportFrom)]
         mods += [a.name for n in ast.walk(tree) if isinstance(n,ast.Import) for a in n.names]
-        self.assertEqual(set(mods),{'json','math','re','pathlib','hashlib','domain','jobs','bootstrap'})
+        self.assertEqual(set(mods),{'json','math','re','pathlib','hashlib','domain','jobs','bootstrap','review_reply'})
 
 
 class ProcessTests(unittest.TestCase):
