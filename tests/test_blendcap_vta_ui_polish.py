@@ -49,6 +49,47 @@ class UiPolishTests(unittest.TestCase):
             a=Operation();a.execute(context)
             self.assertEqual(a.modal(context,NS(type='ESC')),{'CANCELLED'})
             self.assertEqual(calls,['mutation'])
+    def test_confirmed_edit_finishes_without_a_second_modal_handoff(self):
+        module=importlib.import_module(self.addon.__name__+'.blendcap.vta_busy')
+        ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui')
+        # Exercise the installed management wrapper, including its actual body,
+        # as a props-dialog execute callback with no subsequent modal dispatch.
+        module.install(ui.BLENDCAP_OT_vta_review_manage,defer=False)
+        context=NS(window=mock.Mock(),window_manager=mock.Mock())
+        request=NS(character_id=None,keyframe_ids=('key-a','key-b'))
+        operator=NS(action='clear-selected-review-keys',_pending_request=request,
+                    _pending_location='location',report=mock.Mock())
+        backend=mock.Mock()
+        with mock.patch.object(module,'bpy',NS(app=NS(background=False))), \
+             mock.patch.object(ui,'_edit_available',return_value=True), \
+             mock.patch.object(ui,'refresh',return_value=True), \
+             mock.patch.object(ui,'_use_timeline_active'), \
+             mock.patch.object(ui,'_location','location'), \
+             mock.patch.object(ui,'_review_key_selection',NS(keyframe_ids=request.keyframe_ids)), \
+             mock.patch.object(ui,'_get_backend',return_value=backend):
+            try:
+                self.assertEqual(ui.BLENDCAP_OT_vta_review_manage.execute(operator,context),{'FINISHED'})
+                backend.apply_management.assert_called_once_with('location',request,confirmed=True)
+                context.window_manager.event_timer_add.assert_not_called()
+                context.window_manager.modal_handler_add.assert_not_called()
+                context.window.cursor_modal_restore.assert_called_once()
+                self.assertFalse(module.busy())
+            finally:module._active=None
+
+    def test_confirmed_edit_restores_cursor_on_failure_and_keeps_duplicate_guard(self):
+        module=importlib.import_module(self.addon.__name__+'.blendcap.vta_busy')
+        class Operation:
+            def execute(self,context):raise ValueError('test failure')
+        module.install(Operation,defer=False)
+        context=NS(window=mock.Mock(),window_manager=mock.Mock())
+        with mock.patch.object(module,'bpy',NS(app=NS(background=False))):
+            with self.assertRaisesRegex(ValueError,'test failure'):Operation().execute(context)
+            context.window.cursor_modal_restore.assert_called_once()
+            with mock.patch.object(module,'_active',object()):
+                self.assertEqual(Operation().execute(context),{'CANCELLED'})
+            context.window_manager.event_timer_add.assert_not_called()
+            self.assertFalse(module.busy())
+
     def test_generation_progress_uses_cached_counts_without_engine_calls(self):
         module=importlib.import_module(self.addon.__name__+'.blendcap.vta_jobs_ui');calls=[]
         class Layout:

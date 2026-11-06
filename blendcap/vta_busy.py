@@ -4,9 +4,22 @@ _active=None
 
 def busy():return _active is not None
 
-def install(cls):
+def install(cls, *, defer=True):
     if getattr(cls.execute,'_vta_deferred',False):return
     original=cls.execute
+    if not defer:
+        def confirmed_execute(self,context):
+            # A props dialog owns the operator's modal lifecycle. Its execute
+            # callback must finish the confirmed edit, not start a second modal
+            # handler on the same operator and wait for a timer it may never see.
+            if bpy.app.background:return original(self,context)
+            if _active is not None:return {'CANCELLED'}
+            context.window.cursor_modal_set('WAIT')
+            try:return original(self,context)
+            finally:context.window.cursor_modal_restore()
+        confirmed_execute._vta_deferred=True
+        cls.execute=confirmed_execute
+        return
     def execute(self,context):
         global _active
         if bpy.app.background:return original(self,context)

@@ -3391,7 +3391,10 @@ classes = (
 
 def register_properties() -> None:
     from . import vta_busy
-    for cls in (BLENDCAP_OT_vta_review_manage,BLENDCAP_OT_vta_update_tracking,
+    # Management executes from a confirmation dialog; do not defer that same
+    # operator into another modal handler after the user has confirmed it.
+    vta_busy.install(BLENDCAP_OT_vta_review_manage, defer=False)
+    for cls in (BLENDCAP_OT_vta_update_tracking,
                 BLENDCAP_OT_vta_review_create_character,BLENDCAP_OT_vta_repeat_assignment):
         vta_busy.install(cls)
     from . import vta_review_undo
