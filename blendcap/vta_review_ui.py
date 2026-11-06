@@ -3394,8 +3394,10 @@ def register_properties() -> None:
     # Management executes from a confirmation dialog; do not defer that same
     # operator into another modal handler after the user has confirmed it.
     vta_busy.install(BLENDCAP_OT_vta_review_manage, defer=False)
+    # Repeat delegates to Assign.invoke, which may ask to replace a decision.
+    vta_busy.install(BLENDCAP_OT_vta_repeat_assignment, defer=False)
     for cls in (BLENDCAP_OT_vta_update_tracking,
-                BLENDCAP_OT_vta_review_create_character,BLENDCAP_OT_vta_repeat_assignment):
+                BLENDCAP_OT_vta_review_create_character):
         vta_busy.install(cls)
     from . import vta_review_undo
     vta_review_undo.register()

@@ -4,6 +4,17 @@ _active=None
 
 def busy():return _active is not None
 
+def _release(active):
+    global _active
+    if _active is active:_active=None
+    timer=getattr(active,'_vta_timer',None)
+    active._vta_timer=None
+    if timer is not None:
+        try:active._vta_wm.event_timer_remove(timer)
+        except (RuntimeError,ReferenceError,ValueError):pass
+    try:active._vta_window.cursor_modal_restore()
+    except (RuntimeError,ReferenceError):pass
+
 def install(cls, *, defer=True):
     if getattr(cls.execute,'_vta_deferred',False):return
     original=cls.execute
@@ -25,11 +36,14 @@ def install(cls, *, defer=True):
         if bpy.app.background:return original(self,context)
         if _active is not None:return {'CANCELLED'}
         _active=self;self._vta_epoch=(bpy.data.filepath,context.scene.as_pointer(),context.scene.frame_current)
-        self._vta_window=context.window
-        self._vta_timer=context.window_manager.event_timer_add(.06,window=context.window)
-        context.window.cursor_modal_set('WAIT');context.window_manager.modal_handler_add(self)
-        from . import vta_review_ui as ui
-        ui.vta_invalidation.request_redraw()
+        self._vta_window=context.window;self._vta_wm=context.window_manager;self._vta_timer=None
+        try:
+            self._vta_timer=context.window_manager.event_timer_add(.06,window=context.window)
+            context.window.cursor_modal_set('WAIT');context.window_manager.modal_handler_add(self)
+            from . import vta_review_ui as ui
+            ui.vta_invalidation.request_redraw()
+        except Exception:
+            _release(self);raise
         return {'RUNNING_MODAL'}
     def modal(self,context,event):
         global _active
@@ -42,11 +56,11 @@ def install(cls, *, defer=True):
             _active=None
             return original(self,context)
         finally:
-            _active=None;context.window_manager.event_timer_remove(self._vta_timer)
-            context.window.cursor_modal_restore()
+            _release(self)
             from . import vta_review_ui as ui
             ui.vta_invalidation.request_redraw()
-    execute._vta_deferred=True;cls.execute=execute;cls.modal=modal
+    def cancel(self,context):_release(self)
+    execute._vta_deferred=True;cls.execute=execute;cls.modal=modal;cls.cancel=cancel
 
 def draw(layout):
     if _active is not None:layout.label(text='Working… '+_active.bl_label,icon='TIME')
@@ -54,12 +68,8 @@ def draw(layout):
 @bpy.app.handlers.persistent
 def clear(_unused=None):
     global _active
-    active=_active;_active=None
-    if active is not None:
-        try:bpy.context.window_manager.event_timer_remove(active._vta_timer)
-        except (RuntimeError,ReferenceError,ValueError):pass
-        try:active._vta_window.cursor_modal_restore()
-        except (RuntimeError,ReferenceError):pass
+    active=_active
+    if active is not None:_release(active)
 
 def register():
     if clear not in bpy.app.handlers.load_pre:bpy.app.handlers.load_pre.append(clear)

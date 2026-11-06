@@ -805,7 +805,10 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
                 return {'FINISHED'}
             except Exception as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
             finally:self._finish(context)
-        self._timer=context.window_manager.event_timer_add(.02,window=context.window);context.window_manager.modal_handler_add(self)
+        try:
+            self._timer=context.window_manager.event_timer_add(.02,window=context.window);context.window_manager.modal_handler_add(self)
+        except Exception as exc:
+            self._finish(context);self.report({'ERROR'},str(exc));return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
     def modal(self,context,event):

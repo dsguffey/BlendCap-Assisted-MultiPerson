@@ -141,21 +141,42 @@ class BLENDCAP_OT_vta_apply_marks(bpy.types.Operator):
         self._scope=getattr(self,'_scope',scope(context));self._items=getattr(self,'_items',marks.items(self._scope,self.kind))
         self._character=getattr(self,'_character',ui.current_character_id(context) if self.kind=='assign' else None)
         if not self._items:return {'CANCELLED'}
-        _busy=True;self._epoch=_epoch;self._timer=context.window_manager.event_timer_add(.06,window=context.window)
-        context.window_manager.modal_handler_add(self);ui.vta_invalidation.request_redraw()
+        _busy=True;self._epoch=_epoch;self._timer=None
+        if self.confirmed:
+            # Complete the dialog's callback directly; don't start another
+            # modal lifecycle on its operator. Validation still occurs in apply.
+            context.window.cursor_modal_set('WAIT')
+            try:return self._apply(context)
+            finally:context.window.cursor_modal_restore()
+        try:
+            self._timer=context.window_manager.event_timer_add(.06,window=context.window)
+            context.window_manager.modal_handler_add(self);ui.vta_invalidation.request_redraw()
+        except Exception as exc:
+            self._finish(context);self.report({'ERROR'},str(exc));return {'CANCELLED'}
         return {'RUNNING_MODAL'}
     def modal(self,context,event):
-        global _busy
+        if event.type=='ESC':self._finish(context);return {'CANCELLED'}
         if event.type!='TIMER':return {'PASS_THROUGH'}
+        return self._apply(context)
+    def _apply(self,context):
         from . import vta_review_ui as ui
-        started=time.perf_counter()
         try:
             if self._epoch!=_epoch:raise ValueError('Mark session changed; no candidates applied.')
             apply_marked(context,self._scope,self.kind,self._items,self._character,self.confirmed,getattr(self,'_checkpoint',None))
             return {'FINISHED'}
         except Exception as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
-        finally:
-            _busy=False;context.window_manager.event_timer_remove(self._timer);ui.vta_invalidation.request_redraw()
+        finally:self._finish(context)
+    def _finish(self,context):
+        global _busy
+        from . import vta_review_ui as ui
+        _busy=False
+        timer=getattr(self,'_timer',None);self._timer=None
+        if timer is not None:
+            try:context.window_manager.event_timer_remove(timer)
+            except (RuntimeError,ReferenceError,ValueError):pass
+        ui.vta_invalidation.request_redraw()
+    def cancel(self,context):
+        if hasattr(self,'_epoch'):self._finish(context)
 
 @bpy.app.handlers.persistent
 def clear(_unused=None):
