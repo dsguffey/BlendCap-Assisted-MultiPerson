@@ -34,7 +34,7 @@ def tree_hashes(root):
         for name in folders+names:
             path=Path(directory)/name
             if path.is_symlink() or getattr(path,'is_junction',lambda:False)():
-                raise ValueError('Linked VTA destination contents cannot be replaced safely.')
+                raise ValueError('Linked MoCap destination contents cannot be replaced safely.')
         for name in names:
             path=Path(directory)/name
             result[str(path.relative_to(root))]=file_hash(path)
@@ -49,21 +49,21 @@ def replacement_receipt(blend):
     """
     blend=Path(blend).resolve();root=blend.with_name(blend.stem+'_vta')
     if root.is_symlink() or getattr(root,'is_junction',lambda:False)():
-        raise ValueError('Linked VTA companion cannot be replaced safely.')
+        raise ValueError('Linked MoCap companion cannot be replaced safely.')
     manifest=read_json(root/'copy_manifest.json')
     if (manifest.get('version')!=2 or manifest.get('destination_blend')!=str(blend)
             or not blend.is_file() or manifest.get('blend_sha256')!=file_hash(blend)
             or not isinstance(manifest.get('project_id'),str) or not manifest['project_id']
             or not isinstance(manifest.get('transaction_id'),str) or not manifest['transaction_id']
             or manifest.get('project_id')!=read_json(root/'project_state.json').get('project_id')):
-        raise ValueError('Destination VTA ownership cannot be verified. Choose a new name; nothing was merged or overwritten.')
+        raise ValueError('Destination MoCap ownership cannot be verified. Choose a new name; nothing was merged or overwritten.')
     return manifest
 
 
 def seal_receipt(blend,expected):
     blend=Path(blend).resolve();root=blend.with_name(blend.stem+'_vta')
     path=root/'copy_manifest.json'
-    if read_json(path)!=expected:raise ValueError('VTA copy receipt changed during native Save.')
+    if read_json(path)!=expected:raise ValueError('MoCap copy receipt changed during native Save.')
     updated={**expected,'blend_sha256':file_hash(blend)}
     temporary=root/('.receipt-'+uuid4().hex+'.tmp')
     try:
@@ -80,7 +80,7 @@ class CopyPlan:
         self.source,self.destination=Path(source).resolve(),Path(destination).resolve()
         if (self.source==self.destination or self.destination.is_relative_to(self.source)
                 or self.source.is_relative_to(self.destination)):
-            raise ValueError('VTA Save As companion paths overlap.')
+            raise ValueError('MoCap Save As companion paths overlap.')
         self.files={}
         self.outputs={}
         self.media={}
@@ -113,13 +113,13 @@ class CopyPlan:
         source=Path(source).resolve()
         relative=Path(relative)
         if relative.is_absolute() or '..' in relative.parts or not relative.parts:
-            raise ValueError('Unsafe VTA copy dependency path.')
+            raise ValueError('Unsafe MoCap copy dependency path.')
         value=file_hash(source)
         if expected and value!=expected:
-            raise ValueError('Referenced VTA file changed: '+str(source))
+            raise ValueError('Referenced MoCap file changed: '+str(source))
         prior=self.files.get(relative)
         if prior and prior[1]!=value:
-            raise ValueError('Conflicting VTA copy dependencies: '+str(relative))
+            raise ValueError('Conflicting MoCap copy dependencies: '+str(relative))
         self.files[relative]=(source,value)
         return self.destination/relative
 
@@ -133,7 +133,7 @@ class CopyPlan:
         pending=self.source/'.vta-host-pending.json'
         def add_history(path,relative):
             if not path.resolve().is_relative_to(self.source) or path.stat().st_nlink!=1:
-                raise ValueError('Linked VTA engine history cannot be copied safely.')
+                raise ValueError('Linked MoCap engine history cannot be copied safely.')
             self.add(path,relative)
         if engine.exists():
             for relative in ('head.json',):
@@ -173,7 +173,7 @@ class CopyPlan:
             path=self.source/'analysis'/leaf
             if revision in required or exists(path):self.add(path,Path('analysis')/leaf)
         if any((self.source/'analysis').glob('evidence-*.json')):
-            raise ValueError('Deferred Recovery evidence is unsupported; no VTA copy was made.')
+            raise ValueError('Deferred Recovery evidence is unsupported; no MoCap copy was made.')
         self.jobs()
         return raw
 
@@ -189,13 +189,13 @@ class CopyPlan:
             from vta_protocol.jobs import status as validate_status
         jobs=self.source/'.vta-engine/jobs'
         folders=list(jobs.iterdir()) if jobs.exists() else []
-        if len(folders)>2048:raise ValueError('Too many VTA job records for an independent copy.')
+        if len(folders)>2048:raise ValueError('Too many MoCap job records for an independent copy.')
         for folder in folders:
             identifier(folder.name)
             state=validate_status(read_json(folder/'status.json'))
             if state['job_id']!=folder.name:raise ValueError('Copied job identity differs from directory.')
             if state['state'] in ('starting','running','awaiting-decision'):
-                raise ValueError('A durable VTA job is active; wait or cancel it before Save As.')
+                raise ValueError('A durable MoCap job is active; wait or cancel it before Save As.')
             if state['state'] in ('prepared','unknown'):continue # No executable continuation in a copy.
             for name in ('request.json','plan.json','plan-manifest.json','status.json','result.json','calibration.json','decision.json','previous-accepted.json'):
                 path=folder/name
@@ -220,7 +220,7 @@ class CopyPlan:
             record=read_json(path);identifier(record['job_id'])
             if not record['settled']:
                 state=validate_status(read_json(jobs/record['job_id']/'status.json'))
-                if state['state'] in ('prepared','unknown'):raise ValueError('Resolve or discard the saved VTA job before Save As.')
+                if state['state'] in ('prepared','unknown'):raise ValueError('Resolve or discard the saved MoCap job before Save As.')
             if path.stat().st_size>16384 or not path.resolve().is_relative_to(self.source) or path.stat().st_nlink!=1:raise ValueError('Unsafe host job pointer.')
             self.add(path,path.relative_to(self.source))
 
@@ -243,7 +243,7 @@ class CopyPlan:
         result=self.add(source,relative,expected)
         report=read_json(source)
         if report.get('schema')!='vta-reviewed-skeletal-output':
-            raise ValueError('Unsupported referenced VTA reconstruction output.')
+            raise ValueError('Unsupported referenced MoCap reconstruction output.')
         for record in report['characters']:
             for field in ('bvh','npz'):
                 if record.get(field):
@@ -262,7 +262,7 @@ class CopyPlan:
         path=Path(path).resolve()
         if path not in self.media:
             if not isinstance(expected,str) or len(expected)!=64 or any(c not in '0123456789abcdef' for c in expected):
-                raise ValueError('Invalid VTA source hash.')
+                raise ValueError('Invalid MoCap source hash.')
             suffix=path.suffix.lower()
             if len(suffix)>12:raise ValueError('Unsupported source media extension.')
             self.media[path]=self.add(path,Path('sources')/(expected+suffix),expected)
@@ -271,11 +271,11 @@ class CopyPlan:
     def publish(self):
         """One owned stage, hash verification, no hard-linked mutable state."""
         if exists(self.destination) and self.prior_hashes is None:
-            raise FileExistsError('Destination VTA companion already exists; choose a new name. Nothing was merged or overwritten.')
+            raise FileExistsError('Destination MoCap companion already exists; choose a new name. Nothing was merged or overwritten.')
         preflight_generation_paths(self.destination)
         for relative in self.files:
             if os.name=='nt' and len(str(self.destination/relative))>=260:
-                raise ValueError('Destination VTA file path is too long for current Windows readers; choose a shorter folder/name.')
+                raise ValueError('Destination MoCap file path is too long for current Windows readers; choose a shorter folder/name.')
         self.destination.parent.mkdir(parents=True,exist_ok=True)
         stage=self.destination.parent/('.vta-copy-'+uuid4().hex[:16])
         os.mkdir(filesystem_path(stage))
@@ -284,9 +284,9 @@ class CopyPlan:
                 target=stage/relative
                 os.makedirs(filesystem_path(target.parent),exist_ok=True)
                 shutil.copyfile(filesystem_path(source),filesystem_path(target))
-                if file_hash(target)!=value:raise ValueError('VTA copy verification failed: '+str(relative))
+                if file_hash(target)!=value:raise ValueError('MoCap copy verification failed: '+str(relative))
             for source,value in self.files.values():
-                if file_hash(source)!=value:raise ValueError('VTA project changed during Save As; retry while idle.')
+                if file_hash(source)!=value:raise ValueError('MoCap project changed during Save As; retry while idle.')
             manifest=dict(version=2 if self.destination_blend else 1,transaction_id=self.token,
                 source_companion=str(self.source),files={str(k):v[1] for k,v in self.files.items()})
             if self.destination_blend:
@@ -301,7 +301,7 @@ class CopyPlan:
                 replacement_receipt(self.destination_blend)
                 self.replaced=self.destination.parent/('.vta-prior-'+self.token)
                 os.rename(filesystem_path(self.destination),filesystem_path(self.replaced))
-            elif exists(self.destination):raise FileExistsError('Destination VTA companion appeared during copying; it was not overwritten.')
+            elif exists(self.destination):raise FileExistsError('Destination MoCap companion appeared during copying; it was not overwritten.')
             try:os.rename(filesystem_path(stage),filesystem_path(self.destination))
             except Exception:
                 if self.replaced is not None:

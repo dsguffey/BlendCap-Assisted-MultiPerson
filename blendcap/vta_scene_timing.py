@@ -37,7 +37,7 @@ def owns_scene(scene, project_id, source):
 def match_source_rate(scene, project_id, source):
     """Explicit timing only; never touch Actions, frame bounds, or state files."""
     if not owns_scene(scene, project_id, source):
-        raise ValueError('Use the matching VTA-owned Scene; unrelated Scenes cannot be retimed.')
+        raise ValueError('Use the matching MoCap-owned Scene; unrelated Scenes cannot be retimed.')
     fps, base = source_rate(source)
     before = scene.render.fps, scene.render.fps_base
     try:
@@ -53,7 +53,7 @@ def _copy_action(owner):
     ad = owner.animation_data
     if ad is not None:
         if ad.drivers or ad.nla_tracks:
-            raise ValueError('VTA Scene copy cannot safely isolate drivers or NLA; preserve the original Scene.')
+            raise ValueError('MoCap Scene copy cannot safely isolate drivers or NLA; preserve the original Scene.')
         if ad.action is not None:
             slot = ad.action_slot.identifier if ad.action_slot is not None else None
             ad.action = ad.action.copy()
@@ -64,9 +64,9 @@ def _copy_action(owner):
 def validate_source_strip(strip):
     if (strip is None or strip.type != 'MOVIE' or strip.use_reverse_frames or strip.retiming_keys
             or strip.modifiers):
-        raise ValueError('Use an unretimed movie strip to prepare a VTA Scene; no source remapping was performed.')
+        raise ValueError('Use an unretimed movie strip to prepare a MoCap Scene; no source remapping was performed.')
     if strip.frame_final_start - strip.frame_offset_start != 1:
-        raise ValueError('VTA timing requires Blender frame = source frame + 1; keys were not moved.')
+        raise ValueError('MoCap timing requires Blender frame = source frame + 1; keys were not moved.')
 
 
 def prepare_scene(scene, project_id, source, source_path, strip, *, new=False):
@@ -81,12 +81,12 @@ def prepare_scene(scene, project_id, source, source_path, strip, *, new=False):
     if not new and owns_scene(scene, project_id, source):
         return scene
     if SCENE_TAG in scene and scene.get(SCENE_TAG) != SCENE_VERSION:
-        raise ValueError('Unsupported VTA Scene ownership version; no Scene was changed.')
+        raise ValueError('Unsupported MoCap Scene ownership version; no Scene was changed.')
     # Several independent working Scenes may intentionally share one source.
     # Never choose an arbitrary sibling; an active owner is already unambiguous.
     matches = [] if new else [s for s in bpy.data.scenes if owns_scene(s, project_id, source)]
     if len(matches) > 1:
-        raise ValueError('Multiple VTA Scenes own this source; select the desired one in the main Scene selector.')
+        raise ValueError('Multiple MoCap Scenes own this source; select the desired one in the main Scene selector.')
     if matches:
         return matches[0]
     if scene.animation_data and scene.animation_data.action:
@@ -105,15 +105,15 @@ def prepare_scene(scene, project_id, source, source_path, strip, *, new=False):
         if obj.type == 'EMPTY':
             validate_scene_root(obj, project_id, source['source_id'])
         elif obj.type not in {'CAMERA', 'ARMATURE'} or not supported_parent(obj):
-            raise ValueError('Unsupported owned object in VTA Scene copy; preserve the original Scene.')
+            raise ValueError('Unsupported owned object in MoCap Scene copy; preserve the original Scene.')
         if obj.constraints or (obj.type == 'ARMATURE' and any(b.constraints for b in obj.pose.bones)):
-            raise ValueError('VTA Scene copy cannot safely isolate transform constraints.')
+            raise ValueError('MoCap Scene copy cannot safely isolate transform constraints.')
         for owner in (obj, obj.data) if obj.data else (obj,):
             ad = owner.animation_data
             if ad and (ad.drivers or ad.nla_tracks):
-                raise ValueError('VTA Scene copy cannot safely isolate drivers or NLA.')
+                raise ValueError('MoCap Scene copy cannot safely isolate drivers or NLA.')
     if any(o.parent and o.parent not in targets for o in targets):
-        raise ValueError('VTA Scene copy cannot preserve an unrelated parent; no objects were migrated.')
+        raise ValueError('MoCap Scene copy cannot preserve an unrelated parent; no objects were migrated.')
     before = {kind: set(getattr(bpy.data, kind)) for kind in ('scenes','objects','armatures','cameras','actions')}
     try:
         working = bpy.data.scenes.new('VTA - ' + path.stem)
@@ -156,7 +156,7 @@ def prepare_scene(scene, project_id, source, source_path, strip, *, new=False):
             copy.matrix_basis = obj.matrix_basis.copy()
         cameras = [o for o in copies.values() if o.type == 'CAMERA']
         if len(cameras) > 1:
-            raise ValueError('Multiple VTA source cameras own this source.')
+            raise ValueError('Multiple MoCap source cameras own this source.')
         working.camera = cameras[0] if cameras else None
         movie = working.sequence_editor_create().strips.new_movie(strip.name, str(path), channel=strip.channel, frame_start=1)
         working.sequence_editor.active_strip = movie

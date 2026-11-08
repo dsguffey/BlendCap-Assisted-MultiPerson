@@ -187,7 +187,7 @@ def snap_source_camera_view(context):
     else:
         areas = []
     if not areas:
-        raise ValueError('Use Snap to Source Camera in a 3D viewport or the VTA workspace.')
+        raise ValueError('Use Snap to Source Camera in a 3D viewport or the MoCap workspace.')
     if any(a.spaces.active.local_view is not None for a in areas):
         raise ValueError('Exit Local View (/) before snapping to the source camera.')
     for target in areas:
@@ -371,8 +371,8 @@ def _draw_header(self, context):
     active = enabled(getattr(context, 'workspace', None))
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
-                         text='Exit VTA Mode' if active else 'Enter VTA Mode', icon='KEY_HLT', depress=active)
-    self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='VTA Commands')
+                         text='Exit MoCap Mode' if active else 'Enter MoCap Mode', icon='KEY_HLT', depress=active)
+    self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='MoCap Commands')
 
 
 def _draw_preview_header(self, context):
@@ -383,7 +383,7 @@ def _draw_preview_header(self, context):
         return
     active = role_for(context.workspace, context.screen, area) == ROLE_PREVIEW
     if active and not _ui().loaded_context_matches(context):
-        self.layout.label(text='VTA mismatch — Load VTA Scene to restore', icon='INFO')
+        self.layout.label(text='MoCap mismatch — Load MoCap Scene to restore', icon='INFO')
 
 
 def _line(shader, batch_for_shader, points, color):
@@ -669,26 +669,28 @@ def get_vta_workspace(context):
         return context.workspace
     matches = [w for w in bpy.data.workspaces if w.get(WORKSPACE_TAG) == 1]
     if len(matches) > 1:
-        raise ValueError('Multiple VTA workspaces are tagged; choose one manually.')
+        raise ValueError('Multiple MoCap workspaces are tagged; choose one manually.')
     if matches:
         return matches[0]
     if WORKSPACE_NAME in bpy.data.workspaces:
-        raise ValueError('A workspace named Video to Animation already exists; it was not replaced.')
+        raise ValueError('A workspace conflicts with the bundled workspace name; it was not replaced.')
     path = Path(__file__).resolve().parent.parent / 'vta_workspace_mode.blend'
     with bpy.data.libraries.load(str(path), link=False) as (source, dest):
         if WORKSPACE_NAME not in source.workspaces:
-            raise ValueError('Bundled file has no VTA workspace.')
+            raise ValueError('Bundled file has no MoCap workspace.')
         dest.workspaces = [WORKSPACE_NAME]
     workspace = dest.workspaces[0]
     if workspace is None or workspace.get(WORKSPACE_TAG) != 1:
-        raise ValueError('Bundled workspace is missing its VTA scope tag.')
+        raise ValueError('Bundled workspace is missing its MoCap scope tag.')
+    from ..blendcap_vta_product import PRODUCT_NAME
+    workspace.name = PRODUCT_NAME
     return workspace
 
 
 class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
     bl_idname = 'blendcap.open_vta_workspace'
-    bl_label = 'Open VTA Workspace'
-    bl_description = 'Open the provisional Video to Animation review workspace'
+    bl_label = 'Open MoCap Workspace'
+    bl_description = 'Open the provisional StudioFree MoCap review workspace'
 
     def execute(self, context):
         try:
@@ -699,13 +701,13 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
         context.window.workspace = workspace
         # Open the layout only. Enter/Load/New are the explicit Scene actions.
         vta_invalidation.request_redraw()
-        self.report({'INFO'}, 'Video to Animation workspace opened. Layout is provisional.')
+        self.report({'INFO'}, 'StudioFree MoCap workspace opened. Layout is provisional.')
         return {'FINISHED'}
 
 
 class BLENDCAP_MT_vta_timeline_context(bpy.types.Menu):
     bl_idname = 'BLENDCAP_MT_vta_timeline_context'
-    bl_label = 'VTA Review Key'
+    bl_label = 'MoCap Review Key'
 
     def draw(self, context):
         ui = _ui()
@@ -716,12 +718,12 @@ class BLENDCAP_MT_vta_timeline_context(bpy.types.Menu):
             self.layout, actions={'clear-review-key', 'clear-selected-review-keys'},
             availability=ui._action_availability(context),
         )
-        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
+        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More MoCap Commands')
 
 
 class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
     bl_idname = 'BLENDCAP_MT_vta_timeline_commands'
-    bl_label = 'VTA Commands'
+    bl_label = 'MoCap Commands'
 
     def draw(self, context):
         ui = _ui()
@@ -732,7 +734,7 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         ui.draw_scene_timing(layout, context, menu=True)
         if not ui.refresh(context):
-            layout.label(text='VTA review unavailable', icon='INFO')
+            layout.label(text='MoCap review unavailable', icon='INFO')
             return
         ui._draw_management_actions(layout, availability=ui._action_availability(context))
         row = layout.row()
@@ -749,10 +751,10 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
 
 class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
     bl_idname = 'BLENDCAP_PT_vta_timeline'
-    bl_label = 'VTA Review Timeline'
+    bl_label = 'MoCap Review Timeline'
     bl_space_type = 'DOPESHEET_EDITOR'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
 
     @classmethod
     def poll(cls, context):
@@ -800,7 +802,7 @@ class BLENDCAP_PT_vta_timeline(bpy.types.Panel):
         row.enabled = availability['update-tracking']
         row.operator('blendcap.vta_update_tracking', text='Update Tracking')
         layout.operator('blendcap.vta_restore_protected',text='Restore Last Protected Edit')
-        layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More VTA Commands')
+        layout.menu('BLENDCAP_MT_vta_timeline_commands', text='More MoCap Commands')
 
         layout.separator()
         ui.draw_motion_trust(layout, context)
@@ -821,15 +823,15 @@ class BLENDCAP_OT_vta_goto_review_key(bpy.types.Operator):
 
     def execute(self, context):
         if not _ui().go_to_selected_timeline_key(context):
-            self.report({'WARNING'}, 'Select a VTA review key first.')
+            self.report({'WARNING'}, 'Select a MoCap review key first.')
             return {'CANCELLED'}
         return {'FINISHED'}
 
 
 class BLENDCAP_OT_vta_toggle_editor_mode(bpy.types.Operator):
     bl_idname = 'blendcap.vta_toggle_editor_mode'
-    bl_label = 'Enter / Exit VTA Mode'
-    bl_description = 'Enter the remembered VTA Scene or exit review without changing data'
+    bl_label = 'Enter / Exit MoCap Mode'
+    bl_description = 'Enter the remembered MoCap Scene or exit review without changing data'
 
     @classmethod
     def poll(cls, context):
@@ -908,7 +910,7 @@ def _draw_hover(context):
 
 class BLENDCAP_OT_vta_timeline_hover(bpy.types.Operator):
     bl_idname = 'blendcap.vta_timeline_hover'
-    bl_label = 'VTA Timeline Tooltip'
+    bl_label = 'MoCap Timeline Tooltip'
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -929,7 +931,7 @@ class BLENDCAP_OT_vta_timeline_hover(bpy.types.Operator):
 
 class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
     bl_idname = 'blendcap.vta_timeline_select'
-    bl_label = 'Select VTA Timeline Item'
+    bl_label = 'Select MoCap Timeline Item'
     bl_description = 'Select Character rows or review keys; drag within their own region to box-select'
     bl_options = {'INTERNAL'}
 
@@ -1100,7 +1102,7 @@ def register():
         _channel_handler = bpy.types.SpaceDopeSheetEditor.draw_handler_add(
             _draw_channels, (), 'CHANNELS', 'POST_PIXEL')
     bpy.types.Scene.blendcap_vta_timeline_text_size = bpy.props.IntProperty(
-        name='Timeline Text Size', description='VTA text size before Blender UI scaling; rows adapt to fit',
+        name='Timeline Text Size', description='MoCap text size before Blender UI scaling; rows adapt to fit',
         default=13, min=10, max=32, update=_timeline_text_size_changed)
     if not _header_registered:
         bpy.types.DOPESHEET_MT_editor_menus.append(_draw_header)

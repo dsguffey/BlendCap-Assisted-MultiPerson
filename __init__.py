@@ -149,17 +149,17 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
     # user preferences and is used only by the public VTA runtime-discovery
     # boundary; no private code is bundled with this extension.
     vta_core_location: bpy.props.StringProperty(  # type: ignore
-        name="Video to Animation Core Location",
+        name="StudioFree MoCap Core Location",
         subtype='DIR_PATH', default="",
-        description="Folder containing the separately installed Video to Animation Core")
+        description="Folder containing the separately installed StudioFree MoCap Core")
     vta_analysis_python: bpy.props.StringProperty(  # type: ignore
-        name="VTA Analysis Python", subtype='FILE_PATH', default="",
+        name="MoCap Analysis Python", subtype='FILE_PATH', default="",
         description="Fallback Python executable when the evaluated CUDA SAM3 environment is not discoverable")
     vta_kinesia_root: bpy.props.StringProperty(  # type: ignore
-        name="VTA SAM3 Source", subtype='DIR_PATH', default="",
+        name="MoCap SAM3 Source", subtype='DIR_PATH', default="",
         description="Existing evaluated Kinesia source checkout; no files are installed")
     vta_sam3_checkpoint: bpy.props.StringProperty(  # type: ignore
-        name="VTA SAM3 Checkpoint", subtype='FILE_PATH', default="",
+        name="MoCap SAM3 Checkpoint", subtype='FILE_PATH', default="",
         description="Existing offline SAM3 checkpoint for candidate analysis")
 
     # --- Capture & tracking ---
@@ -206,7 +206,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         default=False,
         update=_redraw_viewport_panels,
         description=(
-            "Hide workspace and Preferences shortcuts in the VTA sidebar "
+            "Hide workspace and Preferences shortcuts in the MoCap sidebar "
             "panel. Turn this on once your workspace is set up and you no "
             "longer need those buttons"))
     hide_clear_all: bpy.props.BoolProperty(  # type: ignore
@@ -229,7 +229,7 @@ class BLENDCAP_AddonPreferences(bpy.types.AddonPreferences):
         layout.label(text='Source, review, generation and retarget settings belong to the project.')
         box = layout.box()
         box.label(text='Runtime and diagnostics', icon='INFO')
-        box.label(text='VTA setup/repair manages runtime and model locations.')
+        box.label(text='MoCap setup/repair manages runtime and model locations.')
         box.label(text='Use Advanced → Open Logs Folder for project diagnostics.')
         box.label(text='Developer source configuration is separate from project data.')
 

@@ -19,7 +19,7 @@ def export_current(context,source,destination,start,end):
     if bpy.data.filepath:
         from ..blendcap_vta_review import companion_root_for_blend
         if destination.resolve().is_relative_to(companion_root_for_blend(bpy.data.filepath).resolve()):
-            raise ValueError('Export outside the VTA companion folder to preserve its accepted results.')
+            raise ValueError('Export outside the MoCap companion folder to preserve its accepted results.')
     if start>end:raise ValueError('Export start must not exceed end.')
     scene=context.scene;frame=scene.frame_current;subframe=scene.frame_subframe
     active=context.view_layer.objects.active;selected=tuple(context.selected_objects)
@@ -73,7 +73,7 @@ def export_current(context,source,destination,start,end):
 
 class BLENDCAP_OT_vta_export_bvh(bpy.types.Operator,ExportHelper):
     bl_idname='blendcap.vta_export_bvh';bl_label='Export BVH'
-    bl_description='Export the selected VTA Character’s current animation, including manual Depth and cleanup, over the Scene frame range'
+    bl_description='Export the selected Character’s current animation, including manual Depth and cleanup, over the Scene frame range'
     filename_ext='.bvh'
     filter_glob:bpy.props.StringProperty(default='*.bvh',options={'HIDDEN'})
     @classmethod
@@ -91,10 +91,10 @@ class BLENDCAP_OT_vta_export_bvh(bpy.types.Operator,ExportHelper):
 
 class VIEW3D_PT_vta_export(bpy.types.Panel):
     bl_idname='VIEW3D_PT_vta_export';bl_label='Export'
-    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='VTA'
+    bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='MoCap'
     bl_options={'DEFAULT_CLOSED'};bl_order=900
     def draw(self,context):
-        self.layout.label(text='Selected VTA Character • Scene frame range')
+        self.layout.label(text='Selected Character • Scene frame range')
         self.layout.operator('blendcap.vta_export_bvh',icon='EXPORT')
         self.layout.label(text='Includes current Depth and animation edits.')
 

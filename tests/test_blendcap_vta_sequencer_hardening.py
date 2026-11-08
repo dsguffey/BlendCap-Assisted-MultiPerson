@@ -255,11 +255,11 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
         header = mock.Mock()
         with mock.patch.object(ui, 'role_for', return_value='preview'):
             ui._draw_vta_header(SimpleNamespace(layout=header), context)
-        header.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
+        header.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="MoCap Commands")
         right_click = mock.Mock()
         with mock.patch.object(ui, 'role_for', return_value='preview'):
             ui._draw_vta_context(SimpleNamespace(layout=right_click), context)
-        right_click.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="VTA Commands")
+        right_click.menu.assert_called_once_with("BLENDCAP_MT_vta_commands", text="MoCap Commands")
 
     def test_operator_poll_and_native_hooks_survive_reregister_without_duplicates(self):
         addon = self.addon

@@ -26,7 +26,7 @@ def _root():
 def _identity(scene):
     identity=scene.get('vta_scene_owner_id') or uuid4().hex;wire.identifier(identity)
     if any(s is not scene and s.get('vta_scene_owner_id')==identity for s in bpy.data.scenes):
-        raise ValueError('Duplicate Scene identity; explicitly load a uniquely owned VTA Scene.')
+        raise ValueError('Duplicate Scene identity; explicitly load a uniquely owned MoCap Scene.')
     scene['vta_scene_owner_id']=identity;return identity
 
 def _key(scene,kind):return (scene.get('vta_scene_owner_id'),kind)
@@ -68,7 +68,7 @@ def _context(job):
         raise ValueError('Job belongs to another open project; use explicit recovery in its original Scene.')
     context=ui._context_for_main_scene(bpy.context)
     if context.scene is not scene or not ui.loaded_context_matches(context):
-        raise ValueError('Load the original VTA Scene, then Recover Job to apply its result.')
+        raise ValueError('Load the original MoCap Scene, then Recover Job to apply its result.')
     if (scene.get('vta_project_id'),scene.get('vta_source_id'))!=(job['pointer']['project_id'],job['pointer']['source_id']):
         raise ValueError('Job source/Scene identity changed; no native output was applied.')
     _identity(scene);return context
@@ -94,7 +94,7 @@ def _start(context,kind,*,recover=False):
     from . import vta_review_undo as recovery
     if _pointer_error:raise ValueError('Job recovery metadata is invalid; no new work was started. '+_pointer_error)
     recovery.require_ready();ui.require_loaded_context(context);context=ui._context_for_main_scene(context)
-    if busy():raise ValueError('Wait for the current VTA job or cancel it.')
+    if busy():raise ValueError('Wait for the current MoCap job or cancel it.')
     scene=context.scene;identity=_identity(scene);location=ui._location_from_context(context,allow_outside=True)
     root=Path(location.companion_root).resolve();client=ui._engine_client(context);backend=_backend(client)
     pointer=_saved.get((identity,kind))
@@ -156,7 +156,7 @@ def _native_inputs(job):
     from .vta_generation import owners,fingerprint
     targets=owners(scene,pointer['project_id'],pointer['source_id'])
     cameras=[o for o in targets if o.type=='CAMERA']
-    if len(cameras)>1:raise ValueError('Multiple VTA source cameras; previous animation retained.')
+    if len(cameras)>1:raise ValueError('Multiple MoCap source cameras; previous animation retained.')
     saved=json.loads(cameras[0].data['vta_scene_reference']) if cameras and cameras[0].data.get('vta_scene_reference') else None
     from .vta_output_restore import fingerprint as native_fingerprint
     job['native_stamp']=[(o,native_fingerprint(o)) for o in targets]
@@ -338,7 +338,7 @@ def draw(layout,context,kind):
         if slot(context.scene) is not None:layout.operator('blendcap.vta_restore_output')
 
 class BLENDCAP_OT_vta_job_control(bpy.types.Operator):
-    bl_idname='blendcap.vta_job_control';bl_label='VTA Job';bl_options=set()
+    bl_idname='blendcap.vta_job_control';bl_label='MoCap Job';bl_options=set()
     action:bpy.props.EnumProperty(items=[(k,k,'') for k in ('RECOVER','CANCEL','DISCARD')])
     kind:bpy.props.EnumProperty(items=[(k,k,'') for k in ('generation','analysis')])
     def execute(self,context):
@@ -413,7 +413,7 @@ def load(_unused=None):
             if path!=_path(root,value):raise ValueError('Host job pointer filename mismatch.')
             _saved[(value['scene_owner_id'],value['kind'])]=value
     except Exception as exc:
-        _pointer_error=str(exc);print('[VTA jobs recovery]',_pointer_error,flush=True)
+        _pointer_error=str(exc);print('[MoCap jobs recovery]',_pointer_error,flush=True)
 
 CLASSES=(BLENDCAP_OT_vta_job_control,BLENDCAP_OT_vta_job_decide,BLENDCAP_OT_vta_restore_output)
 def register():

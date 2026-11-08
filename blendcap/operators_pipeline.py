@@ -404,7 +404,7 @@ class BLENDCAP_OT_install_dependencies(bpy.types.Operator):
         default=False, options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
-        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        self.report({'ERROR'}, 'MoCap setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
         return {'CANCELLED'}
 
 
@@ -430,14 +430,14 @@ class BLENDCAP_OT_install_run(bpy.types.Operator):
     bl_options = {'REGISTER', 'INTERNAL'}
 
     def execute(self, context):
-        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        self.report({'ERROR'}, 'MoCap setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
         return {'CANCELLED'}
 
 
 class BLENDCAP_OT_install_open_prefs(bpy.types.Operator):
     bl_idname = "blendcap.install_open_prefs"
-    bl_label = "Open VTA Preferences"
-    bl_description = ("Open persistent VTA preferences; runtime setup is separate. "
+    bl_label = "Open MoCap Preferences"
+    bl_description = ("Open persistent MoCap preferences; runtime setup is separate. "
                       "")
     bl_options = {'REGISTER', 'INTERNAL'}
 
@@ -456,7 +456,7 @@ class BLENDCAP_OT_install_open_prefs(bpy.types.Operator):
             context.preferences.active_section = 'ADDONS'
         except Exception:
             self.report({'INFO'},
-                        "Open Edit > Preferences > Add-ons > VTA. "
+                        "Open Edit > Preferences > Add-ons > MoCap. "
                         "")
         return {'FINISHED'}
 
@@ -491,7 +491,7 @@ class BLENDCAP_OT_uninstall_dependencies(bpy.types.Operator):
         default='ARM', options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
-        self.report({'ERROR'}, 'VTA setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
+        self.report({'ERROR'}, 'MoCap setup/repair manages its separate runtimes. The legacy in-addon installer is retired.')
         return {'CANCELLED'}
 
 
@@ -528,8 +528,8 @@ class BLENDCAP_OT_deps_missing(bpy.types.Operator):
 
 class BLENDCAP_OT_append_workspace(bpy.types.Operator):
     bl_idname = 'blendcap.append_workspace'
-    bl_label = 'Open VTA Workspace'
-    bl_description = 'Open the VTA review and animation workspace'
+    bl_label = 'Open MoCap Workspace'
+    bl_description = 'Open the MoCap review and animation workspace'
     def execute(self, context):
         return bpy.ops.blendcap.open_vta_workspace()
 

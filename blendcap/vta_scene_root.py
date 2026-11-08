@@ -20,7 +20,7 @@ def validate_scene_root(root, project_id, source_id):
             or tuple(root.delta_location) != (0., 0., 0.)
             or tuple(root.delta_rotation_euler) != (0., 0., 0.)
             or tuple(root.delta_scale) != (1., 1., 1.)):
-        raise ValueError('VTA SceneRoot is unsupported or edited; generation requires an owned, unanimated identity Empty')
+        raise ValueError('MoCap SceneRoot is unsupported or edited; generation requires an owned, unanimated identity Empty')
     return root
 
 
@@ -40,7 +40,7 @@ def find_scene_root(scene, project_id, source_id):
     roots = [obj for obj in scene.objects if ROOT_TAG in obj
              and obj.get('vta_project_id') == project_id and obj.get('vta_source_id') == source_id]
     if len(roots) > 1:
-        raise ValueError('Multiple VTA SceneRoots own this project/source; resolve duplicate containers first')
+        raise ValueError('Multiple MoCap SceneRoots own this project/source; resolve duplicate containers first')
     return validate_scene_root(roots[0], project_id, source_id) if roots else None
 
 
@@ -63,7 +63,7 @@ def parent_to_scene_root(obj, root):
     """
     validate_scene_root(root, obj.get('vta_project_id'), obj.get('vta_source_id'))
     if not supported_parent(obj) or (obj.parent is not None and obj.parent != root):
-        raise ValueError('VTA object has an unsupported parent; cannot adopt SceneRoot safely')
+        raise ValueError('MoCap object has an unsupported parent; cannot adopt SceneRoot safely')
     obj.parent = root
     obj.parent_type = 'OBJECT'
     obj.matrix_parent_inverse = Matrix.Identity(4)

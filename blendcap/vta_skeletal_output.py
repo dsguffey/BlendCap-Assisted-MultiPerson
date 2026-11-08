@@ -141,7 +141,7 @@ def _regenerable_curves(previous, segment, preserve_object_transforms):
     if preserve_object_transforms:
         if (previous.type != 'ARMATURE' or not supported_parent(previous) or previous.constraints
                 or any(b.constraints for b in previous.pose.bones)):
-            raise ValueError('Prior VTA rig has parents or transform constraints; cannot register output safely')
+            raise ValueError('Prior MoCap rig has parents or transform constraints; cannot register output safely')
         # Unknown/custom/delta channels do not become implicitly user-owned.
         bone_paths = {b.path_from_id() + '.' + suffix: size
                       for b in previous.pose.bones for suffix, size in _OBJECT_TRANSFORMS.items()}
@@ -250,7 +250,7 @@ def register_camera_root(obj, samples):
     """
     bpy.context.view_layer.update()
     if obj.parent is not None or obj.matrix_world != Matrix.Identity(4):
-        raise ValueError('Registered VTA output requires the canonical unedited object transform')
+        raise ValueError('Registered MoCap output requires the canonical unedited object transform')
     root, hips = obj.pose.bones.get('Root'), obj.pose.bones.get('Hips')
     if root is None or hips is None or root.parent is not None:
         raise ValueError('Camera registration requires the existing Root/Hips skeleton')
@@ -269,19 +269,19 @@ def stage_source_camera(plan, records, location, bounded, bounds, reference=None
     owned = [o for o in bpy.context.scene.objects if o.type == 'CAMERA'
         and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
     if len(owned) > 1:
-        raise ValueError('Multiple VTA source cameras own this source')
+        raise ValueError('Multiple MoCap source cameras own this source')
     previous = owned[0] if owned else None
     rotation = Matrix.Rotation(math.pi / 2, 4, 'X')
     saved = json.loads(previous.data['vta_scene_reference']) if previous is not None and previous.data.get('vta_scene_reference') else None
     if saved is not None and reference != saved:
-        raise ValueError('Established VTA scene reference must not be replaced by a range update')
+        raise ValueError('Established MoCap scene reference must not be replaced by a range update')
     previous_matrix = scene_translation(saved) @ rotation
     matrix = scene_translation(reference) @ rotation
     if previous is not None and (not supported_parent(previous) or previous.constraints or previous.animation_data is not None
             or previous.matrix_world != previous_matrix or previous.data.type != 'PERSP'
             or previous.data.sensor_fit != 'HORIZONTAL' or previous.data.sensor_width != 36
             or previous.data.shift_x != 0 or previous.data.shift_y != 0):
-        raise ValueError('VTA source camera was edited; preserve it and use a separate scene')
+        raise ValueError('MoCap source camera was edited; preserve it and use a separate scene')
     focal = {}
     for record in records:
         for sample in (record.get('camera_registration') or {}).get('samples', []):
@@ -409,10 +409,10 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
         cameras = [o for o in bpy.context.scene.objects if o.type == 'CAMERA'
             and o.get('vta_project_id') == plan['project_id'] and o.get('vta_source_id') == plan['source_id']]
         if len(cameras) > 1:
-            raise ValueError('Multiple VTA source cameras own this source')
+            raise ValueError('Multiple MoCap source cameras own this source')
         reference = validated['reference']
         if prior and (not cameras or not cameras[0].data.get('vta_scene_reference')):
-            raise ValueError('Existing VTA rigs lack a fixed registration base; preserve them in a separate scene before calibrated regeneration')
+            raise ValueError('Existing MoCap rigs lack a fixed registration base; preserve them in a separate scene before calibrated regeneration')
         offset = location.blender_frame - location.source_frame
         source_bounds = [cache.source.start_frame + offset, cache.source.end_frame + offset]
     created = []
@@ -524,7 +524,7 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
                 bounded and not replacing_calibration, bounds, reference)
             camera_stage.data['vta_reconstruction_fingerprint'] = fingerprint
         if _hash(location.companion_root/'project_state.json')!=validated['checkpoint']['revision']['sha256']:
-            raise ValueError('VTA authority changed before native publication; prior animation retained.')
+            raise ValueError('MoCap authority changed before native publication; prior animation retained.')
         # Commit only after all new armatures validate. Old generated output is
         # retained on disk; only owned Blender projections are replaced.
         for previous, action, fresh in staged:

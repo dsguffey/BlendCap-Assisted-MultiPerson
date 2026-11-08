@@ -106,7 +106,7 @@ def set_role(workspace, screen, area, role):
     if index is None:
         raise ValueError("The editor does not belong to the active screen.")
     if role is not None and not _supported(area, role):
-        raise ValueError("This editor does not support the requested VTA mode.")
+        raise ValueError("This editor does not support the requested MoCap mode.")
     roles = _stored(screen)
     if roles is None:
         roles = {str(i): _legacy_preset_role(workspace, screen, item)
@@ -119,7 +119,7 @@ def set_role(workspace, screen, area, role):
         if role == ROLE_TIMELINE and any(
             other != key and value == ROLE_TIMELINE for other, value in roles.items()
         ):
-            raise ValueError("This screen already has a VTA Review Timeline.")
+            raise ValueError("This screen already has a MoCap Review Timeline.")
         roles[key] = role
     screen[MODE_KEY] = json.dumps({"version": 1,
                                    "signature": _signature(screen),

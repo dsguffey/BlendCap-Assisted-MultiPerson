@@ -80,10 +80,10 @@ def targets(context, info=None, *, allow_partial=False):
     ui.require_loaded_context(context)
     info = info or ui.cached_scene_source(context)
     if info is None:
-        raise ValueError('Load a configured VTA Scene first.')
+        raise ValueError('Load a configured MoCap Scene first.')
     ids = ui.tracking_character_ids(context)
     if not ids:
-        raise ValueError('Select one or more Character rows in the VTA timeline.')
+        raise ValueError('Select one or more Character rows in the MoCap timeline.')
     result=[]
     for identity in ids:
         owners = [o for o in context.scene.objects if o.type == 'ARMATURE'
@@ -104,7 +104,7 @@ def availability(context,action='REMOVE'):
     Metadata/rig/selection failures already visible to the UI disable the button.
     """
     from . import vta_review_ui as ui
-    if not ui._source_actions_available(context):return False,'Load a configured VTA Scene; wait for any running operation.'
+    if not ui._source_actions_available(context):return False,'Load a configured MoCap Scene; wait for any running operation.'
     try:objects,info=targets(context,allow_partial=True)
     except (ValueError,ui.VtaReviewUiError) as exc:return False,str(exc)
     cameras=[o for o in context.scene.objects if o.type=='CAMERA' and o.get('vta_project_id')==info[0]
@@ -138,7 +138,7 @@ def availability(context,action='REMOVE'):
 def target(context, info=None):
     """Single-rig helper retained for callers requiring one target."""
     objects,info=targets(context,info)
-    if len(objects)!=1:raise ValueError('Select exactly one Character row in the VTA timeline.')
+    if len(objects)!=1:raise ValueError('Select exactly one Character row in the MoCap timeline.')
     return objects[0],info
 
 
@@ -313,7 +313,7 @@ def prepare(context, obj=None):
     if obj is None:obj,info = target(context)
     else:info=ui.cached_scene_source(context)
     if len(obj.users_scene)!=1:
-        raise ValueError('This rig is shared with another Scene. Cleanup requires an independent VTA rig.')
+        raise ValueError('This rig is shared with another Scene. Cleanup requires an independent MoCap rig.')
     if obj.get(FINAL):
         raise ValueError('Character already finalized; Restore Source Alignment first.')
     if obj.get('vta_output_stale'):
@@ -323,7 +323,7 @@ def prepare(context, obj=None):
     if not context.scene.get(SCENE_ID):context.scene[SCENE_ID]=uuid4().hex
     scene_id=context.scene[SCENE_ID]
     if sum(s.get(SCENE_ID) == scene_id for s in bpy.data.scenes) != 1:
-        raise ValueError('Copied Scene camera-cleanup identity is ambiguous; use an independent VTA Scene.')
+        raise ValueError('Copied Scene camera-cleanup identity is ambiguous; use an independent MoCap Scene.')
     cameras = [o for o in context.scene.objects if o.type == 'CAMERA'
         and o.get('vta_project_id') == info[0] and o.get('vta_source_id') == info[1]['source_id']]
     if len(cameras) != 1:
@@ -387,7 +387,7 @@ def apply_selection(scene,objects,solve,core,issues=(),log=None):
         for obj in done:
             metadata=json.loads(obj.get(FINAL,'null'))
             details.append(obj.name+': '+(f"{metadata['corrected_frames']} corrected; "
-                f"{len(metadata['component_review'])} frames need component review. Restore Source Alignment before VTA work."
+                f"{len(metadata['component_review'])} frames need component review. Restore Source Alignment before MoCap work."
                 if metadata else 'No reliable frames; unchanged.'))
             if metadata:
                 details.extend(f"  Blender {row['frame']} / source {row['source_frame']}: uncorrected "
@@ -429,7 +429,7 @@ def completion_feedback(scene,obj,solve,log=None):
         primary = 'Camera rotation removed. Character finalized.'
     details = 'Rotation only; translation/depth remain. '
     if finalized:
-        details += 'Restore Source Alignment before further VTA work. '
+        details += 'Restore Source Alignment before further MoCap work. '
     if partial:
         details+=('Pan/tilt were not corrected on roll-only frames. Changing accepted components may jump; inspect boundaries.\n'
             'Roll-only Blender frames: '+', '.join(str(row['frame']+offset) for row in partial)+'\n')
@@ -469,7 +469,7 @@ def poll_job():
             raise ValueError(failure or f"Camera cleanup worker exited with code {job['process'].returncode}. See Go to Log.")
         scene = job['scene']
         if bpy.context.scene != scene or not bpy.context.window or bpy.context.window.scene != scene:
-            raise ValueError('Active Scene changed during cleanup; no animation was modified. Retry in the loaded VTA Scene.')
+            raise ValueError('Active Scene changed during cleanup; no animation was modified. Retry in the loaded MoCap Scene.')
         for obj,action,signature in job['snapshots']:
             if obj.animation_data.action != action or action_signature(action) != signature:
                 raise ValueError('Animation changed during cleanup; no compensation was published.')
@@ -506,7 +506,7 @@ class BLENDCAP_OT_vta_camera_cleanup(bpy.types.Operator):
             enabled,reason=availability(context,self.action)
             if not enabled:
                 self.report({'WARNING'},reason);return {'CANCELLED'}
-            if ui._analysis_locked(): raise ValueError('Wait for the running VTA operation.')
+            if ui._analysis_locked(): raise ValueError('Wait for the running MoCap operation.')
             objects,_ = targets(context,allow_partial=True)
             self._confirmed_objects = objects
             if self.action=='REMOVE':return self.execute(context)
@@ -531,7 +531,7 @@ class BLENDCAP_OT_vta_camera_cleanup(bpy.types.Operator):
         try:
             enabled,reason=availability(context,self.action)
             if not enabled:raise ValueError(reason)
-            if ui._analysis_locked(): raise ValueError('Wait for the running VTA operation.')
+            if ui._analysis_locked(): raise ValueError('Wait for the running MoCap operation.')
             selected,info = targets(context,allow_partial=True)
             confirmed=getattr(self,'_confirmed_objects',None)
             if self.action=='RESTORE' and confirmed!=selected:
@@ -581,7 +581,7 @@ def draw_cleanup(layout,context):
     layout.label(text='Animation Cleanup')
     layout.label(text='Rotation only; translation/depth remain unchanged.')
     layout.label(text='Roll may pass alone; uncertain components need review.')
-    layout.label(text='Finalizes selected Characters; Restore to resume VTA work.')
+    layout.label(text='Finalizes selected Characters; Restore to resume MoCap work.')
     enabled,reason=availability(context)
     controls=layout.column();controls.enabled=enabled
     controls.operator('blendcap.vta_camera_cleanup',text='Remove Camera Movement').action='REMOVE'

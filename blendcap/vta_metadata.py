@@ -10,9 +10,9 @@ def register():
     # Native transforms + custom-properties keying skips RNA fields without
     # ANIMATABLE. Keep the same IDProperty keys and bracket read/write contract.
     bpy.types.Object.vta_output_stale = bpy.props.BoolProperty(
-        name='VTA Output Stale', default=False, options={'HIDDEN'})
+        name='MoCap Output Stale', default=False, options={'HIDDEN'})
     bpy.types.Object.vta_camera_registration_version = bpy.props.IntProperty(
-        name='VTA Camera Registration Version', default=1, options={'HIDDEN'})
+        name='MoCap Camera Registration Version', default=1, options={'HIDDEN'})
 
 
 def unregister():
@@ -26,7 +26,7 @@ def repair_plan(obj):
     if (obj.type != 'ARMATURE' or not all(obj.get(k) for k in
             ('vta_project_id','vta_source_id','vta_character_id','vta_output_file'))
             or obj.get('vta_camera_registration_version') != 1):
-        raise ValueError('Metadata repair requires a version-1 generated VTA Character')
+        raise ValueError('Metadata repair requires a version-1 generated Character')
     data=obj.animation_data
     if (not obj.is_editable or len(obj.users_scene)!=1 or not data or not data.action
             or data.nla_tracks or data.drivers or not data.action.is_editable

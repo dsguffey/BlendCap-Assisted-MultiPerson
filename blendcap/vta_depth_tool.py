@@ -47,12 +47,12 @@ def tool_visible(context):
 def target(context):
     from . import vta_review_ui as ui
     if not tool_visible(context) or ui._analysis_locked():
-        raise ValueError('Load this VTA Scene in Object Mode before editing depth.')
+        raise ValueError('Load this MoCap Scene in Object Mode before editing depth.')
     obj, camera = depth_target(context)
     # Use the existing review/object synchronization's eligibility, not a new
     # remembered target. Deselecting/switching rigs immediately changes this.
     if obj not in ui._selection_rigs(context):
-        raise ValueError('Select a generated Character belonging to this VTA Scene.')
+        raise ValueError('Select a generated Character belonging to this MoCap Scene.')
     if not obj.is_editable:
         raise ValueError('Depth editing requires an editable local Character.')
     if len(obj.users_scene) != 1:
@@ -69,12 +69,12 @@ def targets(context):
         obj, camera = target(context)  # Preserve the accepted single-Character path.
         return (obj,), camera
     if not tool_visible(context) or ui._analysis_locked():
-        raise ValueError('Load this VTA Scene in Object Mode before editing depth.')
+        raise ValueError('Load this MoCap Scene in Object Mode before editing depth.')
     info = ui.cached_scene_source(context)
-    if not info: raise ValueError('Load this VTA Scene before editing depth.')
+    if not info: raise ValueError('Load this MoCap Scene before editing depth.')
     cameras = [o for o in context.scene.objects if o.type == 'CAMERA'
                and o.get('vta_project_id') == info[0] and o.get('vta_source_id') == info[1]['source_id']]
-    if len(cameras) != 1: raise ValueError('Retain the unique VTA Source Camera to edit depth.')
+    if len(cameras) != 1: raise ValueError('Retain the unique MoCap Source Camera to edit depth.')
     from .vta_depth_keys import validate_edit
     eligible = []
     for obj in selected:
@@ -87,7 +87,7 @@ def targets(context):
             try: validate_edit(obj)
             except ValueError: continue
         eligible.append(obj)
-    if not eligible: raise ValueError('Select an editable, unlocked VTA Character without constraints or NLA.')
+    if not eligible: raise ValueError('Select an editable, unlocked Character without constraints or NLA.')
     return tuple(sorted(eligible, key=lambda o:o.name)), cameras[0]
 
 
@@ -180,7 +180,7 @@ def redraw():
 
 class BLENDCAP_OT_vta_depth_drag(bpy.types.Operator):
     bl_idname = 'blendcap.vta_depth_drag'
-    bl_label = 'VTA Depth'
+    bl_label = 'MoCap Depth'
     bl_description = 'Drag along source-camera depth only; Shift fine; release confirms; Esc cancels. Head-on: drag vertically'
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
     distance: bpy.props.FloatProperty(name='Camera Depth', subtype='DISTANCE', options={'SKIP_SAVE'})
@@ -209,7 +209,7 @@ class BLENDCAP_OT_vta_depth_drag(bpy.types.Operator):
             self._drag_started = False
             self._distance = 0.
             context.window_manager.modal_handler_add(self)
-            context.area.header_text_set('VTA Depth only | Shift fine | Release confirm | Esc cancel | Head-on: vertical drag')
+            context.area.header_text_set('MoCap Depth only | Shift fine | Release confirm | Esc cancel | Head-on: vertical drag')
             return {'RUNNING_MODAL'}
         except (ValueError, RuntimeError) as exc:
             self.report({'WARNING'}, str(exc))
@@ -283,7 +283,7 @@ class BLENDCAP_OT_vta_depth_drag(bpy.types.Operator):
 
 class BLENDCAP_OT_vta_depth_block_drag(bpy.types.Operator):
     bl_idname = 'blendcap.vta_depth_block_drag'
-    bl_label = 'VTA Depth: drag the handle only'
+    bl_label = 'MoCap Depth: drag the handle only'
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -304,7 +304,7 @@ class BLENDCAP_OT_vta_depth_block_drag(bpy.types.Operator):
 
 class BLENDCAP_GGT_vta_depth(bpy.types.GizmoGroup):
     bl_idname = 'BLENDCAP_GGT_vta_depth'
-    bl_label = 'VTA Depth'
+    bl_label = 'MoCap Depth'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'3D', 'SCALE'}
@@ -344,8 +344,8 @@ class BLENDCAP_GGT_vta_depth(bpy.types.GizmoGroup):
 
 class BLENDCAP_WST_vta_depth(bpy.types.WorkSpaceTool):
     bl_idname = TOOL_ID
-    bl_label = 'VTA Depth'
-    bl_description = 'Move selected eligible VTA Characters together along source-camera depth. Auto Key keys each Object Location. Head-on: drag centre ring vertically'
+    bl_label = 'MoCap Depth'
+    bl_description = 'Move selected eligible Characters together along source-camera depth. Auto Key keys each Object Location. Head-on: drag centre ring vertically'
     bl_space_type = 'VIEW_3D'
     bl_context_mode = 'OBJECT'
     bl_icon = str(Path(__file__).parent / 'icons' / 'vta_depth')
@@ -360,7 +360,7 @@ class BLENDCAP_WST_vta_depth(bpy.types.WorkSpaceTool):
 
     @staticmethod
     def draw_settings(context, layout, tool):
-        layout.label(text='VTA Depth — source-camera axis only')
+        layout.label(text='MoCap Depth — source-camera axis only')
         if not context.space_data.show_gizmo or not context.space_data.show_gizmo_tool:
             layout.prop(context.space_data, 'show_gizmo', text='Show Gizmos')
             layout.prop(context.space_data, 'show_gizmo_tool', text='Tool Gizmo')

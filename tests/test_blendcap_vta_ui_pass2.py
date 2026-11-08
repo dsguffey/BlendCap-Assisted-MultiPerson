@@ -39,9 +39,9 @@ class UiPass2Tests(unittest.TestCase):
         root_panels=[c for c in self.addon._registration.classes
                      if isinstance(c,type) and issubclass(c,bpy.types.Panel)
                      and getattr(c,'bl_space_type','')=='VIEW_3D'
-                     and getattr(c,'bl_category','')=='VTA' and not getattr(c,'bl_parent_id','')]
+                     and getattr(c,'bl_category','')=='MoCap' and not getattr(c,'bl_parent_id','')]
         ordered=sorted(root_panels,key=lambda c:getattr(c,'bl_order',0))
-        self.assertEqual([c.bl_label for c in ordered],['Video Source','Workspace','Character Assignment','Analyze','Update Tracking','Animation','Display','Export / Retarget','VTA Resources'])
+        self.assertEqual([c.bl_label for c in ordered],['Video Source','Workspace','Character Assignment','Analyze','Update Tracking','Animation','Display','Export / Retarget','Resources'])
         self.assertEqual(sum(c.bl_label=='Workspace' for c in root_panels),1)
         self.assertIn('DEFAULT_CLOSED',ui.VIEW3D_PT_blendcap_vta_review.bl_options)
         layout=Layout()
@@ -53,6 +53,21 @@ class UiPass2Tests(unittest.TestCase):
         with mock.patch.object(ui,'addon_prefs',return_value=None),mock.patch.object(panels,'addon_prefs',return_value=None):
             ui.VIEW3D_PT_blendcap_vta_advanced.draw(NS(layout=layout),bpy.context)
         self.assertIn(('operator','blendcap.install_open_prefs'),layout.events)
+
+    def test_product_names_do_not_change_existing_operator_ids(self):
+        ui=self.module('vta_review_ui');workspace=self.module('vta_workspace')
+        self.assertEqual(importlib.import_module(self.addon.__name__+'.blendcap_vta_product').PRODUCT_NAME,'StudioFree MoCap')
+        for cls,label in [(ui.BLENDCAP_OT_vta_enter_mode,'Enter MoCap Mode'),(ui.BLENDCAP_OT_vta_exit_mode,'Exit MoCap Mode'),(ui.BLENDCAP_OT_vta_load_scene,'Load MoCap Scene'),(ui.BLENDCAP_MT_vta_commands,'MoCap Commands'),(workspace.BLENDCAP_MT_vta_timeline_commands,'MoCap Commands')]:
+            self.assertEqual(cls.bl_label,label)
+            self.assertIn('vta_',cls.bl_idname)
+        self.assertEqual(ui.BLENDCAP_OT_vta_enter_mode.bl_idname,'blendcap.vta_enter_mode')
+        self.assertEqual(ui.BLENDCAP_OT_vta_exit_mode.bl_idname,'blendcap.vta_exit_mode')
+    def test_visible_recovery_and_preferences_use_mocap(self):
+        bridge=self.module('vta_review_undo');layout=Layout()
+        with mock.patch.object(bridge,'_pending',{'project':object()}):bridge.draw_pending(layout)
+        labels=[value for kind,value in layout.events if kind=='label']
+        self.assertIn('MoCap reconciliation pending',labels)
+        self.assertFalse(any('VTA' in text for text in labels))
 
     def test_workspace_sections_and_advanced_order(self):
         ui=self.module('vta_review_ui');layout=Layout()

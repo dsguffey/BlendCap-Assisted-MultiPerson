@@ -214,8 +214,8 @@ def find_scene_owning_source(
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise ValueError("No VSE movie strip owns the VTA review source.")
-    raise ValueError("More than one VSE scene owns the VTA review source.")
+        raise ValueError("No VSE movie strip owns the MoCap review source.")
+    raise ValueError("More than one VSE scene owns the MoCap review source.")
 
 
 def bind_vse_preview_scene(workspace, areas, owning_scene) -> int:

@@ -146,7 +146,7 @@ def _draw_source_section(layout, context, props):
         draw_vta_source(box, context)
         layout.separator()
         return
-    layout.label(text='Create or load a VTA Scene to choose a clip.', icon='INFO')
+    layout.label(text='Create or load a MoCap Scene to choose a clip.', icon='INFO')
 
 
 
@@ -1043,7 +1043,7 @@ class VIEW3D_PT_blendcap_ui(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_blendcap_ui"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
     bl_order = 0
     def draw(self, context): draw_blendcap_ui(self, context)
 
@@ -1061,7 +1061,7 @@ class VIEW3D_PT_vta_credits(bpy.types.Panel):
     bl_label = 'Credits'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
     bl_order = 10000
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -1070,7 +1070,7 @@ class VIEW3D_PT_vta_credits(bpy.types.Panel):
         layout.label(text='Built on BlendCap by Arcomade.')
         layout.label(text='© 2026 Arcomade — BlendCap')
         layout.label(text='Capture/integration foundation and FK engine.')
-        layout.label(text='VTA workflow and calibration are modifications.')
+        layout.label(text='MoCap workflow and calibration are modifications.')
         layout.separator()
         layout.label(text='Public Blender integration: GPL-3.0-or-later.')
         layout.label(text='No warranty. Redistribution permitted under GPL.')
@@ -1078,6 +1078,6 @@ class VIEW3D_PT_vta_credits(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator('wm.path_open', text='License').filepath = str(root / 'LICENSE')
         row.operator('wm.path_open', text='Notices').filepath = str(root / 'NOTICE.txt')
-        layout.operator('wm.url_open', text='VTA integration source').url = 'https://github.com/dsguffey/BlendCap-Assisted-MultiPerson'
+        layout.operator('wm.url_open', text='MoCap integration source').url = 'https://github.com/dsguffey/BlendCap-Assisted-MultiPerson'
         layout.operator('wm.url_open', text='Original BlendCap source').url = 'https://github.com/Arcomade/BlendCap'
         _draw_donate_section(layout, addon_prefs(context))

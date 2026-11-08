@@ -22,7 +22,7 @@ def _require_session(context):
     from .vta_project_save import require_usable
     require_usable(scene)
     if ui._analysis_locked() or not session.owned(scene) or not session.matches(context):
-        raise ValueError('Load this VTA Scene first; unavailable during analysis/generation.')
+        raise ValueError('Load this MoCap Scene first; unavailable during analysis/generation.')
     return scene
 
 
@@ -135,7 +135,7 @@ def clear(context):
     """Unlink scoped objects, retain fake-user data/history; remove only the owned movie."""
     scene = _require_session(context)
     if not session.source_bound(scene):
-        raise ValueError('This VTA Scene is already blank.')
+        raise ValueError('This MoCap Scene is already blank.')
     pid, sid = scene.get('vta_project_id'), scene.get('vta_source_id')
     if (type(scene.get(SCENE_TAG)) is not int or scene.get(SCENE_TAG) != SCENE_VERSION
             or not all(isinstance(scene.get(key), str) and scene.get(key) for key in BINDING[1:])):
@@ -156,14 +156,14 @@ def clear(context):
                 or o.type == 'CAMERA'
                 or (o.type == 'ARMATURE' and o.get('vta_character_id')))]
     if any(child not in targets for obj in targets for child in obj.children):
-        raise ValueError('User content is parented to VTA output; detach it before Clear Source.')
+        raise ValueError('User content is parented to MoCap output; detach it before Clear Source.')
     def collections(collection):
         return {collection} | set().union(*(collections(c) for c in collection.children))
     own_collections = collections(scene.collection)
     links = [(c, obj) for obj in targets for c in obj.users_collection if c in own_collections]
     other_collections = set().union(*(collections(s.collection) for s in bpy.data.scenes if s != scene))
     if any(c in other_collections for c, _ in links):
-        raise ValueError('VTA content uses a collection shared with another Scene; clear would affect that Scene.')
+        raise ValueError('MoCap content uses a collection shared with another Scene; clear would affect that Scene.')
     restore_presentation = _presentation_snapshot()
     metadata = {key: scene[key] for key in (*BINDING, session.OWNER_TAG, session.OWNER_ID) if key in scene}
     camera = scene.camera

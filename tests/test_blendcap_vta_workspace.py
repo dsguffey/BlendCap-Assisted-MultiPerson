@@ -408,11 +408,11 @@ class BlenderWorkspaceTests(unittest.TestCase):
                  data(), (), None, 0, 0, None)):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertTrue(layout.operator.call_args.kwargs['depress'])
-        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Exit VTA Mode')
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Exit MoCap Mode')
         self.assertEqual(layout.operator.call_args.kwargs['icon'], 'KEY_HLT')
         self.assertEqual(layout.operator.call_count, 1)
         layout.menu.assert_called_once_with('BLENDCAP_MT_vta_timeline_commands',
-                                            text='VTA Commands')
+                                            text='MoCap Commands')
         layout.prop.assert_not_called()
         layout.label.assert_not_called()
         layout.reset_mock()
@@ -420,7 +420,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
         with mock.patch.object(self.workspace, 'role_for', return_value=None):
             self.workspace._draw_header(SimpleNamespace(layout=layout), context)
         self.assertFalse(layout.operator.call_args.kwargs['depress'])
-        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Enter VTA Mode')
+        self.assertEqual(layout.operator.call_args.kwargs['text'], 'Enter MoCap Mode')
         self.assertEqual(layout.operator.call_count, 1)
         self.assertTrue(layout.menu.called)
         layout.prop.assert_not_called()

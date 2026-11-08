@@ -31,7 +31,7 @@ def depth_target(context):
     if (not info or obj is None or obj.type != 'ARMATURE' or not obj.select_get()
             or context.scene.objects.get(obj.name) is not obj or obj.get('vta_project_id') != info[0]
             or obj.get('vta_source_id') != info[1]['source_id']):
-        raise ValueError('Select one generated VTA Character rig in this Scene.')
+        raise ValueError('Select one generated Character rig in this Scene.')
     selected = [o for o in context.selected_objects if o.type == 'ARMATURE'
                 and o.get('vta_project_id') == info[0] and o.get('vta_source_id') == info[1]['source_id']]
     if selected != [obj] or obj.constraints or not supported_parent(obj) or any(obj.lock_location):
@@ -41,7 +41,7 @@ def depth_target(context):
     cameras = [o for o in context.scene.objects if o.type == 'CAMERA'
                and o.get('vta_project_id') == info[0] and o.get('vta_source_id') == info[1]['source_id']]
     if len(cameras) != 1:
-        raise ValueError('Retain the unique VTA Source Camera to move along its depth axis.')
+        raise ValueError('Retain the unique MoCap Source Camera to move along its depth axis.')
     return obj, cameras[0]
 
 

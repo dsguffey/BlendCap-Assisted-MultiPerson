@@ -452,7 +452,7 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                     ui.VIEW3D_PT_blendcap_vta_advanced)
         self.assertEqual([item.bl_label for item in children],
                          ['Analyze', 'Character Assignment',
-                          'Update Tracking', 'Display', 'VTA Resources'])
+                          'Update Tracking', 'Display', 'Resources'])
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_advanced.bl_parent_id, '')
         self.assertTrue(all(item.bl_parent_id == ''
                             for item in children[:-1]))

@@ -97,7 +97,7 @@ def validate_target(target,scene,profile_id='AUTO'):
     if target is None or target.type!='ARMATURE' or scene.objects.get(target.name) is not target:
         raise ValueError('Choose a local target armature in this Scene.')
     if target.library or target.data.library or target.override_library or target.get('vta_character_id'):
-        raise ValueError('Use a local, editable, non-VTA target armature.')
+        raise ValueError('Use a local, editable, non-MoCap target armature.')
     if target.mode=='EDIT' or target.data.is_editmode:
         raise ValueError('Leave target Edit Mode before retargeting.')
     if target.data.pose_position!='POSE':
@@ -278,7 +278,7 @@ def capture_motion(source,bindings,start,end,*,preserve=()):
     scene=bpy.context.scene
     if start<1 or start>end or end-start>100000:raise ValueError('Choose animation frames starting at 1 or later; frame 0 is reserved for imported rest.')
     missing=[b['bone'] for b in bindings if not b['optional'] and b['bone'] not in source.data.bones]
-    if missing:raise ValueError('Missing VTA source bones: '+', '.join(missing))
+    if missing:raise ValueError('Missing MoCap source bones: '+', '.join(missing))
     bindings=[b for b in bindings if b['bone'] in source.data.bones]
     anim=source.animation_data
     if not anim or not anim.action or anim.nla_tracks or anim.drivers:raise ValueError('Use a generated Character Action without NLA or object drivers.')
@@ -581,8 +581,8 @@ def target_picker_poll(settings, obj):
 
 class VtaRetargetSettings(bpy.types.PropertyGroup):
     """Blender presentation choices only; no private project/schema changes."""
-    source: bpy.props.PointerProperty(name='VTA Character', type=bpy.types.Object,
-        poll=source_picker_poll, description='Pick the generated VTA armature, not its mesh')
+    source: bpy.props.PointerProperty(name='Character', type=bpy.types.Object,
+        poll=source_picker_poll, description='Pick the generated MoCap armature, not its mesh')
     target: bpy.props.PointerProperty(name='Target armature', type=bpy.types.Object,
         poll=target_picker_poll, description='Pick the target armature in the viewport or Outliner, not a mesh part')
     show_mapping: bpy.props.BoolProperty(name='Bone mapping (read-only)', default=False)
@@ -628,7 +628,7 @@ def mapping_preview(context, settings):
     from . import vta_review_ui as ui
     source, target = settings.source, settings.target
     if source is None or not source_picker_poll(settings, source):
-        raise ValueError('Choose a generated VTA Character armature from this Scene.')
+        raise ValueError('Choose a generated Character armature from this Scene.')
     if target is None or not target_picker_poll(settings, target):
         raise ValueError('Choose a target armature, not a mesh part.')
     mapping = validate_target(target, context.scene,settings.target_profile)
@@ -638,7 +638,7 @@ def mapping_preview(context, settings):
         semantic, name = binding['id'], binding['bone']
         if name not in source.data.bones:
             if binding['optional']:continue
-            raise ValueError('Missing required VTA source bone: ' + name)
+            raise ValueError('Missing required MoCap source bone: ' + name)
         if semantic in mapping:rows.append((name, mapping[semantic]))
     return tuple(rows)
 
@@ -647,7 +647,7 @@ def draw_rig_choices(layout, context):
     settings = context.scene.blendcap_vta_retarget
     # Native Object PointerProperty supplies Blender's filtered picker AND
     # eyedropper. No name dropdown over scene.objects (mesh parts) is used.
-    layout.prop(settings, 'source', text='VTA Character')
+    layout.prop(settings, 'source', text='Character')
     layout.prop(settings, 'target', text='Target armature')
     layout.prop(settings, 'target_profile')
     layout.label(text='Pick armatures, not body/clothing meshes.', icon='INFO')
@@ -671,7 +671,7 @@ def draw_rig_choices(layout, context):
     layout.prop(settings, 'show_mapping', icon='TRIA_DOWN' if settings.show_mapping else 'TRIA_RIGHT', emboss=False)
     if settings.show_mapping:
         table = layout.box()
-        header = table.row();header.label(text='VTA source');header.label(text='Target control')
+        header = table.row();header.label(text='MoCap source');header.label(text='Target control')
         for source_name, target_name in rows:
             row = table.row();row.label(text=source_name);row.label(text=target_name)
         table.label(text='Composite pelvis motion applied once.')
@@ -688,7 +688,7 @@ class VIEW3D_PT_vta_retarget(bpy.types.Panel):
     bl_label = 'Export / Retarget'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
     bl_parent_id = ''
     bl_order = 900
     bl_options = {'DEFAULT_CLOSED'}
@@ -702,7 +702,7 @@ class VIEW3D_PT_vta_retarget(bpy.types.Panel):
         if context.mode != 'OBJECT':
             layout.label(text='Switch to Object Mode to select armatures.', icon='INFO')
         if not ui.loaded_context_matches(context):
-            layout.label(text='Load a VTA Scene and Enter VTA Mode first.', icon='INFO')
+            layout.label(text='Load a MoCap Scene and Enter MoCap Mode first.', icon='INFO')
         controls = layout.column()
         ready = draw_rig_choices(controls, context) if ui.loaded_context_matches(context) else False
         wm = context.window_manager
@@ -720,9 +720,9 @@ class VIEW3D_PT_vta_retarget(bpy.types.Panel):
 class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
     bl_idname='blendcap.vta_retarget'
     bl_label='Retarget Animation'
-    bl_description='Bake final VTA motion to a new supported FK Action; keep previous animation'
+    bl_description='Bake final MoCap motion to a new supported FK Action; keep previous animation'
     bl_options={'REGISTER','UNDO'}
-    source_name:bpy.props.StringProperty(name='VTA Character')
+    source_name:bpy.props.StringProperty(name='Character')
     target_name:bpy.props.StringProperty(name='Target armature')
     start:bpy.props.IntProperty(name='Start Frame',default=1)
     end:bpy.props.IntProperty(name='End Frame',default=1)
@@ -762,7 +762,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         info=ui.cached_scene_source(context)
         if (source is None or source.type!='ARMATURE' or not info or source.get('vta_project_id')!=info[0]
                 or source.get('vta_source_id')!=info[1]['source_id'] or not source.get('vta_character_id')):
-            raise ValueError('Choose one generated VTA Character from the loaded source.')
+            raise ValueError('Choose one generated Character from the loaded source.')
         validate_target(target,scene,self.target_profile)
         backend=ui._get_generation_backend(context);location=ui._location_from_context(context,allow_outside=True)
         # Export authorizes the requested motion, not the current playhead.
@@ -771,7 +771,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         location=replace(location,source_frame=location.source_frame+self.start-location.blender_frame,blender_frame=self.start)
         if not (info[1]['start_frame']<=location.source_frame
                 <=location.source_frame+self.end-self.start<=info[1]['end_frame']):
-            raise ValueError('Choose a retarget range inside the VTA source coverage.')
+            raise ValueError('Choose a retarget range inside the MoCap source coverage.')
         fingerprint=action_fingerprint(source)
         properties=_animated_properties(target)
         try:
@@ -784,7 +784,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         def unchanged():
             if action_fingerprint(source)!=fingerprint:raise ValueError('Source animation changed; retarget cancelled.')
             current=backend.client.call('project-state',dict(companion_root=str(location.companion_root)))
-            if current['revision']['sha256']!=token:raise ValueError('VTA state changed; retarget cancelled.')
+            if current['revision']['sha256']!=token:raise ValueError('MoCap state changed; retarget cancelled.')
         job=RetargetJob(scene,target,motion,before_publish=unchanged,profile_id=self.target_profile)
         source_state=_rig_state(source);source_properties=_animated_properties(source)
         try:yield from job.steps()
@@ -819,7 +819,7 @@ class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
         if event.type!='TIMER':return {'RUNNING_MODAL'}
         try:
             for _ in range(4):
-                phase,frame=next(self._stream);context.workspace.status_text_set('VTA Retarget: '+phase+' '+str(frame if frame is not None else 'keys')+' — Esc cancels')
+                phase,frame=next(self._stream);context.workspace.status_text_set('MoCap Retarget: '+phase+' '+str(frame if frame is not None else 'keys')+' — Esc cancels')
         except StopIteration:self._finish(context);return {'FINISHED'}
         except Exception as exc:self._finish(context);self.report({'ERROR'},str(exc));return {'CANCELLED'}
         return {'RUNNING_MODAL'}

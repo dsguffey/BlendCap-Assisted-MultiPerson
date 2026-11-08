@@ -16,7 +16,7 @@ def version_lines():
     try:
         runtime = load_runtime()
         # Configuration is validated by the existing public runtime resolver.
-        return (f"VTA: {PRODUCT_VERSION}", f'Protocol: {wire.VERSION}',
+        return (f"StudioFree MoCap Version: {PRODUCT_VERSION}", f'Protocol: {wire.VERSION}',
                 'ProjectState: 0.9',
                 'Deployment: ' + runtime['engine_root'].parent.name)
     except (OSError, ValueError, KeyError, RuntimeError):

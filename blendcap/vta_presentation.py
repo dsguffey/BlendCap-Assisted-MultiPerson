@@ -56,9 +56,9 @@ class Presentation:
         if self.error:
             raise self.error
         if self.context is None or not self.current(backend, location):
-            raise VtaReviewUiError('Load / Refresh VTA presentation first.')
+            raise VtaReviewUiError('Load / Refresh MoCap presentation first.')
         if not self.coverage[0] <= location.source_frame <= self.coverage[1]:
-            raise VtaReviewUiError('The mapped source frame is outside VTA source coverage.')
+            raise VtaReviewUiError('The mapped source frame is outside MoCap source coverage.')
         key = location.source_frame, bool(show_suppressed)
         if key not in self.frames:
             view = backend.frame_from_context(self.context, location, show_suppressed=show_suppressed)

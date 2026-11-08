@@ -19,13 +19,13 @@ def error(scene):
     raw=getattr(scene,'get',lambda _key:None)(ERROR) if scene is not None else None
     if not raw:return None
     try:return json.loads(raw)
-    except (ValueError,TypeError):return dict(details='Invalid VTA Save As recovery metadata. Reopen the original project.')
+    except (ValueError,TypeError):return dict(details='Invalid MoCap Save As recovery metadata. Reopen the original project.')
 
 
 def require_usable(scene):
     record=error(scene)
     if record:
-        raise ValueError('VTA Save As copy is incomplete; VTA edits are disabled. '+record['details'])
+        raise ValueError('MoCap Save As copy is incomplete; MoCap edits are disabled. '+record['details'])
 
 
 def draw_error(layout,context):
@@ -34,7 +34,7 @@ def draw_error(layout,context):
     record=error(main_scene(context))
     if record:
         key=ui._feedback_key('save_as',context)
-        ui._operation_feedback[key]=dict(primary='VTA Save As incomplete; edits disabled.',
+        ui._operation_feedback[key]=dict(primary='MoCap Save As incomplete; edits disabled.',
             details=record['details'],error=True,disposition='Reopen the original or retry Save As to a new name.',
             log=Path(record['log']) if record.get('log') else None)
         ui.draw_operation_feedback(layout,context,'save_as')
@@ -67,10 +67,10 @@ def prepare(source,target,scenes):
     updates=[]
     for scene in scenes:
         if scene.get('vta_project_id')!=raw['project_id']:
-            raise ValueError('Scene and canonical VTA project identity differ.')
+            raise ValueError('Scene and canonical MoCap project identity differ.')
         source_record=sources.get(scene.get('vta_source_id'))
         if not source_record or source_record['video_sha256']!=scene.get('vta_source_video_sha256'):
-            raise ValueError('Scene and canonical VTA source identity differ.')
+            raise ValueError('Scene and canonical MoCap source identity differ.')
         found=False
         for strip in (tuple(scene.sequence_editor.strips_all) if scene.sequence_editor else ()):
             if strip.type!='MOVIE':continue
@@ -78,7 +78,7 @@ def prepare(source,target,scenes):
             if strip.get('vta_source_strip_version') or file_hash(path)==source_record['video_sha256']:
                 new=plan.video(path,source_record['video_sha256'])
                 updates.append((strip,'filepath',str(new),True));found=True
-        if not found:raise ValueError('VTA source movie is missing; no independent copy can be made.')
+        if not found:raise ValueError('MoCap source movie is missing; no independent copy can be made.')
     # Generated objects/recovery Actions and Scene solves are serialized by Blender.
     # Only their live external output/reference paths need changing here.
     for obj in bpy.data.objects:
@@ -103,7 +103,7 @@ def _report(record):
     from . import vta_review_ui as ui
     ui._validated_sources.clear();ui._observer_tokens.clear();ui._display.clear()
     ui._activate_review_scene(None)
-    ui._status='VTA Save As incomplete; reopen the original or retry Save As to a new name.'
+    ui._status='MoCap Save As incomplete; reopen the original or retry Save As to a new name.'
     ui._status_is_error=True
     print('[VTA Save As] '+record['details'],flush=True)
 
@@ -150,7 +150,7 @@ def save_pre(target,*_args):
                 raise
             job['backup']=backup
         from . import vta_review_ui as ui
-        if ui._analysis_locked():raise ValueError('Wait for VTA analysis/generation/cleanup to finish before Save As.')
+        if ui._analysis_locked():raise ValueError('Wait for MoCap analysis/generation/cleanup to finish before Save As.')
         plan,updates=prepare(source,target,bound)
         job['plan']=plan
         plan.authorize_replacement(target)
@@ -193,7 +193,7 @@ def save_post(target,*_args):
         _transaction=job;return
     if job.get('receipt_only'):
         try:seal_receipt(job['target'],job['receipt'])
-        except (OSError,ValueError) as exc:print('[VTA Save As] Ownership receipt not renewed: '+str(exc),flush=True)
+        except (OSError,ValueError) as exc:print('[MoCap Save As] Ownership receipt not renewed: '+str(exc),flush=True)
         return
     if job['error'] and job['backup'] is not None:
         # Preserve a pre-existing destination project rather than replace its

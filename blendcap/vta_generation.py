@@ -100,7 +100,7 @@ def failure_message(detail, cancelled=False):
     elif 'calibration' in detail.lower():
         reason = 'Source-camera calibration could not be established. Check the installed body and FOV models, then retry; see Details for the cause.'
     elif 'manual focal' in detail.lower():
-        reason = 'Choose Sample first frame or Sample every frame for FOV, then retry. Manual focal entry is not supported for reviewed VTA animation.'
+        reason = 'Choose Sample first frame or Sample every frame for FOV, then retry. Manual focal entry is not supported for reviewed animation.'
     elif 'review' in detail.lower() and ('changed' in detail.lower() or 'stale' in detail.lower()):
         reason = 'Review changed during generation. Retry Generate Animation Range.'
     elif 'no trustworthy' in detail.lower() or 'no successful' in detail.lower():

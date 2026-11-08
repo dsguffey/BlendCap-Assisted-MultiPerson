@@ -145,7 +145,7 @@ def require_loaded_context(context):
     except RuntimeError as exc:raise VtaReviewUiError(str(exc)) from exc
     if not loaded_context_matches(context):
         from .vta_scene_session import warning
-        raise VtaReviewUiError(warning(context) or 'Enter VTA Mode / Load VTA Scene first.')
+        raise VtaReviewUiError(warning(context) or 'Enter MoCap Mode / Load MoCap Scene first.')
 
 
 def record_scene_source(scene, info):
@@ -428,7 +428,7 @@ def _source_coverage(context, location):
     try:
         return SourceCoverageClient(_engine_client(context)).source_coverage(location)
     except EngineError as exc:
-        raise VtaReviewUiError(f'VTA engine [{exc.code}]: {exc}') from exc
+        raise VtaReviewUiError(f'MoCap engine [{exc.code}]: {exc}') from exc
 
 
 def _get_generation_backend(context, *, force=False):
@@ -465,13 +465,13 @@ def _location_from_context(context, *, allow_outside=False) -> ReviewLocation:
     has_binding=any(getattr(scene,'get',lambda _key:None)(key) is not None
         for key in ('vta_scene_timing_version','vta_project_id','vta_source_id','vta_source_video_sha256'))
     if has_binding and not (root/'project_state.json').is_file():
-        raise VtaReviewUiError('This .blend contains VTA content, but its companion project state is missing. '
+        raise VtaReviewUiError('This .blend contains MoCap content, but its companion project state is missing. '
             'Open the original working .blend and use Save As again with the updated addon. '
             'Do not Analyze or configure replacement authority in this broken copy.')
     props = scene.blendcap_props
     if props.video_source != 'VSE':
         raise VtaReviewUiError(
-            "VTA review requires Video Editor Strip source mode for exact frame mapping."
+            "MoCap review requires Video Editor Strip source mode for exact frame mapping."
         )
     seq_ed = scene.sequence_editor
     strip = _active_video_strip(seq_ed)
@@ -509,7 +509,7 @@ def _timing_source(context, *, force=False):
     from .vta_scene_timing import validate_source_strip
     validate_source_strip(strip)
     if not math.isclose(float(strip.fps),source['fps'],rel_tol=1e-6,abs_tol=1e-3):
-        raise VtaReviewUiError('Movie FPS differs from the VTA source metadata; use the original source clip. No Scene was retimed.')
+        raise VtaReviewUiError('Movie FPS differs from the MoCap source metadata; use the original source clip. No Scene was retimed.')
     return observation.project_id,source,location,strip
 
 
@@ -528,7 +528,7 @@ def build_load_scene_choices(context):
             validate(context, scene)
         except Exception:
             continue
-        items.append((scene.name, scene.name, 'Load this metadata-owned VTA Scene'))
+        items.append((scene.name, scene.name, 'Load this metadata-owned MoCap Scene'))
     _load_scene_enum_items = items
     return _load_scene_enum_items
 
@@ -540,9 +540,9 @@ def load_scene_items(_self, _context):
 
 class BLENDCAP_OT_vta_load_scene(bpy.types.Operator):
     bl_idname = 'blendcap.vta_load_scene'
-    bl_label = 'Load VTA Scene'
-    bl_description = 'Explicitly restore the selected VTA Scene and workspace once'
-    scene_name: bpy.props.EnumProperty(name='VTA Scene', items=load_scene_items)
+    bl_label = 'Load MoCap Scene'
+    bl_description = 'Explicitly restore the selected MoCap Scene and workspace once'
+    scene_name: bpy.props.EnumProperty(name='MoCap Scene', items=load_scene_items)
 
     @classmethod
     def poll(cls, context):
@@ -552,7 +552,7 @@ class BLENDCAP_OT_vta_load_scene(bpy.types.Operator):
         from .vta_scene_session import main_scene
         items = build_load_scene_choices(context)
         if not items:
-            self.report({'ERROR'}, 'No valid VTA Scene available. Use New VTA Scene.')
+            self.report({'ERROR'}, 'No valid MoCap Scene available. Use New MoCap Scene.')
             return {'CANCELLED'}
         active = main_scene(context)
         self.scene_name = active.name if active and active.name in {i[0] for i in items} else items[0][0]
@@ -576,8 +576,8 @@ class BLENDCAP_OT_vta_load_scene(bpy.types.Operator):
 
 class BLENDCAP_OT_vta_enter_mode(bpy.types.Operator):
     bl_idname = 'blendcap.vta_enter_mode'
-    bl_label = 'Enter VTA Mode'
-    bl_description = 'Load the last successfully loaded VTA Scene once'
+    bl_label = 'Enter MoCap Mode'
+    bl_description = 'Load the last successfully loaded MoCap Scene once'
 
     @classmethod
     def poll(cls, context):
@@ -596,8 +596,8 @@ class BLENDCAP_OT_vta_enter_mode(bpy.types.Operator):
 
 class BLENDCAP_OT_vta_exit_mode(bpy.types.Operator):
     bl_idname = 'blendcap.vta_exit_mode'
-    bl_label = 'Exit VTA Mode'
-    bl_description = 'Stop VTA review; preserve Scene, remembered target and editor configuration'
+    bl_label = 'Exit MoCap Mode'
+    bl_description = 'Stop MoCap review; preserve Scene, remembered target and editor configuration'
 
     def execute(self, context):
         from .vta_scene_session import exit_mode
@@ -617,8 +617,8 @@ def draw_scene_workflow(layout, context):
 
 class BLENDCAP_OT_vta_new_scene(bpy.types.Operator):
     bl_idname = 'blendcap.vta_new_scene'
-    bl_label = 'New VTA Scene'
-    bl_description = 'Create and load a blank VTA-owned Scene; no source or animation is copied'
+    bl_label = 'New MoCap Scene'
+    bl_description = 'Create and load a blank MoCap-owned Scene; no source or animation is copied'
 
     @classmethod
     def poll(cls, context):
@@ -627,7 +627,7 @@ class BLENDCAP_OT_vta_new_scene(bpy.types.Operator):
     def execute(self, context):
         try:
             if _analysis_locked():
-                raise VtaReviewUiError('Unavailable while VTA analysis or generation is running.')
+                raise VtaReviewUiError('Unavailable while MoCap analysis or generation is running.')
             from .vta_scene_session import create_blank, load
             scene = create_blank()
             try:
@@ -645,7 +645,7 @@ class BLENDCAP_OT_vta_new_scene(bpy.types.Operator):
 class BLENDCAP_OT_vta_choose_clip(bpy.types.Operator):
     bl_idname = 'blendcap.vta_choose_clip'
     bl_label = 'Choose Clip'
-    bl_description = 'Configure a blank VTA Scene; clear the current source before choosing another'
+    bl_description = 'Configure a blank MoCap Scene; clear the current source before choosing another'
     filepath: bpy.props.StringProperty(subtype='FILE_PATH')
     filter_glob: bpy.props.StringProperty(default='*.mp4;*.mov;*.mkv;*.avi;*.webm', options={'HIDDEN'})
 
@@ -706,7 +706,7 @@ def draw_vta_source(layout, context):
                         s.get('vta_source_id') == scene.get('vta_source_id')] if scene.sequence_editor else []
         strip = owned_strips[0] if len(owned_strips) == 1 else _active_video_strip(scene.sequence_editor)
         path = _vse_source_path(strip)
-        row.label(text=path.name if path else 'Bound VTA source', icon='FILE_MOVIE')
+        row.label(text=path.name if path else 'Bound MoCap source', icon='FILE_MOVIE')
         row.operator('blendcap.vta_clear_source', text='', icon='X')
     else:
         row.operator('blendcap.vta_choose_clip', text='Choose Clip...', icon='FILE_MOVIE')
@@ -741,7 +741,7 @@ class BLENDCAP_OT_vta_match_source_fps(bpy.types.Operator):
             require_loaded_context(context)
             context = _context_for_main_scene(context)
             if _analysis_locked():
-                raise VtaReviewUiError('Unavailable while VTA analysis or generation is running.')
+                raise VtaReviewUiError('Unavailable while MoCap analysis or generation is running.')
             pid, source, _location, _strip = _timing_source(context)
             match_source_rate(context.scene, pid, source)
             vta_invalidation.request_redraw()
@@ -756,7 +756,7 @@ def draw_scene_timing(layout, context, *, menu=False):
         from .vta_scene_timing import owns_scene
         info = cached_scene_source(context)
         if info is None:
-            raise VtaReviewUiError('Load a validated VTA Scene first.')
+            raise VtaReviewUiError('Load a validated MoCap Scene first.')
         pid, source, _location, _strip = info
         owned = owns_scene(context.scene, pid, source)
         if not menu:
@@ -1236,17 +1236,17 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
             if not loaded_context_matches(context, target_scene):
                 _activate_review_scene(None)
                 from .vta_scene_session import warning
-                raise VtaReviewUiError(warning(context) or 'Enter VTA Mode / Load VTA Scene first.')
+                raise VtaReviewUiError(warning(context) or 'Enter MoCap Mode / Load MoCap Scene first.')
             context = _context_for_main_scene(context)
             _activate_review_scene(context.scene)
             from .vta_scene_timing import owns_scene
             from .vta_scene_session import owned, source_bound
             scene = context.scene
             if not owned(scene):
-                raise VtaReviewUiError('Load a metadata-owned VTA Scene / New VTA Scene.')
+                raise VtaReviewUiError('Load a metadata-owned MoCap Scene / New MoCap Scene.')
             if not source_bound(scene):
                 _activate_review_scene(None)
-                _status = 'Blank VTA Scene; choose a clip in Video Source.'
+                _status = 'Blank MoCap Scene; choose a clip in Video Source.'
                 _status_is_error = False
                 return True
             info = validated_info or cached_scene_source(context)
@@ -1264,7 +1264,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
                             source_backend, source_observation = owner, owner.observation
                     pid, source, _source_location, _strip = info
                     if not owns_scene(scene, pid, source):
-                        raise VtaReviewUiError('Active Scene ownership does not match the validated VTA source.')
+                        raise VtaReviewUiError('Active Scene ownership does not match the validated MoCap source.')
                 except Exception:
                     # Preserve only the old paths for cheap change observation;
                     # failed validation must not leave controls enabled by an
@@ -1466,8 +1466,8 @@ def select_overlay_candidate_at(context, point) -> bool:
 class BLENDCAP_OT_vta_candidate_select(bpy.types.Operator):
     """Select one visible candidate while the VTA Preview tool is active."""
     bl_idname = "blendcap.vta_candidate_select"
-    bl_label = "Select VTA Candidate"
-    bl_description = "Select the VTA candidate under the pointer for inspection"
+    bl_label = "Select Candidate"
+    bl_description = "Select the candidate under the pointer for inspection"
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -1615,17 +1615,17 @@ def operation_logs_folder(context):
     convention. No error, active source, or loaded review model is required.
     """
     path=getattr(bpy.data,'filepath','')
-    if not path:raise ValueError('Save a VTA project before opening its logs folder.')
+    if not path:raise ValueError('Save a MoCap project before opening its logs folder.')
     folder=companion_root_for_blend(Path(path)).resolve()
     if not (folder/'project_state.json').is_file():
-        raise ValueError('This Blender file has no VTA project/logs folder yet.')
+        raise ValueError('This Blender file has no MoCap project/logs folder yet.')
     return folder
 
 
 class BLENDCAP_OT_vta_open_logs(bpy.types.Operator):
     bl_idname='blendcap.vta_open_logs'
     bl_label='Open Logs Folder'
-    bl_description='Open this VTA project’s log base; analysis and reconstruction contain operation logs'
+    bl_description='Open this MoCap project’s log base; analysis and reconstruction contain operation logs'
 
     def execute(self,context):
         try:
@@ -1634,7 +1634,7 @@ class BLENDCAP_OT_vta_open_logs(bpy.types.Operator):
             else:bpy.ops.wm.path_open(filepath=str(folder))
             return {'FINISHED'}
         except Exception as exc:
-            self.report({'WARNING'},'Could not open VTA logs: '+str(exc))
+            self.report({'WARNING'},'Could not open MoCap logs: '+str(exc))
             return {'CANCELLED'}
 
 
@@ -1772,7 +1772,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             if self.action in ('START_CURRENT','END_CURRENT'):
                 name='blendcap_vta_animation_'+('start' if self.action=='START_CURRENT' else 'end')
                 setattr(context.window_manager,name,context.scene.frame_current);return {'FINISHED'}
-            if not _edit_available(self,quiet=True):raise VtaReviewUiError('Another VTA operation is pending.')
+            if not _edit_available(self,quiet=True):raise VtaReviewUiError('Another MoCap operation is pending.')
             if not tracking_character_ids(context):raise VtaReviewUiError('Select at least one Character.')
             jobs.start_generation(context);return {'FINISHED'}
         except Exception as exc:
@@ -1837,8 +1837,8 @@ class BLENDCAP_WST_vta_candidate_select_preview(bpy.types.WorkSpaceTool):
     bl_space_type = 'SEQUENCE_EDITOR'
     bl_context_mode = 'PREVIEW'
     bl_idname = "blendcap.vta_candidate_select_preview"
-    bl_label = "Select VTA Candidate"
-    bl_description = "Select a visible VTA candidate for inspection"
+    bl_label = "Select Candidate"
+    bl_description = "Select a visible candidate for inspection"
     bl_icon = "ops.generic.select"
     bl_widget = None
     bl_keymap = (
@@ -1854,8 +1854,8 @@ class BLENDCAP_WST_vta_candidate_select_combined(bpy.types.WorkSpaceTool):
     bl_space_type = 'SEQUENCE_EDITOR'
     bl_context_mode = 'SEQUENCER_PREVIEW'
     bl_idname = "blendcap.vta_candidate_select_combined"
-    bl_label = "Select VTA Candidate"
-    bl_description = "Select a visible VTA candidate for inspection"
+    bl_label = "Select Candidate"
+    bl_description = "Select a visible candidate for inspection"
     bl_icon = "ops.generic.select"
     bl_widget = None
     bl_keymap = (
@@ -1898,8 +1898,8 @@ def _unregister_preview_tools() -> None:
 
 class BLENDCAP_OT_vta_review_refresh(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_refresh"
-    bl_label = "Refresh VTA Review"
-    bl_description = "Reload the current frame review from canonical VTA state"
+    bl_label = "Refresh MoCap Review"
+    bl_description = "Reload the current frame review from canonical MoCap state"
 
     def execute(self, context):
         if refresh(context, force=True):
@@ -2039,7 +2039,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
         if not _edit_available(self):
             return False
         if not _repeat_assignment_context(context):
-            self.report({'ERROR'}, 'Use Repeat Last Assignment in the VTA Preview.')
+            self.report({'ERROR'}, 'Use Repeat Last Assignment in the MoCap Preview.')
             return False
         if not refresh(context, check_disk=True):
             self.report({'ERROR'}, _status)
@@ -2094,7 +2094,7 @@ class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
             _selection.observation_id = ''
             self._repeat_scene.frame_set(self._repeat_next_frame)
             if not refresh(context, check_disk=True):
-                self.report({'WARNING'}, 'Assignment saved; refresh VTA Review for the next frame.')
+                self.report({'WARNING'}, 'Assignment saved; refresh MoCap Review for the next frame.')
             else:
                 _sync_properties(context)
         return result
@@ -2216,7 +2216,7 @@ class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
 class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_create_character"
     bl_label = "Create Character"
-    bl_description = "Create and persist a semantic Character in the VTA project"
+    bl_description = "Create and persist a semantic Character in the MoCap project"
 
     @classmethod
     def poll(cls, _context):
@@ -2380,8 +2380,8 @@ def _open_native_sequencer_context_menu():
 
 class BLENDCAP_OT_vta_review_key_select(bpy.types.Operator):
     bl_idname = "blendcap.vta_review_key_select"
-    bl_label = "Select VTA Review Key"
-    bl_description = "Select one authoritative VTA key without changing the frame"
+    bl_label = "Select MoCap Review Key"
+    bl_description = "Select one authoritative MoCap key without changing the frame"
     bl_options = {'INTERNAL'}
 
     @classmethod
@@ -2479,8 +2479,8 @@ def _unregister_review_context_keymap():
 _MANAGEMENT_ACTIONS = (
     ("clear-assignment", "Clear Assignment", "Remove this Character's current candidate assignment"),
     ("clear-review-key", "Clear Review Key", "Remove one selected authoritative review key"),
-    ("clear-selected-review-keys", "Clear Selected Review Keys", "Remove selected VTA keys across frames"),
-    ("clear-all-review-keys-on-frame", "Clear All Review Keys on Frame", "Remove all VTA keys on this frame"),
+    ("clear-selected-review-keys", "Clear Selected Review Keys", "Remove selected MoCap keys across frames"),
+    ("clear-all-review-keys-on-frame", "Clear All Review Keys on Frame", "Remove all MoCap keys on this frame"),
     ("rename-character", "Rename Character", "Change display name, keeping the stable Character ID"),
     ("delete-character", "Delete Character", "Remove the Character and all associated project data"),
 )
@@ -2489,8 +2489,8 @@ _MANAGEMENT_ACTIONS = (
 class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
     bl_options = set()  # Domain decisions use explicit correction, not native history.
     bl_idname = "blendcap.vta_review_manage"
-    bl_label = "Manage VTA Review"
-    bl_description = "Change authoritative VTA review keys or a Character"
+    bl_label = "Manage MoCap Review"
+    bl_description = "Change authoritative MoCap review keys or a Character"
 
     action: bpy.props.EnumProperty(name="Action", items=_MANAGEMENT_ACTIONS)
     new_name: bpy.props.StringProperty(name="Character Name")
@@ -2506,7 +2506,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if self.action == "clear-review-key":
             ids = _review_key_selection.keyframe_ids
             if len(ids) != 1:
-                raise VtaReviewUiError("Select exactly one VTA review key to clear.")
+                raise VtaReviewUiError("Select exactly one MoCap review key to clear.")
             return dict(keyframe_ids=ids)
         if self.action == "clear-selected-review-keys":
             return dict(keyframe_ids=_review_key_selection.keyframe_ids)
@@ -2572,7 +2572,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         else:
             request = getattr(self, "_pending_request", None)
             count = 0 if request is None else request.affected_count
-            self.layout.label(text=f"Remove {count} authoritative VTA review key(s)?")
+            self.layout.label(text=f"Remove {count} authoritative MoCap review key(s)?")
             self.layout.label(text="The result is No Decision; Characters remain.")
 
     def execute(self, context):
@@ -2591,17 +2591,17 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             if self.action == "rename-character":
                 from . import vta_review_undo as bridge
                 if _location != self._pending_location:
-                    raise VtaReviewUiError('The VTA review location changed during confirmation.')
+                    raise VtaReviewUiError('The MoCap review location changed during confirmation.')
                 _use_timeline_active(context)
                 if _selection.character_id != request['character_id']:
                     raise VtaReviewUiError('The selected Character changed during confirmation.')
                 bridge.rename(context,self._pending_location.companion_root,request,self.new_name)
                 renamed = True
-                _status='VTA Character renamed.';_status_is_error=False
+                _status='Character renamed.';_status_is_error=False
                 self.report({'INFO'},_status)
                 return {'FINISHED'}
             if _location != self._pending_location:
-                raise VtaReviewUiError("The VTA review location changed during confirmation.")
+                raise VtaReviewUiError("The MoCap review location changed during confirmation.")
             _use_timeline_active(context)
             if self.action in {"clear-assignment", "rename-character", "delete-character"}:
                 if _selection.character_id != request.character_id:
@@ -2612,7 +2612,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             _get_backend(context).apply_management(
                 self._pending_location, request, confirmed=True)
             refresh(context, check_disk=True)
-            _status = f"VTA review action completed: {self.action}."
+            _status = f"MoCap review action completed: {self.action}."
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -2670,7 +2670,7 @@ class BLENDCAP_OT_vta_restore_protected(bpy.types.Operator):
         try:
             from .vta_review_undo import require_ready
             require_ready();_get_backend(context).restore_last(_location_from_context(context))
-            self.report({'INFO'},'Protected VTA state restored; native animation retained.')
+            self.report({'INFO'},'Protected MoCap state restored; native animation retained.')
             return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'},user_message(exc))
@@ -2679,7 +2679,7 @@ class BLENDCAP_OT_vta_restore_protected(bpy.types.Operator):
 
 
 class BLENDCAP_MT_vta_commands(bpy.types.Menu):
-    bl_label = "VTA Commands"
+    bl_label = "MoCap Commands"
     bl_idname = "BLENDCAP_MT_vta_commands"
 
     def draw(self, context):
@@ -2701,7 +2701,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
         repeat.operator_context = 'INVOKE_DEFAULT'
         repeat.operator('blendcap.vta_repeat_assignment', text='Repeat Last Assignment')
         if not available:
-            layout.label(text="VTA review unavailable", icon='INFO')
+            layout.label(text="MoCap review unavailable", icon='INFO')
             return
         availability = _action_availability()
         layout.separator()
@@ -2733,7 +2733,7 @@ def _draw_vta_header(self, context):
                 getattr(context, 'area', None)) != ROLE_PREVIEW:
         return
     self.layout.separator()
-    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
+    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="MoCap Commands")
 
 
 def _draw_vta_context(self, context):
@@ -2747,7 +2747,7 @@ def _draw_vta_context(self, context):
                 getattr(context, 'area', None)) != ROLE_PREVIEW:
         return
     self.layout.separator()
-    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="VTA Commands")
+    self.layout.menu(BLENDCAP_MT_vta_commands.bl_idname, text="MoCap Commands")
 
 
 def _set_menu_hook(menu, callback):
@@ -2802,7 +2802,7 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
             return {'CANCELLED'}
         try:
             if not _is_timeline_context(context):
-                raise VtaReviewUiError("Use repair ranges in the VTA Dope Sheet.")
+                raise VtaReviewUiError("Use repair ranges in the MoCap Dope Sheet.")
             location = _location_from_context(context)
             wm = context.window_manager
             if self.action in {'START_CURRENT', 'END_CURRENT'}:
@@ -2814,7 +2814,7 @@ class BLENDCAP_OT_vta_motion_trust(bpy.types.Operator):
                 raise VtaReviewUiError("Unknown repair action.")
             selection = timeline_character_selection(context)
             if selection is None or not selection.character_ids:
-                raise VtaReviewUiError("Select Character rows in the VTA Dope Sheet before editing repair ranges.")
+                raise VtaReviewUiError("Select Character rows in the MoCap Dope Sheet before editing repair ranges.")
             targets = selection.character_ids
             from .vta_camera_cleanup import require_source_aligned
             selected_range = selected_repair_range(context)
@@ -2939,7 +2939,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             if not targets:
                 raise VtaReviewUiError("Select Character rows before Update Tracking.")
             if not refresh(context, check_disk=True):
-                raise VtaReviewUiError("Refresh VTA Review before Update Tracking.")
+                raise VtaReviewUiError("Refresh MoCap Review before Update Tracking.")
             if tracking_character_ids(context) != targets or _location != location:
                 raise VtaReviewUiError("Review selection changed; retry Update Tracking.")
             from .vta_camera_cleanup import require_source_aligned
@@ -2979,7 +2979,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
     bl_parent_id = ''
     bl_order = 10
     bl_options = {'DEFAULT_CLOSED'}
@@ -2987,7 +2987,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     def draw(self, context):
         refresh(context)
         layout = self.layout
-        layout.operator('blendcap.open_vta_workspace', text='Open VTA Workspace',
+        layout.operator('blendcap.open_vta_workspace', text='Open MoCap Workspace',
                         icon='WORKSPACE')
         from . import vta_busy
         vta_busy.draw(layout)
@@ -2996,7 +2996,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         from .vta_review_undo import draw_pending
         draw_pending(layout)
         from .vta_ui_sections import section
-        scenes = section(layout, 'workspace_scenes', 'VTA Scenes')
+        scenes = section(layout, 'workspace_scenes', 'MoCap Scenes')
         if scenes is not None: draw_scene_workflow(scenes, context)
         camera = section(layout, 'workspace_camera', 'Camera and Playback')
         if camera is not None:
@@ -3024,7 +3024,7 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
 class _VtaReviewSubpanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'VTA'
+    bl_category = 'MoCap'
     bl_parent_id = ''
 
 
@@ -3150,7 +3150,7 @@ class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         if _view is None:
-            layout.label(text="Load a VTA project to manage Characters.")
+            layout.label(text="Load a MoCap project to manage Characters.")
             return
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
         create_row = layout.row(align=True)
@@ -3262,7 +3262,7 @@ class VIEW3D_PT_blendcap_vta_tracking(_VtaReviewSubpanel, bpy.types.Panel):
 
 
 def generation_unavailable_reason(context):
-    if _analysis_locked():return 'A VTA operation owns this project; wait or cancel it.'
+    if _analysis_locked():return 'A MoCap operation owns this project; wait or cancel it.'
     if not loaded_context_matches(context):
         from .vta_scene_session import warning
         return warning(context)
@@ -3290,7 +3290,7 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         controls.enabled = _view is not None and not _analysis_locked()
         reason=generation_unavailable_reason(context)
         if reason:self.layout.label(text=reason,icon='INFO')
-        controls.label(text='Characters: selected VTA rows only')
+        controls.label(text='Characters: selected MoCap rows only')
         bounds = controls.row(align=True)
         bounds.prop(context.window_manager, 'blendcap_vta_animation_start')
         bounds.prop(context.window_manager, 'blendcap_vta_animation_end')
@@ -3350,14 +3350,14 @@ class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Candidate Boxes")
-        layout.label(text="Review keys: click in VTA Review Timeline")
+        layout.label(text="Review keys: click in MoCap Review Timeline")
         layout.label(text="Legacy Sequencer lanes hide over strips")
         layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
         layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
 
 
 class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = 'VTA Resources'
+    bl_label = 'Resources'
     bl_idname = 'VIEW3D_PT_blendcap_vta_advanced'
     bl_parent_id = ''
     bl_order = 10000
@@ -3470,8 +3470,8 @@ def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_repair_mode = bpy.props.EnumProperty(
         name='Repair Mode', items=(('freeze', 'Freeze', ''), ('interpolate', 'Interpolate', '')), default='freeze')
     bpy.types.Scene.blendcap_show_vta_candidate_overlay = bpy.props.BoolProperty(
-        name="Show VTA Candidate Overlay", default=True,
-        description="Show immutable VTA FrameReview candidates in the Sequencer Preview")
+        name="Show Candidate Overlay", default=True,
+        description="Show immutable MoCap FrameReview candidates in the Sequencer Preview")
     bpy.types.Scene.blendcap_vta_automatic_depth = bpy.props.BoolProperty(
         name='Automatic Depth', default=False,
         description='Calculate generated toward/away movement. Off holds generated depth fixed; native user Depth keys remain available',

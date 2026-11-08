@@ -68,17 +68,17 @@ def _mark(intent):
             stream.write(raw);stream.flush();os.fsync(stream.fileno())
         os.replace(temporary,path)
     finally:temporary.unlink(missing_ok=True)
-    _error='VTA reconciliation pending. Use Retry Reconciliation before further domain edits.'
+    _error='MoCap reconciliation pending. Use Retry Reconciliation before further domain edits.'
 
 def _unmark(root):
     global _error
     _marker(root).unlink(missing_ok=True)
     text=_pending_text(root)
     if text is not None:bpy.data.texts.remove(text)
-    _pending.pop(root,None);_error='' if not _pending else 'VTA reconciliation pending.'
+    _pending.pop(root,None);_error='' if not _pending else 'MoCap reconciliation pending.'
 
 def require_ready():
-    if blocked():raise RuntimeError(_error or 'VTA reconciliation pending.')
+    if blocked():raise RuntimeError(_error or 'MoCap reconciliation pending.')
 
 
 def blocked():
@@ -143,7 +143,7 @@ def submit(context,root,before,operation,payload):
     if operation=='character-create':
         scene=context.scene
         if scene.get('vta_project_id')!=before['project_id'] or not scene.get('vta_source_id'):
-            raise RuntimeError('Character creation needs the matching loaded VTA Scene.')
+            raise RuntimeError('Character creation needs the matching loaded MoCap Scene.')
         identity=scene.get('vta_scene_owner_id') or uuid.uuid4().hex;wire.identifier(identity)
         scene['vta_scene_owner_id']=identity
         intent['binding']=dict(scene_owner_id=identity,project_id=before['project_id'],source_id=scene['vta_source_id'],video_sha256=scene['vta_source_video_sha256'])
@@ -157,7 +157,7 @@ def submit(context,root,before,operation,payload):
         _adopt_creation(intent,result,context)
         _refresh()
     except Exception as exc:
-        raise AppliedMutationError('VTA edit saved; presentation reconciliation pending: '+str(exc)) from exc
+        raise AppliedMutationError('MoCap edit saved; presentation reconciliation pending: '+str(exc)) from exc
     _unmark(root);return result
 
 @contextmanager
@@ -176,16 +176,16 @@ def transaction(context,location):
 
 def _feedback(exc):
     global _error
-    _error='VTA reconciliation pending: '+str(exc);print(_error)
+    _error='MoCap reconciliation pending: '+str(exc);print(_error)
     from . import vta_review_ui as ui
-    ui.set_operation_feedback('tracking','VTA reconciliation pending.',_error,context=bpy.context,
+    ui.set_operation_feedback('tracking','MoCap reconciliation pending.',_error,context=bpy.context,
         disposition='Domain edits disabled. Retry Reconciliation; saved files retain this warning.')
 
 def _refresh():
     from . import vta_review_ui as ui
     ui._display.clear();ui._tracking_hints.clear()
     if ui.refresh(bpy.context,force=True) is False:
-        raise RuntimeError(getattr(ui,'_status','VTA presentation unavailable.'))
+        raise RuntimeError(getattr(ui,'_status','MoCap presentation unavailable.'))
     ui.vta_invalidation.request_redraw()
 
 def _bindings():
@@ -221,9 +221,9 @@ def native_changed(_unused=None,_depsgraph=None):
                 changed |= bool(members is not None and not members<=valid)
                 changed |= any(obj.get('vta_character_id') not in valid for obj in scene.objects
                                if obj.get('vta_project_id')==project.project_id and obj.get('vta_character_id'))
-        _presentation_warning=('Native bindings/output changed; VTA decisions did not. Use Load VTA Scene or explicit generation if needed.' if changed else '')
+        _presentation_warning=('Native bindings/output changed; MoCap decisions did not. Use Load MoCap Scene or explicit generation if needed.' if changed else '')
     except Exception as exc:
-        _presentation_warning='VTA presentation needs refresh after native Undo/Redo: '+str(exc)
+        _presentation_warning='MoCap presentation needs refresh after native Undo/Redo: '+str(exc)
         print(_presentation_warning)
     finally:_native_bindings=None
 
@@ -286,7 +286,7 @@ def save_pre(_unused=None,*_args):
 
 class BLENDCAP_OT_vta_reconcile(bpy.types.Operator):
     bl_idname='blendcap.vta_reconcile';bl_label='Retry Reconciliation';bl_options={'REGISTER'}
-    bl_description='Verify the pending operation and refresh VTA without replaying the edit'
+    bl_description='Verify the pending operation and refresh MoCap without replaying the edit'
     @classmethod
     def poll(cls,context):return bool(_pending)
     def execute(self,context):
@@ -295,10 +295,10 @@ class BLENDCAP_OT_vta_reconcile(bpy.types.Operator):
 
 def draw_pending(layout):
     if _presentation_warning:
-        box=layout.box();box.label(text='Check VTA bindings/output after native Undo.',icon='ERROR')
-        box.label(text='Check bindings/output; refresh or Load VTA Scene if needed.')
+        box=layout.box();box.label(text='Check MoCap bindings/output after native Undo.',icon='ERROR')
+        box.label(text='Check bindings/output; refresh or Load MoCap Scene if needed.')
     if blocked():
-        box=layout.box();box.label(text='VTA reconciliation pending',icon='ERROR')
+        box=layout.box();box.label(text='MoCap reconciliation pending',icon='ERROR')
         box.label(text='Domain edits paused; saved files retain this state.');box.operator('blendcap.vta_reconcile')
 
 def register():

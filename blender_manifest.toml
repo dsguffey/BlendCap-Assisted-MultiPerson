@@ -4,9 +4,9 @@ schema_version = "1.0.0"
 id = "blendcap"
 # Provisional pre-1.0 adapter display version, not an upstream BlendCap version.
 version = "0.9.0"
-name = "VTA"
+name = "StudioFree MoCap"
 tagline = "Video to reviewed, editable Character animation"
-maintainer = "VTA contributors"
+maintainer = "StudioFree MoCap contributors"
 type = "add-on"
 
 website = "https://github.com/dsguffey/BlendCap-Assisted-MultiPerson"
@@ -33,7 +33,7 @@ tags = [
 ]
 
 [permissions]
-files = "Read video/project data, manage VTA job artifacts, and export animation."
+files = "Read video/project data, manage MoCap job artifacts, and export animation."
 
 [build]
 # Only consulted by `blender --command extension build`. Keeps runtime

@@ -179,7 +179,7 @@ ERROR_MESSAGES = {
     "candidate-occupied": "That candidate is already assigned.",
     "character-occupied": "That Character already has a candidate on this frame.",
     "already-assigned": "That assignment already exists.",
-    "project-load-failed": "The VTA project state is missing or unavailable.",
+    "project-load-failed": "The MoCap project state is missing or unavailable.",
     "provenance-mismatch": "The project and analysis cache no longer match.",
     "persistence-failed": "The assignment could not be saved.",
     "invalid-request": "The review decision is invalid or stale.",
@@ -200,7 +200,7 @@ def sha256_file(path: Path) -> str:
 def companion_root_for_blend(blend_path: str | Path) -> Path:
     path = Path(blend_path)
     if not str(blend_path) or not path.name or path.suffix.lower() != ".blend":
-        raise VtaReviewUiError("Save the Blender project before using VTA review.")
+        raise VtaReviewUiError("Save the Blender project before using MoCap review.")
     return path.with_name(f"{path.stem}_vta")
 
 
@@ -466,7 +466,7 @@ def user_message(error: BaseException) -> str:
         return ERROR_MESSAGES[code]
     if isinstance(error, VtaReviewUiError):
         return str(error)
-    return f"VTA review failed: {error}"
+    return f"MoCap review failed: {error}"
 
 
 def tracking_update_success(result: object, *, frame_offset: int = 0) -> str:

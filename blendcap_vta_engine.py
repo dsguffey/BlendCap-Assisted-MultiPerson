@@ -49,7 +49,7 @@ def resolve_engine(configured_root='', *, python=None):
             roots=(wire.path_form(str(configured_root)),) if configured_root else (load_runtime()['engine_root'],)
     except ValueError as exc:raise EngineError(getattr(exc,'code','ENGINE_UNAVAILABLE'),str(exc)) from exc
     root=next((p for p in roots if (p/'vta_engine.py').is_file()),None)
-    if root is None:raise EngineError('ENGINE_UNAVAILABLE','VTA engine launcher is unavailable; check the Core location.')
+    if root is None:raise EngineError('ENGINE_UNAVAILABLE','MoCap engine launcher is unavailable; check the Core location.')
     if python is None or not Path(python).is_file():raise EngineError('ENGINE_UNAVAILABLE','Standalone Python is unavailable.')
     return EngineEndpoint(Path(python).resolve(),(root/'vta_engine.py').resolve(),review_python)
 

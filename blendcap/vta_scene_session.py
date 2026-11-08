@@ -71,14 +71,14 @@ def warning(context):
     workspace = getattr(context, 'workspace', None)
     scene = remembered(workspace)
     if scene is None:
-        return 'No VTA Scene loaded. Use Load VTA Scene / New VTA Scene.'
+        return 'No MoCap Scene loaded. Use Load MoCap Scene / New MoCap Scene.'
     if not enabled(workspace):
-        return f'VTA Mode is off. Enter VTA Mode to restore {scene.name}.'
+        return f'MoCap Mode is off. Enter MoCap Mode to restore {scene.name}.'
     active = main_scene(context)
     if active is not scene:
-        return f'Loaded VTA Scene: {scene.name} · Active Scene: {active.name if active else "None"}. Load VTA Scene to restore.'
+        return f'Loaded MoCap Scene: {scene.name} · Active Scene: {active.name if active else "None"}. Load MoCap Scene to restore.'
     if not matches(context):
-        return 'VTA presentation differs from the loaded Scene. Load VTA Scene to restore.'
+        return 'MoCap presentation differs from the loaded Scene. Load MoCap Scene to restore.'
     return ''
 
 
@@ -102,7 +102,7 @@ def scene_context(context, scene, strip=None):
 def validate(context, scene):
     from . import vta_review_ui as ui
     if not owned(scene):
-        raise ValueError('Choose a metadata-owned VTA Scene; names are not ownership.')
+        raise ValueError('Choose a metadata-owned MoCap Scene; names are not ownership.')
     if not source_bound(scene):
         return None  # A blank owner needs no project, backend, clip or camera.
     backend = ui._get_backend(context)
@@ -112,7 +112,7 @@ def validate(context, scene):
               and s.get('vta_project_id') == scene.get('vta_project_id')
               and s.get('vta_source_id') == scene.get('vta_source_id')]
     if tagged and (len(tagged) != 1 or tagged[0].get('vta_source_strip_version') != 1):
-        raise ValueError('VTA source strip ownership is unsupported or ambiguous.')
+        raise ValueError('MoCap source strip ownership is unsupported or ambiguous.')
     for strip in tagged or strips:
         if strip.type != 'MOVIE':
             continue
@@ -120,10 +120,10 @@ def validate(context, scene):
         if path is not None and path.is_file() and backend._source_hash(path) == scene['vta_source_video_sha256']:
             movies.append(strip)
     if len(movies) != 1:
-        raise ValueError('VTA source movie is missing or ambiguous; no Scene was loaded.')
+        raise ValueError('MoCap source movie is missing or ambiguous; no Scene was loaded.')
     info = ui._timing_source(scene_context(context,scene,movies[0]))
     if not owns_scene(scene, info[0], info[1]):
-        raise ValueError('VTA Scene metadata differs from the validated project/source.')
+        raise ValueError('MoCap Scene metadata differs from the validated project/source.')
     return info
 
 
@@ -141,7 +141,7 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
     """Validate, configure once, then remember. Failed setup rolls back."""
     from . import vta_review_ui as ui, vta_workspace as ws, properties
     if ui._analysis_locked():
-        raise ValueError('Unavailable while VTA analysis or generation is running.')
+        raise ValueError('Unavailable while MoCap analysis or generation is running.')
     # Prepared inputs are supplied only by the explicit Configure transaction.
     info = source_info if source_info is not None else validate(context,scene)
     if info is not None:
@@ -150,11 +150,11 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
     # Workspace-wide VSE selection cannot safely force ordinary VSE siblings.
     seqs = [(s,a) for s in workspace.screens for a in s.areas if a.type=='SEQUENCE_EDITOR']
     if any(configured_role_for(workspace,s,a) != ROLE_PREVIEW for s,a in seqs):
-        raise ValueError('Use the dedicated VTA workspace; ordinary Sequencer editors will not be overridden.')
+        raise ValueError('Use the dedicated MoCap workspace; ordinary Sequencer editors will not be overridden.')
     if not seqs:
-        raise ValueError('VTA workspace has no configured Preview editor.')
+        raise ValueError('MoCap workspace has no configured Preview editor.')
     if sum(a.type == 'VIEW_3D' for s in workspace.screens for a in s.areas) > 1:
-        raise ValueError('Use the dedicated single-viewport VTA preset; additional ordinary 3D editors will not be overridden.')
+        raise ValueError('Use the dedicated single-viewport MoCap preset; additional ordinary 3D editors will not be overridden.')
     before = (context.window.scene,context.window.workspace,workspace.sequencer_scene,
               getattr(workspace,LAST),getattr(workspace,MODE),scene.sequence_editor.active_strip if scene.sequence_editor else None,
               scene.blendcap_props.video_source,scene.render.fps,scene.render.fps_base,scene.render.use_sequencer)
@@ -214,8 +214,8 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
                 raise ValueError(ui._status)
         else:
             ui._activate_review_scene(None)
-            ui._status = ('VTA Scene loaded; analyze candidates or move inside source coverage.'
-                          if info is not None else 'Blank VTA Scene; choose a clip in Video Source.')
+            ui._status = ('MoCap Scene loaded; analyze candidates or move inside source coverage.'
+                          if info is not None else 'Blank MoCap Scene; choose a clip in Video Source.')
             ui._status_is_error = False
         if commit is not None:
             commit()  # Last fallible step; source history is published only now.
@@ -250,7 +250,7 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
 def enter(context):
     scene = remembered(workspace_for(context))
     if scene is None:
-        raise ValueError('No VTA Scene loaded. Use Load VTA Scene / New VTA Scene.')
+        raise ValueError('No MoCap Scene loaded. Use Load MoCap Scene / New MoCap Scene.')
     return load(context,scene)
 
 
