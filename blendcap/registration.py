@@ -529,6 +529,10 @@ def register():
     # When register_class hits that case it raises ValueError. Catch, kick
     # the previous occupant via the same bl_idname, retry once. Avoids
     # forcing a Blender restart after every file rename in the package.
+    # Optional native callbacks (modal/cancel) are captured by register_class.
+    # Adding them afterwards leaves Python methods that native events never call.
+    from .vta_review_ui import prepare_operator_callbacks
+    prepare_operator_callbacks()
     for cls in classes:
         try:
             bpy.utils.register_class(cls)

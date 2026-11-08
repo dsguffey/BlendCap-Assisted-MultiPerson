@@ -3389,7 +3389,8 @@ classes = (
 )
 
 
-def register_properties() -> None:
+def prepare_operator_callbacks() -> None:
+    """Install optional callbacks BEFORE Blender snapshots them at registration."""
     from . import vta_busy
     # Management executes from a confirmation dialog; do not defer that same
     # operator into another modal handler after the user has confirmed it.
@@ -3399,6 +3400,9 @@ def register_properties() -> None:
     for cls in (BLENDCAP_OT_vta_update_tracking,
                 BLENDCAP_OT_vta_review_create_character):
         vta_busy.install(cls)
+
+
+def register_properties() -> None:
     from . import vta_review_undo
     vta_review_undo.register()
     from . import vta_project_save
