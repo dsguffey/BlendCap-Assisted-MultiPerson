@@ -10,7 +10,7 @@ def configuration_path(explicit=None,*,environ=None):
     env=os.environ if environ is None else environ
     value=explicit or env.get('VTA_RUNTIME_CONFIG')
     if value:return Path(value)
-    if env.get('LOCALAPPDATA'):return Path(env['LOCALAPPDATA'])/'MoCap/config/runtime.json'
+    if env.get('LOCALAPPDATA'):return Path(env['LOCALAPPDATA'])/'VTA/config/runtime.json'
     raise RuntimeConfigurationError('RUNTIME_MISSING','MoCap configuration is missing. Run setup/repair.')
 
 def load_runtime(explicit=None,*,environ=None):

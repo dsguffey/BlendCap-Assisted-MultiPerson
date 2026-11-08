@@ -69,6 +69,11 @@ class UiPass2Tests(unittest.TestCase):
         self.assertIn('MoCap reconciliation pending',labels)
         self.assertFalse(any('VTA' in text for text in labels))
 
+    def test_runtime_config_location_keeps_vta_compatibility_path(self):
+        runtime=importlib.import_module(self.addon.__name__+'.blendcap_vta_runtime')
+        from pathlib import Path
+        self.assertEqual(runtime.configuration_path(environ={'LOCALAPPDATA':str(Path.cwd())}),Path.cwd()/'VTA/config/runtime.json')
+
     def test_workspace_sections_and_advanced_order(self):
         ui=self.module('vta_review_ui');layout=Layout()
         with mock.patch.object(ui,'refresh',return_value=True),mock.patch.object(ui,'_view',None),mock.patch.object(ui,'cached_scene_source',return_value=None),mock.patch.object(ui,'draw_scene_workflow'),mock.patch.object(self.module('vta_workspace'),'blank_animation_guidance',return_value=[]):
