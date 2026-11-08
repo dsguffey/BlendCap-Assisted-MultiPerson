@@ -685,17 +685,20 @@ def draw_rig_choices(layout, context):
 
 class VIEW3D_PT_vta_retarget(bpy.types.Panel):
     bl_idname = 'VIEW3D_PT_vta_retarget'
-    bl_label = 'Retargeting'
+    bl_label = 'Export / Retarget'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'VTA'
-    bl_parent_id = 'VIEW3D_PT_blendcap_ui'
-    bl_order = 100
+    bl_parent_id = ''
+    bl_order = 900
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         from . import vta_review_ui as ui
         layout = self.layout
+        from .vta_export import VIEW3D_PT_vta_export
+        VIEW3D_PT_vta_export.draw(self, context)
+        layout.separator()
         if context.mode != 'OBJECT':
             layout.label(text='Switch to Object Mode to select armatures.', icon='INFO')
         if not ui.loaded_context_matches(context):

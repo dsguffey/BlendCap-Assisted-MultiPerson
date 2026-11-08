@@ -287,6 +287,8 @@ def save_pre(_unused=None,*_args):
 class BLENDCAP_OT_vta_reconcile(bpy.types.Operator):
     bl_idname='blendcap.vta_reconcile';bl_label='Retry Reconciliation';bl_options={'REGISTER'}
     bl_description='Verify the pending operation and refresh VTA without replaying the edit'
+    @classmethod
+    def poll(cls,context):return bool(_pending)
     def execute(self,context):
         try:retry(context);return {'FINISHED'}
         except Exception as exc:_feedback(exc);self.report({'ERROR'},str(exc));return {'CANCELLED'}

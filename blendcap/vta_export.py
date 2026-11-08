@@ -101,6 +101,6 @@ class VIEW3D_PT_vta_export(bpy.types.Panel):
 def register():
     from .vta_busy import install
     install(BLENDCAP_OT_vta_export_bvh)
-    for cls in (BLENDCAP_OT_vta_export_bvh,VIEW3D_PT_vta_export):bpy.utils.register_class(cls)
+    for cls in (BLENDCAP_OT_vta_export_bvh,):bpy.utils.register_class(cls)
 def unregister():
-    for cls in (VIEW3D_PT_vta_export,BLENDCAP_OT_vta_export_bvh):bpy.utils.unregister_class(cls)
+    for cls in (BLENDCAP_OT_vta_export_bvh,):bpy.utils.unregister_class(cls)

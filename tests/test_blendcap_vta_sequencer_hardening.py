@@ -226,7 +226,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                                            if call[0] == "blendcap.vta_review_manage"])
             self.assertIn(("blendcap.vta_update_tracking", "Update Tracking", True), menu.calls)
             self.assertEqual({call[0] for call in menu.calls}, {
-            "blendcap.vta_review_manage", "blendcap.vta_update_tracking", "blendcap.vta_restore_protected",
+            "blendcap.vta_reconcile", "blendcap.vta_review_manage", "blendcap.vta_update_tracking", "blendcap.vta_restore_protected",
             "blendcap.vta_analyze", "blendcap.vta_generate_animation",
             "blendcap.vta_repeat_assignment", "blendcap.vta_snap_source_camera",
             "blendcap.vta_match_source_fps"
@@ -294,7 +294,6 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                 panels = (
                     ui.VIEW3D_PT_blendcap_vta_review,
                     ui.VIEW3D_PT_blendcap_vta_analyze,
-                    ui.VIEW3D_PT_blendcap_vta_characters,
                     ui.VIEW3D_PT_blendcap_vta_current_frame,
                     ui.VIEW3D_PT_blendcap_vta_tracking,
                     ui.VIEW3D_PT_blendcap_vta_display,
@@ -307,7 +306,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                     for panel in panels:
                         self.assertIsNotNone(bpy.types.Panel.bl_rna_get_subclass_py(
                             panel.bl_idname))
-                        panel.draw(SimpleNamespace(layout=mock.Mock()), bpy.context)
+                        layout=mock.Mock();layout.panel.return_value=(mock.Mock(),None)
+                        panel.draw(SimpleNamespace(layout=layout), bpy.context)
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_editor_menus, "_draw_vta_menu"))
                 addon.unregister()
                 self.assertFalse(hooks(bpy.types.SEQUENCER_MT_context_menu, "_draw_vta_context"))

@@ -726,6 +726,7 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
     def draw(self, context):
         ui = _ui()
         layout = self.layout
+        layout.operator('blendcap.vta_reconcile', text='Retry Reconciliation')
         ui.draw_scene_workflow(layout, context)
         layout.operator('blendcap.vta_review_refresh', text='Refresh Review')
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')

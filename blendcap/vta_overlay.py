@@ -34,6 +34,7 @@ class OverlayRegionCandidate:
     selected: bool
     suppressed: bool = False
     provenance: str = 'neutral'
+    mark_state: str = ''
 
 
 @dataclass(frozen=True)
@@ -304,6 +305,14 @@ def _draw() -> None:
             color = provenance_color(item.provenance, label=True)
             batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ((x1,y1),(x2,y1),(x2,y2),(x1,y2),(x1,y1))})
             shader.bind(); shader.uniform_float("color", color); batch.draw(shader)
+            if item.mark_state:
+                # Assignment has an inset outline; suppression has a cross.
+                # Text labels retain meaning independently of the colors.
+                points = ((x1+3,y1+3),(x2-3,y1+3),(x2-3,y2-3),(x1+3,y2-3),(x1+3,y1+3)) if item.mark_state == 'assign' else ((x1,y1),(x2,y2),(x1,y2),(x2,y1))
+                style = 'LINE_STRIP' if item.mark_state == 'assign' else 'LINES'
+                marked = batch_for_shader(shader, style, {'pos': points})
+                shader.uniform_float('color', (0.35,1.0,0.55,1.0) if item.mark_state == 'assign' else (1.0,0.4,0.3,1.0))
+                marked.draw(shader)
             if item.selected:
                 outline = batch_for_shader(shader, 'LINE_STRIP', {"pos": (
                     (x1-2,y1-2),(x2+2,y1-2),(x2+2,y2+2),(x1-2,y2+2),(x1-2,y1-2))})

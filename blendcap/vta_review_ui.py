@@ -2686,8 +2686,7 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
         layout = self.layout
         # Menu placement also makes recovery discoverable through menu search.
         # Keep it ahead of review availability checks and disabled edit rows.
-        from .vta_review_undo import draw_pending
-        draw_pending(layout)
+        layout.operator('blendcap.vta_reconcile', text='Retry Reconciliation')
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         draw_scene_timing(layout, context, menu=True)
         analyze = layout.row()
@@ -2976,7 +2975,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
 
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
-    bl_label = "Review and Animation"
+    bl_label = "Workspace"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -2990,30 +2989,34 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
                         icon='WORKSPACE')
         from . import vta_busy
         vta_busy.draw(layout)
-        draw_scene_workflow(layout, context)
         from .vta_project_save import draw_error
         draw_error(layout,context)
         from .vta_review_undo import draw_pending
         draw_pending(layout)
-        layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
-        draw_scene_timing(layout, context)
-        layout.operator('blendcap.vta_camera_depth', text='Move Along Camera Depth')
+        from .vta_ui_sections import section
+        scenes = section(layout, 'workspace_scenes', 'VTA Scenes')
+        if scenes is not None: draw_scene_workflow(scenes, context)
+        camera = section(layout, 'workspace_camera', 'Camera and Playback')
+        if camera is not None:
+            camera.operator('blendcap.vta_snap_source_camera', icon='CAMERA_DATA')
+            camera.operator('blendcap.vta_match_source_fps')
+            camera.operator('blendcap.vta_camera_depth', text='Move Along Camera Depth')
+            advanced = section(camera, 'workspace_camera_advanced', 'Advanced')
+            if advanced is not None:
+                VIEW3D_PT_blendcap_vta_generation_camera.draw(type('Draw', (), {'layout': advanced})(), context)
+        details = section(layout, 'workspace_details', 'Details')
+        if details is not None:
+            info = cached_scene_source(context)
+            if info is not None:
+                details.label(text=f'Scene: {context.scene.render.fps / context.scene.render.fps_base:g} fps / Source: {info[1]["fps"]:g} fps')
+            if _location is not None: details.label(text=f'Blender frame {_location.blender_frame}')
+            if _view is not None:
+                details.label(text=f'{len(_view.candidates)} Candidates / {len(_view.characters)} Characters')
         from .vta_workspace import blank_animation_guidance
-        for line in blank_animation_guidance(context):
-            layout.label(text=line, icon='INFO' if line.startswith('No ') else 'NONE')
-        if _location is not None:
-            layout.label(text=f"Blender frame {_location.blender_frame}")
+        for line in blank_animation_guidance(context): layout.label(text=line, icon='INFO')
         if _view is None:
-            scoped_error = any(key[0] == _feedback_key('animation', context)[0] for key in _operation_feedback)
-            layout.label(text="Review unavailable" if scoped_error else (_status or "Review unavailable"), icon='ERROR')
-            layout.operator("blendcap.vta_review_refresh", icon='FILE_REFRESH')
-        else:
-            if _view.state == 'analyzed-empty':
-                layout.label(text="Current frame: Analyzed, 0 candidates")
-            elif _view.state == 'analyzed-with-candidates':
-                layout.label(text=f"Current frame: Analyzed, {len(_view.candidates)} candidates")
-            else:
-                layout.label(text="Current frame: Not Analyzed")
+            layout.label(text=_status or 'Review unavailable', icon='ERROR')
+            layout.operator('blendcap.vta_review_refresh', icon='FILE_REFRESH')
 
 
 class _VtaReviewSubpanel:
@@ -3146,7 +3149,6 @@ class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
             layout.label(text="Load a VTA project to manage Characters.")
             return
         layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
-        layout.label(text=f"{len(_view.characters)} Characters")
         create_row = layout.row(align=True)
         create_row.enabled = not _analysis_locked()
         create_row.prop(context.window_manager, "blendcap_vta_new_character_name", text="New")
@@ -3156,7 +3158,7 @@ class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
 
 
 class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = "Current Frame Review"
+    bl_label = "Character Assignment"
     bl_idname = "VIEW3D_PT_blendcap_vta_current_frame"
 
     def draw(self, context):
@@ -3166,6 +3168,10 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         if _view is None:
             layout.label(text="Current review unavailable.")
             return
+        VIEW3D_PT_blendcap_vta_characters.draw(self, context)
+        repeat = layout.row()
+        repeat.enabled = BLENDCAP_OT_vta_repeat_assignment.poll(context)
+        repeat.operator('blendcap.vta_repeat_assignment', text='Repeat Last Assignment')
         selected_character = next(
             (item for item in _view.characters if item.character_id == _selection.character_id),
             None,
@@ -3213,8 +3219,7 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
             else:
                 assignment_box.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
         _draw_management_actions(assignment_box, actions={"clear-assignment"})
-        decision_box = layout.box()
-        decision_box.label(text="Mark Active Character")
+        decision_box = assignment_box
         hard_row = decision_box.row(align=True)
         for kind, label in (("occluded", "Occluded"), ("not-visible", "Not Visible")):
             choice = hard_row.row(align=True)
@@ -3297,7 +3302,7 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
 
 
 class VIEW3D_PT_blendcap_vta_generation_camera(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = 'Advanced Camera'
+    bl_label = 'Advanced'
     bl_idname = 'VIEW3D_PT_blendcap_vta_generation_camera'
     bl_parent_id = 'VIEW3D_PT_blendcap_vta_animation'
     bl_options = {'DEFAULT_CLOSED'}
@@ -3340,27 +3345,38 @@ class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
 
 
 class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = "Advanced"
-    bl_idname = "VIEW3D_PT_blendcap_vta_advanced"
+    bl_label = 'VTA Resources'
+    bl_idname = 'VIEW3D_PT_blendcap_vta_advanced'
+    bl_parent_id = ''
+    bl_order = 10000
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
+        from .vta_ui_sections import section, version_lines
         layout = self.layout
-        prefs = addon_prefs(context)
-        if prefs is not None:
-            settings = layout.column()
-            settings.enabled = not _analysis_locked()
-            settings.prop(prefs, "vta_core_location", text="Private Core")
-            settings.prop(prefs, "vta_kinesia_root", text="SAM3 Source")
-            settings.prop(prefs, "vta_sam3_checkpoint", text="SAM3 Weights")
-        if _view is not None:
-            selected = next((item for item in _view.candidates
-                             if item.observation_id == _selection.observation_id), None)
-            if selected is not None:
-                layout.label(text=f"Observation ID: {selected.observation_id}")
-            layout.label(text=f"Analysis revision: {_view.analysis_revision_id}")
-        layout.operator("blendcap.vta_review_refresh", text="Refresh", icon='FILE_REFRESH')
-        layout.operator('blendcap.vta_open_logs',text='Open Logs Folder',icon='FILE_FOLDER')
+        logs = section(layout, 'resource_logs', 'Logs and Support')
+        if logs is not None:
+            logs.operator('blendcap.vta_open_logs', text='Open Logs Folder', icon='FILE_FOLDER')
+            logs.operator('blendcap.vta_review_refresh', text='Refresh Review', icon='FILE_REFRESH')
+            logs.operator('blendcap.install_open_prefs', text='Preferences', icon='PREFERENCES')
+        version = section(layout, 'resource_version', 'Version Information')
+        if version is not None:
+            for line in version_lines(): version.label(text=line)
+        runtime = section(layout, 'resource_runtime', 'Core / Runtime Information')
+        if runtime is not None:
+            prefs = addon_prefs(context)
+            if prefs is not None:
+                column = runtime.column(); column.enabled = False
+                column.prop(prefs, 'vta_core_location', text='Core')
+                column.prop(prefs, 'vta_kinesia_root', text='Analysis source')
+                column.prop(prefs, 'vta_sam3_checkpoint', text='SAM3 weights')
+        credits = section(layout, 'resource_credits', 'Credits')
+        if credits is not None:
+            from .panels import VIEW3D_PT_vta_credits
+            VIEW3D_PT_vta_credits.draw(type('Draw', (), {'layout': credits})(), context)
+            credits.label(text='Blender provides the host and native animation tools.')
+            credits.label(text='SAM 3 / SAM 3D Body provide model capabilities.')
+            credits.label(text='See Notices for additional upstream components.')
 
 
 classes = (
@@ -3387,7 +3403,6 @@ classes = (
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
-    VIEW3D_PT_blendcap_vta_characters,
     VIEW3D_PT_blendcap_vta_current_frame,
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_display,

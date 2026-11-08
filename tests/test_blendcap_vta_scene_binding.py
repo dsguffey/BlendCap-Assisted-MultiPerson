@@ -136,6 +136,7 @@ class SceneBindingTests(unittest.TestCase):
         backend=self.display_backend();a=self.owned();self.session.load(bpy.context,a)
         backend._core.load_project_state.reset_mock();backend._core.load_analysis_cache.reset_mock()
         class Layout:
+            def panel(self,*a,**kw):return self,None
             def operator(self,*args,**kwargs): return SimpleNamespace()
             def __getattr__(self,_): return lambda *args,**kwargs:self
         with mock.patch.object(self.ui,'_timing_source',side_effect=AssertionError('validation in UI')), \
@@ -483,6 +484,7 @@ class SceneBindingTests(unittest.TestCase):
     def test_ui_workflow_available_when_review_off_preview_no_toggle(self):
         calls=[]
         class Layout:
+            def panel(self,*a,**kw):return self,None
             def operator(self,name,**kwargs): calls.append(name);return SimpleNamespace()
             def menu(self,name,**kwargs): calls.append(name)
             def label(self,**kwargs): pass

@@ -52,7 +52,7 @@ class UiPolishTests(unittest.TestCase):
              mock.patch.object(marks,'scope',return_value='scope'), \
              mock.patch.object(marks.marks,'items',return_value=items), \
              mock.patch.object(marks.marks,'handled') as handled, \
-             mock.patch.object(ui,'_view',NS(source_frame=0,candidates=())), \
+             mock.patch.object(ui,'_view',NS(source_frame=0,candidates=(),characters=())), \
              mock.patch.object(ui,'_selection',NS(observation_id='a')), \
              mock.patch.object(ui,'_analysis_locked',return_value=False), \
              mock.patch.object(ui,'current_character_id',return_value='white'):

@@ -40,16 +40,25 @@ def apply_marked(context,key,kind,items,character,confirmed=False,expected_check
     ui._status=f'Applied {len(items)} marked candidates.';ui._status_is_error=False
     return result
 
+def assignment_label(context):
+    from . import vta_review_ui as ui
+    character = ui.current_character_id(context)
+    row = next((c for c in ui._view.characters if c.character_id == character), None) if ui._view else None
+    return '(' + row.display_name + ')' if row else '(Choose Character)'
+
+
 def overlay_labels(candidates,context):
     from dataclasses import replace
     from . import vta_review_ui as ui
     key=scope(context);symbols={}
-    for kind,symbol in [('assign','[A]'),('suppress','[S]')]:
+    for kind,symbol in [('assign',assignment_label(context)),('suppress','[Suppress]')]:
         for row in marks.items(key,kind):
             if ui._view is not None and row['frame']==ui._view.source_frame:
-                symbols[row['observation_id']]=symbol
-    return tuple(replace(item,label=symbols[item.observation_id]+' '+item.label)
+                symbols[row['observation_id']]=(symbol,kind)
+    return tuple(replace(item,label=symbols[item.observation_id][0]+' '+item.label,
+                         mark_state=symbols[item.observation_id][1])
         if item.observation_id in symbols else item for item in candidates)
+
 
 def draw(layout,context):
     from . import vta_review_ui as ui
@@ -69,7 +78,7 @@ def draw(layout,context):
     layout.label(text='Suppression: multiple on each frame.')
     layout.label(text='Marks are temporary until applied.')
     if _busy:layout.label(text='Working… applying marked candidates',icon='TIME')
-    for kind,symbol in [('assign','[A]'),('suppress','[S]')]:
+    for kind,symbol in [('assign',assignment_label(context)),('suppress','[Suppress]')]:
         for item in marks.items(key,kind):
             if item['frame']==ui._view.source_frame:
                 candidate=next((c for c in ui._view.candidates if c.observation_id==item['observation_id']),None)
