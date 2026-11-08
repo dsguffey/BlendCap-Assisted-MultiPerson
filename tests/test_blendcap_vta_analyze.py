@@ -454,7 +454,7 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
                          ['Analyze', 'Character Assignment',
                           'Update Tracking', 'Display', 'VTA Resources'])
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_advanced.bl_parent_id, '')
-        self.assertTrue(all(item.bl_parent_id == 'VIEW3D_PT_blendcap_vta_review'
+        self.assertTrue(all(item.bl_parent_id == ''
                             for item in children[:-1]))
         self.assertFalse(hasattr(ui, 'BLENDCAP_WST_vta_review_key_select'))
         self.assertIsNotNone(ui.BLENDCAP_OT_vta_review_key_select)

@@ -143,7 +143,6 @@ def _draw_source_section(layout, context, props):
     if owned(main_scene(context)):
         from .vta_review_ui import draw_vta_source
         box = layout.box()
-        box.label(text='Video Source', icon='FILE_MOVIE')
         draw_vta_source(box, context)
         layout.separator()
         return
@@ -1028,7 +1027,6 @@ def draw_blendcap_ui(self, context):
     hide_setup = bool(prefs and prefs.hide_setup_section)
     hide_clear_all = bool(prefs and prefs.hide_clear_all)
 
-    _draw_setup_section(layout, hide_setup)
     _draw_source_section(layout, context, props)
 
     is_running = blendcap_state['running']
@@ -1041,11 +1039,12 @@ def draw_blendcap_ui(self, context):
 # UI PANELS
 # ============================================================
 class VIEW3D_PT_blendcap_ui(bpy.types.Panel):
-    bl_label = PRODUCT_NAME
+    bl_label = 'Video Source'
     bl_idname = "VIEW3D_PT_blendcap_ui"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'VTA'
+    bl_order = 0
     def draw(self, context): draw_blendcap_ui(self, context)
 
 class OUTPUT_PT_blendcap_ui(bpy.types.Panel):

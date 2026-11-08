@@ -34,6 +34,26 @@ class UiPass2Tests(unittest.TestCase):
         self.assertNotIn('VIEW3D_PT_vta_credits',names)
         self.assertEqual(self.module('vta_retarget').VIEW3D_PT_vta_retarget.bl_label,'Export / Retarget')
         self.assertGreater(ui.VIEW3D_PT_blendcap_vta_advanced.bl_order,self.module('vta_retarget').VIEW3D_PT_vta_retarget.bl_order)
+    def test_single_workspace_top_level_order_and_preferences_location(self):
+        ui=self.module('vta_review_ui');panels=self.module('panels')
+        root_panels=[c for c in self.addon._registration.classes
+                     if isinstance(c,type) and issubclass(c,bpy.types.Panel)
+                     and getattr(c,'bl_space_type','')=='VIEW_3D'
+                     and getattr(c,'bl_category','')=='VTA' and not getattr(c,'bl_parent_id','')]
+        ordered=sorted(root_panels,key=lambda c:getattr(c,'bl_order',0))
+        self.assertEqual([c.bl_label for c in ordered],['Video Source','Workspace','Character Assignment','Analyze','Update Tracking','Animation','Display','Export / Retarget','VTA Resources'])
+        self.assertEqual(sum(c.bl_label=='Workspace' for c in root_panels),1)
+        self.assertIn('DEFAULT_CLOSED',ui.VIEW3D_PT_blendcap_vta_review.bl_options)
+        layout=Layout()
+        with mock.patch.object(panels,'addon_prefs',return_value=None),mock.patch.object(panels,'_draw_source_section'):
+            panels.draw_blendcap_ui(NS(layout=layout),NS(scene=NS(blendcap_props=NS())))
+        self.assertNotIn(('label','Workspace'),layout.events)
+        self.assertNotIn(('operator','blendcap.install_open_prefs'),layout.events)
+        layout=Layout()
+        with mock.patch.object(ui,'addon_prefs',return_value=None),mock.patch.object(panels,'addon_prefs',return_value=None):
+            ui.VIEW3D_PT_blendcap_vta_advanced.draw(NS(layout=layout),bpy.context)
+        self.assertIn(('operator','blendcap.install_open_prefs'),layout.events)
+
     def test_workspace_sections_and_advanced_order(self):
         ui=self.module('vta_review_ui');layout=Layout()
         with mock.patch.object(ui,'refresh',return_value=True),mock.patch.object(ui,'_view',None),mock.patch.object(ui,'cached_scene_source',return_value=None),mock.patch.object(ui,'draw_scene_workflow'),mock.patch.object(self.module('vta_workspace'),'blank_animation_guidance',return_value=[]):

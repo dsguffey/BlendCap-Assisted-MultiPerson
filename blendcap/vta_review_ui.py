@@ -2980,7 +2980,9 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'VTA'
-    bl_parent_id = "VIEW3D_PT_blendcap_ui"
+    bl_parent_id = ''
+    bl_order = 10
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         refresh(context)
@@ -3023,12 +3025,14 @@ class _VtaReviewSubpanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'VTA'
-    bl_parent_id = "VIEW3D_PT_blendcap_vta_review"
+    bl_parent_id = ''
 
 
 class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Analyze"
     bl_idname = "VIEW3D_PT_blendcap_vta_analyze"
+
+    bl_order = 30
 
     def draw(self, context):
         layout = self.layout
@@ -3161,6 +3165,8 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Character Assignment"
     bl_idname = "VIEW3D_PT_blendcap_vta_current_frame"
 
+    bl_order = 20
+
     def draw(self, context):
         layout = self.layout
         from .vta_review_undo import draw_pending
@@ -3243,6 +3249,8 @@ class VIEW3D_PT_blendcap_vta_tracking(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Update Tracking"
     bl_idname = "VIEW3D_PT_blendcap_vta_tracking"
 
+    bl_order = 40
+
     def draw(self, context):
         layout = self.layout
         row = layout.row()
@@ -3269,6 +3277,8 @@ def generation_unavailable_reason(context):
 class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = 'Animation'
     bl_idname = 'VIEW3D_PT_blendcap_vta_animation'
+
+    bl_order = 50
 
     def draw(self, context):
         info = cached_scene_source(context)
@@ -3334,6 +3344,8 @@ class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Display"
     bl_idname = "VIEW3D_PT_blendcap_vta_display"
     bl_options = {'DEFAULT_CLOSED'}
+
+    bl_order = 60
 
     def draw(self, context):
         layout = self.layout
