@@ -53,13 +53,15 @@ def overlay_labels(candidates,context):
 
 def draw(layout,context):
     from . import vta_review_ui as ui
+    from .vta_review_undo import blocked
     key=scope(context)
+    ready=not blocked()
     for kind,label,icon in [('assign','Mark for Assignment',ASSIGN_ICON),('suppress','Mark for Suppression',SUPPRESS_ICON)]:
         row=layout.row();row.enabled=bool(key and ui._selection.observation_id and not ui._analysis_locked())
         row.operator('blendcap.vta_mark_candidate',text=label,icon=icon).kind=kind
     for kind,label,icon in [('assign','Assign Marked',ASSIGN_ICON),('suppress','Suppress Marked',SUPPRESS_ICON)]:
         count=len(marks.items(key,kind));row=layout.row()
-        row.enabled=bool(count and not ui._analysis_locked() and (kind!='assign' or ui.current_character_id(context)))
+        row.enabled=bool(ready and count and not ui._analysis_locked() and (kind!='assign' or ui.current_character_id(context)))
         row.operator('blendcap.vta_apply_marks',text=f'{label} ({count})',icon=icon).kind=kind
     row=layout.row();row.enabled=bool(marks.items(key,'assign') or marks.items(key,'suppress')) and not _busy
     row.operator('blendcap.vta_clear_marks',text='Clear Marks',icon='X')

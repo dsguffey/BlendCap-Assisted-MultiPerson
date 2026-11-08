@@ -2684,6 +2684,10 @@ class BLENDCAP_MT_vta_commands(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
+        # Menu placement also makes recovery discoverable through menu search.
+        # Keep it ahead of review availability checks and disabled edit rows.
+        from .vta_review_undo import draw_pending
+        draw_pending(layout)
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')
         draw_scene_timing(layout, context, menu=True)
         analyze = layout.row()
@@ -3157,6 +3161,8 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        from .vta_review_undo import draw_pending
+        draw_pending(layout)
         if _view is None:
             layout.label(text="Current review unavailable.")
             return

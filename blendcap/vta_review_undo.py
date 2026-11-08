@@ -78,7 +78,12 @@ def _unmark(root):
     _pending.pop(root,None);_error='' if not _pending else 'VTA reconciliation pending.'
 
 def require_ready():
-    if _pending or _error:raise RuntimeError(_error or 'VTA reconciliation pending.')
+    if blocked():raise RuntimeError(_error or 'VTA reconciliation pending.')
+
+
+def blocked():
+    """Cheap presentation predicate; never reads or changes authoritative state."""
+    return bool(_pending or _error)
 
 def _intent(root,before,kind,operation,payload):
     return dict(root=root,file=bpy.data.filepath,request_id=uuid.uuid4().hex,
@@ -281,6 +286,7 @@ def save_pre(_unused=None,*_args):
 
 class BLENDCAP_OT_vta_reconcile(bpy.types.Operator):
     bl_idname='blendcap.vta_reconcile';bl_label='Retry Reconciliation';bl_options={'REGISTER'}
+    bl_description='Verify the pending operation and refresh VTA without replaying the edit'
     def execute(self,context):
         try:retry(context);return {'FINISHED'}
         except Exception as exc:_feedback(exc);self.report({'ERROR'},str(exc));return {'CANCELLED'}
@@ -289,7 +295,7 @@ def draw_pending(layout):
     if _presentation_warning:
         box=layout.box();box.label(text='Check VTA bindings/output after native Undo.',icon='ERROR')
         box.label(text='Check bindings/output; refresh or Load VTA Scene if needed.')
-    if _pending or _error:
+    if blocked():
         box=layout.box();box.label(text='VTA reconciliation pending',icon='ERROR')
         box.label(text='Domain edits paused; saved files retain this state.');box.operator('blendcap.vta_reconcile')
 

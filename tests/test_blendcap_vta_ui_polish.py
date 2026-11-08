@@ -12,6 +12,63 @@ class UiPolishTests(unittest.TestCase):
         from tests.test_blendcap_vta_output import BlenderOutputTests
         BlenderOutputTests.setUpClass();cls.addon=BlenderOutputTests.addon
         cls.export=importlib.import_module(cls.addon.__name__+'.blendcap.vta_export')
+    def test_pending_recovery_is_exposed_even_without_a_review_view(self):
+        ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui')
+        recovery=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_undo')
+        calls=[]
+        class Layout:
+            def box(self):return self
+            def row(self):return self
+            def label(self,**kw):pass
+            def operator(self,name,**kw):calls.append(name);return NS()
+        with mock.patch.object(recovery,'_pending',{'root':object()}), \
+             mock.patch.object(recovery,'_error',''), \
+             mock.patch.object(recovery,'_client') as client, \
+             mock.patch.object(ui,'_view',None), \
+             mock.patch.object(ui,'refresh',return_value=False), \
+             mock.patch.object(ui,'draw_scene_timing'), \
+             mock.patch.object(ui,'_source_actions_available',return_value=False):
+            for panel in (ui.VIEW3D_PT_blendcap_vta_current_frame,ui.BLENDCAP_MT_vta_commands):
+                calls.clear();panel.draw(NS(layout=Layout()),bpy.context)
+                self.assertEqual(calls[0],'blendcap.vta_reconcile')
+            client.assert_not_called()
+            with self.assertRaisesRegex(RuntimeError,'pending'):recovery.require_ready()
+            # Recovery itself must remain executable while domain edits are blocked.
+            with mock.patch.object(recovery,'retry') as retry:
+                self.assertEqual(recovery.BLENDCAP_OT_vta_reconcile.execute(NS(report=mock.Mock()),bpy.context),{'FINISHED'})
+                retry.assert_called_once_with(bpy.context)
+    def test_pending_recovery_disables_batch_submission_without_clearing_marks(self):
+        ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui')
+        recovery=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_undo')
+        marks=importlib.import_module(self.addon.__name__+'.blendcap.vta_marks')
+        rows=[]
+        class Layout:
+            enabled=True
+            def row(self):return Layout()
+            def label(self,**kw):pass
+            def operator(self,name,**kw):rows.append((name,kw.get('text'),self.enabled));return NS()
+        items=[dict(frame=1,observation_id='a'),dict(frame=2,observation_id='b')]
+        with mock.patch.object(recovery,'_pending',{'root':object()}), \
+             mock.patch.object(marks,'scope',return_value='scope'), \
+             mock.patch.object(marks.marks,'items',return_value=items), \
+             mock.patch.object(marks.marks,'handled') as handled, \
+             mock.patch.object(ui,'_view',NS(source_frame=0,candidates=())), \
+             mock.patch.object(ui,'_selection',NS(observation_id='a')), \
+             mock.patch.object(ui,'_analysis_locked',return_value=False), \
+             mock.patch.object(ui,'current_character_id',return_value='white'):
+            marks.draw(Layout(),bpy.context)
+            submissions=[row for row in rows if row[0]=='blendcap.vta_apply_marks']
+            self.assertEqual(len(submissions),2)
+            self.assertTrue(all(not enabled for _,_,enabled in submissions))
+            self.assertIn('Assign Marked (2)',[text for _,text,_ in submissions])
+            handled.assert_not_called()
+    def test_resolved_recovery_draw_is_inert(self):
+        recovery=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_undo')
+        layout=mock.Mock()
+        with mock.patch.object(recovery,'_pending',{}),mock.patch.object(recovery,'_error',''), \
+             mock.patch.object(recovery,'_presentation_warning',''):
+            self.assertFalse(recovery.blocked());recovery.require_ready();recovery.draw_pending(layout)
+            self.assertEqual(layout.mock_calls,[])
     def test_preferences_expose_only_persistent_choice_and_diagnostics(self):
         calls=[]
         class Layout:
