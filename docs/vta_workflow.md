@@ -1,11 +1,16 @@
-# VTA public host: workflow and technical guide
+# StudioFree MoCap public host: workflow and technical guide
 
-This guide describes the current Video-to-Animation (VTA) integration in the
-BlendCap-derived Blender host. VTA supports independent reviewed Characters
-from a source video; it does not guarantee correct automatic identity or pose
-through contact/occlusion. Final Core 1.0 functional QA is pending, not a feature-freeze
-or public/commercial-release claim. Public 1.0 additionally requires commercial,
-licensing, security, packaging, installation/update, first-run and support readiness.
+Current checkpoint: **2026-11-09**, tentative StudioFree MoCap name (MoCap
+shorthand, internal VTA retained). M1–M5 architecture and UI Passes 1–5 are locally
+deployed. Current build is in Public 1.0 QA/productization; manual acceptance is
+partial, not a release claim. Next is fresh-clip end-to-end workflow testing.
+Start with [current status/roadmap](current_status.md) and
+[current UI workflow](vta_ui_workflow.md); these supersede older UI names and
+milestone-specific next steps in the detailed technical reference below.
+
+VTA supports independent reviewed Characters and human-guided correction; it
+does not guarantee automatic identity/pose through contact and occlusion.
+Commercial, security, licensing, packaging and release-readiness gates remain.
 
 ## Public component and runtime boundary
 
@@ -50,7 +55,7 @@ Public adapters validate neutral source/evidence/animation contracts. Blender
 selection and detector candidate numbers are not durable Character identities.
 
 A compatible runtime and its licensed model assets are required for source-backed
-analysis/generation. Configure the runtime through VTA preferences; unavailable or
+analysis/generation. Provision the matching runtime through setup/repair; unavailable or
 incompatible runtimes fail clearly. Blank Scene/session controls do not require
 inference or a source. The public source, interfaces and license notices remain
 available; this guide does not replace any component's license or distribution

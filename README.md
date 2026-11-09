@@ -1,3 +1,11 @@
+> **Current StudioFree MoCap checkpoint — 2026-11-09:** tentative name, shorthand
+> MoCap; internal VTA identifiers retained. M1–M5 separation and UI Passes 1–5
+> are locally deployed. Next is a fresh-clip end-to-end workflow, not a release.
+> See [current status/roadmap](docs/current_status.md) and
+> [current UI workflow](docs/vta_ui_workflow.md). Manual acceptance is partial.
+> The BlendCap branding, marketing and paid-build links below are inherited
+> upstream context, not the StudioFree MoCap release offer or supported feature list.
+
 
 <div align="center">
 
@@ -128,11 +136,13 @@ flowchart LR
 
 The body path runs Meta's **SAM 3D Body** with a **DINOv3** backbone and **MoGe** for camera field-of-view, using **Fast-SAM-3D-Body** on **PyTorch** / **ONNX Runtime**. MediaPipe is not an active runtime dependency.
 
-Reviewed reconstruction runs in [`blendcap_vta_reconstruct_worker.py`](blendcap_vta_reconstruct_worker.py), using the detector-free model loader in [`save_mhr_data.py`](save_mhr_data.py). Shared export helpers live in [`pipeline/`](pipeline/) and FK math in [`blendcap/retarget/`](blendcap/retarget/). The legacy capture/preview planner and face-capture worker have been removed.
+Reviewed generation is routed through the public [job controller](blendcap/vta_jobs_ui.py), separated private orchestration/acceptance and the GPL [provider worker](blendcap_vta_provider_worker.py), using the detector-free model loader in [`save_mhr_data.py`](save_mhr_data.py). Shared export helpers live in [`pipeline/`](pipeline/) and FK math in [`blendcap/retarget/`](blendcap/retarget/). The legacy capture/preview planner and face-capture worker have been removed.
 
 ## Roadmap
 
-Directions actively being worked toward, not dated promises, priorities shift with feedback:
+The [current StudioFree MoCap roadmap](docs/current_status.md) starts with fresh-clip
+end-to-end workflow testing. The inherited upstream directions below are historical
+context, not current StudioFree MoCap implementation scope or release promises:
 
 **Planned**
 - **More rig presets** — ready-made bone maps for other popular rigs.

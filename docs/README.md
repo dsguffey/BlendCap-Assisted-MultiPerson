@@ -1,20 +1,16 @@
-# BlendCap Documentation
+# StudioFree MoCap documentation
 
-User documentation for BlendCap — markerless performance capture for Blender.
+Start with [current checkpoint and Public 1.0 roadmap](current_status.md),
+[current UI workflow](vta_ui_workflow.md), [technical workflow](vta_workflow.md),
+[completed M1–M5 engine boundary](vta_engine_boundary.md) and
+[runtime/setup foundation](vta_runtime_installation.md).
+StudioFree MoCap is the tentative product name, not a released Public 1.0 build.
+Body retargeting: [FK V1](vta_retargeting.md), [profile status](vta_retarget_profiles.md).
 
-For current VTA, start with the [VTA workflow guide](vta_workflow.md).
-The [accepted pre-refactor checkpoint](vta_pre_refactor_checkpoint_20261027.md)
-records the Fixed Depth/native-key baseline and process-separation preparation.
-The [Milestone 1 engine boundary](vta_engine_boundary.md) describes the first
-production read-only process route and its remaining isolation limits.
-The inherited Capture/Preview quick start and capture settings below are historical:
-that workflow was retired on 2026-10-23. It is not a fallback for missing review data.
-
-For the current reviewed multi-Character integration, see the
-[VTA public host workflow and technical guide](vta_workflow.md).
-Development-branch body retargeting: [VTA FK V1](vta_retargeting.md) and
-[profile support/status](vta_retarget_profiles.md). Preset availability in legacy
-BlendCap documentation is not certification of VTA control-rig support.
+The inherited BlendCap documentation indexed below is historical upstream context.
+Its Capture/Preview, installer, facial, platform and generic-retarget claims do
+not establish supported StudioFree MoCap behavior or distribution clearance.
+Current MoCap documentation above takes precedence. Preserve upstream attribution.
 
 ## Contents
 

@@ -1,5 +1,15 @@
 # VTA runtime and installation foundation — M5, 2026-10-29
 
+Current status (2026-11-09): M1–M5 foundation is accepted and locally deployed;
+protocol 7/layout 1/ProjectState 0.9. UI Passes 1–5 use that separated runtime.
+Users install Blender separately. Final setup should provision matching private
+runtime/provider environments and assets where terms permit. Compilation/IP
+protection and forgiving lightweight licensing are roadmap prototypes, not
+implemented packaging features or fixed vendor/technology choices. Final
+installer/update/repair/uninstall, ARAP T2, payload/source/notices compliance and
+clean-machine release QA remain open. See [current roadmap](current_status.md).
+
+
 This is the architecture for a future setup package, plus developer proofs. It
 is not a released installer, a redistribution clearance, or Public 1.0. M1–M4
 ownership remains accepted. The tested initial host is Windows x64 Blender

@@ -1,4 +1,21 @@
-# Engine boundary — Architecture Cleanup M4
+# Engine boundary — completed Architecture Cleanup M1–M5
+
+## Current checkpoint — 2026-11-09
+
+M1–M5 is complete and locally deployed: neutral versioned IPC, one-shot private
+control authority, durable jobs, file-backed provider results, private acceptance
+and public native application. Non-authoritative UI state remains public;
+production Blender code does not import private implementation. Protocol 7,
+layout 1 and ProjectState 0.9 remain current. Models may stay resident within a
+job; no persistent authoritative daemon is planned for 1.0. M5 runtime/package
+layout is the accepted foundation, not final installer/security/legal clearance.
+See [current status/roadmap](current_status.md) and [runtime foundation](vta_runtime_installation.md).
+
+The dated sections below retain historical milestone evidence. Their source-only,
+remaining-pass estimates, legacy-compatibility/export and undeployed-host claims
+are superseded by this current checkpoint and the coordinated deployment record.
+They are not instructions to restart completed milestones.
+
 
 ## Review latency optimization — source checkpoint, 2026-10-31
 
