@@ -27,7 +27,7 @@ class UiPass2Tests(unittest.TestCase):
     def test_registered_hierarchy(self):
         ui=self.module('vta_review_ui');registration=self.addon._registration
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_current_frame.bl_label,'Character Assignment')
-        self.assertEqual(ui.VIEW3D_PT_blendcap_vta_review.bl_label,'Workspace')
+        self.assertEqual(ui.VIEW3D_PT_blendcap_vta_review.bl_label,'MoCap Setup')
         names={c.__name__ for c in registration.classes}
         self.assertNotIn('VIEW3D_PT_blendcap_vta_characters',names)
         self.assertNotIn('VIEW3D_PT_blendcap_vta_generation_camera',names)
@@ -41,8 +41,8 @@ class UiPass2Tests(unittest.TestCase):
                      and getattr(c,'bl_space_type','')=='VIEW_3D'
                      and getattr(c,'bl_category','')=='MoCap' and not getattr(c,'bl_parent_id','')]
         ordered=sorted(root_panels,key=lambda c:getattr(c,'bl_order',0))
-        self.assertEqual([c.bl_label for c in ordered],['Video Source','Workspace','Character Assignment','Analyze','Update Tracking','Animation','Display','Export / Retarget','Resources'])
-        self.assertEqual(sum(c.bl_label=='Workspace' for c in root_panels),1)
+        self.assertEqual([c.bl_label for c in ordered],['MoCap Setup','Analyze','Character Assignment','Update Tracking','Animation','Overview','Export / Retarget','Resources'])
+        self.assertEqual(sum(c.bl_label=='MoCap Setup' for c in root_panels),1)
         self.assertIn('DEFAULT_CLOSED',ui.VIEW3D_PT_blendcap_vta_review.bl_options)
         layout=Layout()
         with mock.patch.object(panels,'addon_prefs',return_value=None),mock.patch.object(panels,'_draw_source_section'):
@@ -74,14 +74,43 @@ class UiPass2Tests(unittest.TestCase):
         from pathlib import Path
         self.assertEqual(runtime.configuration_path(environ={'LOCALAPPDATA':str(Path.cwd())}),Path.cwd()/'VTA/config/runtime.json')
 
+    def test_overview_uses_cached_state_without_io_or_nested_sections(self):
+        from pathlib import Path
+        ui=self.module('vta_review_ui');marks=self.module('vta_marks');layout=Layout()
+        context=NS(scene=NS(frame_current=21,render=NS(fps=24,fps_base=1)),window_manager=NS(blendcap_vta_animation_start=1,blendcap_vta_animation_end=90))
+        info=('project',{'fps':24},NS(source_path=Path('talk.mp4')),None)
+        with mock.patch.object(ui,'cached_scene_source',return_value=info),mock.patch.object(ui,'_view',NS(candidates=(),characters=(),analysis_revision_id='cached')),mock.patch.object(ui,'_display',NS(context=NS(coverage=(0,40)))),mock.patch.object(ui,'tracking_character_ids',return_value=('white',)),mock.patch.object(ui,'_feedback_key',return_value='key'),mock.patch.object(ui,'_operation_feedback',{}),mock.patch.object(marks,'scope',return_value='scope'),mock.patch.object(marks.marks,'items',return_value=[]),mock.patch.object(ui,'refresh',side_effect=AssertionError('Overview must not refresh')),mock.patch.object(ui,'_engine_client',side_effect=AssertionError('Overview must not start IPC')):
+            for _ in range(20):ui.VIEW3D_PT_blendcap_vta_display.draw(NS(layout=layout),context)
+        self.assertFalse(any(kind=='panel' for kind,_ in layout.events))
+        self.assertIn(('label','Source: talk.mp4'),layout.events)
+        self.assertIn(('label','Generation selection: 1–90'),layout.events)
+        self.assertFalse(any('Update needed' in str(value) for _,value in layout.events))
+    def test_apply_tooltip_explains_unavailable_without_changing_action(self):
+        marks=self.module('vta_marks');ui=self.module('vta_review_ui');bridge=self.module('vta_review_undo')
+        with mock.patch.object(bridge,'blocked',return_value=False),mock.patch.object(ui,'_analysis_locked',return_value=False),mock.patch.object(marks,'scope',return_value='scope'),mock.patch.object(marks.marks,'items',return_value=[]):
+            text=marks.BLENDCAP_OT_vta_apply_marks.description(bpy.context,NS(kind='assign'))
+        self.assertIn('Mark candidates to enable',text)
+        with mock.patch.object(ui,'generation_unavailable_reason',return_value='Select at least one Character.'):
+            text=ui.BLENDCAP_OT_vta_generate_animation.description(bpy.context,NS(action='RANGE'))
+        self.assertIn('Unavailable: Select at least one Character.',text)
+
+    def test_create_operator_focuses_exact_new_workspace(self):
+        workspace=self.module('vta_workspace');created=object();context=NS(window=NS(workspace=object()))
+        with mock.patch.object(workspace,'create_vta_workspace',return_value=created) as create:
+            result=workspace.BLENDCAP_OT_open_vta_workspace.execute(NS(report=mock.Mock()),context)
+        self.assertEqual(result,{'FINISHED'});create.assert_called_once_with(context)
+        self.assertIs(context.window.workspace,created)
+
     def test_workspace_sections_and_advanced_order(self):
         ui=self.module('vta_review_ui');layout=Layout()
-        with mock.patch.object(ui,'refresh',return_value=True),mock.patch.object(ui,'_view',None),mock.patch.object(ui,'cached_scene_source',return_value=None),mock.patch.object(ui,'draw_scene_workflow'),mock.patch.object(self.module('vta_workspace'),'blank_animation_guidance',return_value=[]):
+        with mock.patch.object(ui,'refresh',return_value=True),mock.patch.object(ui,'_view',None),mock.patch.object(ui,'cached_scene_source',return_value=None),mock.patch.object(ui,'draw_scene_workflow'),mock.patch.object(self.module('vta_workspace'),'blank_animation_guidance',return_value=[]),mock.patch.object(self.module('panels'),'draw_blendcap_ui'):
             ui.VIEW3D_PT_blendcap_vta_review.draw(NS(layout=layout),NS(scene=NS(blendcap_props=NS())))
         panels=[v for k,v in layout.events if k=='panel']
-        self.assertEqual(panels,['vta_workspace_scenes','vta_workspace_camera','vta_workspace_camera_advanced','vta_workspace_details'])
+        self.assertEqual(panels,['vta_workspace_scenes','vta_workspace_camera','vta_workspace_camera_advanced','vta_setup_display'])
         self.assertEqual(layout.events.count(('operator','blendcap.open_vta_workspace')),1)
-        self.assertIn(('operator','blendcap.vta_camera_depth'),layout.events)
+        self.assertNotIn(('operator','blendcap.vta_camera_depth'),layout.events)
+        self.assertIn(('label','Video Source'),layout.events)
+        self.assertNotIn(('label','Details'),layout.events)
     def test_marks_use_current_destination_without_changing_mark_data(self):
         marks=self.module('vta_marks');ui=self.module('vta_review_ui');overlay=self.module('vta_overlay')
         candidates=tuple(overlay.OverlayRegionCandidate(v,v,(0,0,100,100),None,False) for v in ('a','b','c'))

@@ -572,17 +572,18 @@ class BlenderWorkspaceTests(unittest.TestCase):
         finally:
             workspace.unregister()
 
-    def test_open_is_idempotent_and_stock_dopesheet_poll_is_false(self):
+    def test_creation_repeats_and_stock_dopesheet_poll_is_false(self):
         pre_actions = len(bpy.data.actions)
         self.addon.register()
         try:
             original_scene = bpy.context.window.scene
+            before_workspaces = set(bpy.data.workspaces)
             self.assertEqual(bpy.ops.blendcap.open_vta_workspace(), {'FINISHED'})
             self.assertEqual(bpy.ops.blendcap.open_vta_workspace(), {'FINISHED'})
             self.assertIs(bpy.context.window.scene, original_scene)
-            tagged = [w for w in bpy.data.workspaces if w.get(WORKSPACE_TAG) == 1]
-            self.assertEqual(len(tagged), 1)
-            self.assertEqual(tagged[0].name, 'Video to Animation')
+            tagged = [w for w in bpy.data.workspaces if w not in before_workspaces and w.get(WORKSPACE_TAG) == 1]
+            self.assertEqual(len(tagged), 2)
+            self.assertTrue(all(w.name.startswith('StudioFree MoCap') for w in tagged))
             normal_screen = bpy.data.workspaces['Animation'].screens[0]
             normal_area = next(a for a in normal_screen.areas
                                if a.type == 'DOPESHEET_EDITOR' and a.ui_type == 'DOPESHEET')

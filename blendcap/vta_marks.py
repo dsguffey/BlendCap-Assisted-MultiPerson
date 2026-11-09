@@ -123,6 +123,18 @@ class BLENDCAP_OT_vta_apply_marks(bpy.types.Operator):
     kind:bpy.props.EnumProperty(items=[('assign','Assignment',''),('suppress','Suppression','')])
     confirmed:bpy.props.BoolProperty(default=False,options={'HIDDEN','SKIP_SAVE'})
     @classmethod
+    def description(cls, context, properties):
+        from . import vta_review_ui as ui
+        from .vta_review_undo import blocked
+        kind = getattr(properties, 'kind', 'assign')
+        purpose = 'Assign marked candidates to the selected Character.' if kind == 'assign' else 'Suppress marked candidates.'
+        if blocked(): return purpose + ' Retry Reconciliation to enable edits.'
+        if ui._analysis_locked(): return purpose + ' Wait for the running operation.'
+        if not marks.items(scope(context), kind): return purpose + ' Mark candidates to enable.'
+        if kind == 'assign' and not ui.current_character_id(context): return purpose + ' Select a Character to enable.'
+        return purpose + ' Applies one atomic edit; failure retains marks.'
+
+    @classmethod
     def poll(cls,context):
         from . import vta_review_ui as ui
         key=scope(context)

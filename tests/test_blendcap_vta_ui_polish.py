@@ -19,6 +19,7 @@ class UiPolishTests(unittest.TestCase):
         class Layout:
             def box(self):return self
             def row(self):return self
+            def column(self):return self
             def label(self,**kw):pass
             def operator(self,name,**kw):calls.append(name);return NS()
         with mock.patch.object(recovery,'_pending',{'root':object()}), \

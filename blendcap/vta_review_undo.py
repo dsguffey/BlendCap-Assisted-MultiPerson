@@ -286,7 +286,7 @@ def save_pre(_unused=None,*_args):
 
 class BLENDCAP_OT_vta_reconcile(bpy.types.Operator):
     bl_idname='blendcap.vta_reconcile';bl_label='Retry Reconciliation';bl_options={'REGISTER'}
-    bl_description='Verify the pending operation and refresh MoCap without replaying the edit'
+    bl_description='Verify the pending operation and refresh MoCap without replaying the edit; available when reconciliation is pending'
     @classmethod
     def poll(cls,context):return bool(_pending)
     def execute(self,context):

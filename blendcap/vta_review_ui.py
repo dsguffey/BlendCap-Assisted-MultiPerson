@@ -1125,7 +1125,7 @@ class BLENDCAP_OT_vta_analyze(bpy.types.Operator):
     def poll(cls, context):
         return _source_actions_available(context)
     bl_label = "Analyze Candidates"
-    bl_description = "Analyze missing video frames with the existing offline SAM3 provider"
+    bl_description = "Analyze missing source frames; choose a video in a loaded MoCap Scene and wait for running operations to enable"
 
     def execute(self, context):
         try:
@@ -1760,10 +1760,15 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
         from .vta_jobs_ui import busy
         return busy() or (_source_actions_available(context) and bool(tracking_character_ids(context)))
     bl_label = 'Generate Animation Range'
-    bl_description = 'Explicitly reconstruct reviewed Character boxes; no identity decisions or tracking changes'
+    bl_description = 'Generate animation for selected Characters in this range; select Character rows and load analyzed source data to enable'
 
     action: bpy.props.EnumProperty(items=(('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
         ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='RANGE')
+
+    @classmethod
+    def description(cls, context, properties):
+        reason = generation_unavailable_reason(context)
+        return cls.bl_description + (' Unavailable: ' + reason if reason else '')
 
     def execute(self, context):
         try:
@@ -2919,7 +2924,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
     bl_idname = "blendcap.vta_update_tracking"
     bl_label = "Update Tracking"
     bl_options = set()  # Domain decisions use explicit correction, not native history.
-    bl_description = "Update independent tracking for every selected Character near this frame"
+    bl_description = "Update tracking near this frame for selected Characters; load a source and select Character rows to enable"
 
     @classmethod
     def poll(cls, context):
@@ -2975,7 +2980,7 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
 
 
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
-    bl_label = "Workspace"
+    bl_label = "MoCap Setup"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -2987,8 +2992,11 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     def draw(self, context):
         refresh(context)
         layout = self.layout
-        layout.operator('blendcap.open_vta_workspace', text='Open MoCap Workspace',
+        layout.operator('blendcap.open_vta_workspace', text='Create MoCap Workspace',
                         icon='WORKSPACE')
+        layout.label(text='Video Source', icon='FILE_MOVIE')
+        from .panels import draw_blendcap_ui
+        draw_blendcap_ui(self, context)
         from . import vta_busy
         vta_busy.draw(layout)
         from .vta_project_save import draw_error
@@ -3002,18 +3010,11 @@ class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
         if camera is not None:
             camera.operator('blendcap.vta_snap_source_camera', icon='CAMERA_DATA')
             camera.operator('blendcap.vta_match_source_fps')
-            camera.operator('blendcap.vta_camera_depth', text='Move Along Camera Depth')
             advanced = section(camera, 'workspace_camera_advanced', 'Advanced')
             if advanced is not None:
                 VIEW3D_PT_blendcap_vta_generation_camera.draw(type('Draw', (), {'layout': advanced})(), context)
-        details = section(layout, 'workspace_details', 'Details')
-        if details is not None:
-            info = cached_scene_source(context)
-            if info is not None:
-                details.label(text=f'Scene: {context.scene.render.fps / context.scene.render.fps_base:g} fps / Source: {info[1]["fps"]:g} fps')
-            if _location is not None: details.label(text=f'Blender frame {_location.blender_frame}')
-            if _view is not None:
-                details.label(text=f'{len(_view.candidates)} Candidates / {len(_view.characters)} Characters')
+        display = section(layout, 'setup_display', 'Display')
+        if display is not None: _draw_display_controls(display, context)
         from .vta_workspace import blank_animation_guidance
         for line in blank_animation_guidance(context): layout.label(text=line, icon='INFO')
         if _view is None:
@@ -3032,7 +3033,7 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Analyze"
     bl_idname = "VIEW3D_PT_blendcap_vta_analyze"
 
-    bl_order = 30
+    bl_order = 20
 
     def draw(self, context):
         layout = self.layout
@@ -3165,7 +3166,7 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
     bl_label = "Character Assignment"
     bl_idname = "VIEW3D_PT_blendcap_vta_current_frame"
 
-    bl_order = 20
+    bl_order = 30
 
     def draw(self, context):
         layout = self.layout
@@ -3173,6 +3174,10 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         draw_pending(layout)
         if _view is None:
             layout.label(text="Current review unavailable.")
+            actions = layout.column(); actions.enabled = False
+            actions.operator('blendcap.vta_repeat_assignment')
+            actions.operator('blendcap.vta_apply_marks', text='Assign Marked (0)').kind = 'assign'
+            actions.operator('blendcap.vta_apply_marks', text='Suppress Marked (0)').kind = 'suppress'
             return
         VIEW3D_PT_blendcap_vta_characters.draw(self, context)
         repeat = layout.row()
@@ -3340,20 +3345,45 @@ class VIEW3D_PT_blendcap_vta_animation_cleanup(_VtaReviewSubpanel,bpy.types.Pane
         draw_cleanup(self.layout,context)
 
 
-class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = "Display"
-    bl_idname = "VIEW3D_PT_blendcap_vta_display"
-    bl_options = {'DEFAULT_CLOSED'}
+def _draw_display_controls(layout, context):
+    layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Candidate Boxes")
+    layout.label(text="Review keys: click in MoCap Review Timeline")
+    layout.label(text="Legacy Sequencer lanes hide over strips")
+    layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
+    layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
 
+
+class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
+    bl_label = 'Overview'
+    bl_idname = 'VIEW3D_PT_blendcap_vta_display'
     bl_order = 60
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(context.scene, "blendcap_show_vta_candidate_overlay", text="Candidate Boxes")
-        layout.label(text="Review keys: click in MoCap Review Timeline")
-        layout.label(text="Legacy Sequencer lanes hide over strips")
-        layout.label(text="◆ Assignment  ○ Occluded  □ No Valid  × Not Visible")
-        layout.label(text=f"Selected review keys: {len(_review_key_selection.keyframe_ids)}")
+        info = cached_scene_source(context)
+        if info is not None:
+            source = info[1]
+            layout.label(text='Source: ' + info[2].source_path.name)
+            layout.label(text=f'Source FPS: {source["fps"]:g} / Scene FPS: {context.scene.render.fps / context.scene.render.fps_base:g}')
+        layout.label(text=f'Current frame: {context.scene.frame_current}')
+        if _view is not None:
+            layout.label(text=f'{len(_view.candidates)} Candidates / {len(_view.characters)} Characters')
+            layout.label(text='Analysis: ' + (_view.analysis_revision_id or 'Not analyzed'))
+            coverage = getattr(_display.context, 'coverage', None)
+            if coverage is not None:
+                layout.label(text=f'Cached review source frames: {coverage[0]}–{coverage[1]}')
+        from . import vta_marks, vta_review_undo
+        scope = vta_marks.scope(context)
+        layout.label(text=f'Assignment marks: {len(vta_marks.marks.items(scope,"assign"))}')
+        layout.label(text=f'Suppression marks: {len(vta_marks.marks.items(scope,"suppress"))}')
+        layout.label(text='Reconciliation: ' + ('Pending' if vta_review_undo.blocked() else 'Ready'))
+        wm = context.window_manager
+        layout.label(text=f'Generation selection: {wm.blendcap_vta_animation_start}–{wm.blendcap_vta_animation_end}')
+        if _view is not None:
+            layout.label(text=f'Selected Characters: {len(tracking_character_ids(context))}')
+        feedback = _operation_feedback.get(_feedback_key('animation', context))
+        if feedback is not None: layout.label(text='Animation feedback: ' + feedback['primary'])
 
 
 class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):

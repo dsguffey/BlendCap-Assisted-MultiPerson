@@ -73,7 +73,7 @@ def export_current(context,source,destination,start,end):
 
 class BLENDCAP_OT_vta_export_bvh(bpy.types.Operator,ExportHelper):
     bl_idname='blendcap.vta_export_bvh';bl_label='Export BVH'
-    bl_description='Export the selected Character’s current animation, including manual Depth and cleanup, over the Scene frame range'
+    bl_description='Export the selected Character’s current animation, including manual Depth and cleanup, over the Scene frame range; select an editable generated Character in Object Mode and wait for running operations to enable'
     filename_ext='.bvh'
     filter_glob:bpy.props.StringProperty(default='*.bvh',options={'HIDDEN'})
     @classmethod

@@ -272,7 +272,6 @@ classes = (
     BLENDCAP_OT_delete_rest_pose_preset,
     BLENDCAP_OT_preview_rest_pose_preset,
     BLENDCAP_OT_donate,
-    VIEW3D_PT_blendcap_ui,
     VIEW3D_PT_vta_retarget,
     BLENDCAP_OT_vta_suppress_candidate,
     BLENDCAP_OT_vta_generate_animation,

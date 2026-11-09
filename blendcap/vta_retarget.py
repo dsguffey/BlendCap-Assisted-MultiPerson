@@ -720,7 +720,7 @@ class VIEW3D_PT_vta_retarget(bpy.types.Panel):
 class BLENDCAP_OT_vta_retarget(bpy.types.Operator):
     bl_idname='blendcap.vta_retarget'
     bl_label='Retarget Animation'
-    bl_description='Bake final MoCap motion to a new supported FK Action; keep previous animation'
+    bl_description='Bake motion to a new FK Action and keep previous animation; use Object Mode, load the source Scene and choose a source Character and supported target'
     bl_options={'REGISTER','UNDO'}
     source_name:bpy.props.StringProperty(name='Character')
     target_name:bpy.props.StringProperty(name='Target armature')

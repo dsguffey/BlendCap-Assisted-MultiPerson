@@ -674,6 +674,11 @@ def get_vta_workspace(context):
         return matches[0]
     if WORKSPACE_NAME in bpy.data.workspaces:
         raise ValueError('A workspace conflicts with the bundled workspace name; it was not replaced.')
+    return create_vta_workspace(context)
+
+
+def create_vta_workspace(context):
+    """Append an independent preset; creation never chooses a source or Scene."""
     path = Path(__file__).resolve().parent.parent / 'vta_workspace_mode.blend'
     with bpy.data.libraries.load(str(path), link=False) as (source, dest):
         if WORKSPACE_NAME not in source.workspaces:
@@ -689,19 +694,19 @@ def get_vta_workspace(context):
 
 class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
     bl_idname = 'blendcap.open_vta_workspace'
-    bl_label = 'Open MoCap Workspace'
-    bl_description = 'Open the provisional StudioFree MoCap review workspace'
+    bl_label = 'Create MoCap Workspace'
+    bl_description = 'Create another MoCap workspace and switch to its new tab; existing workspaces are preserved'
 
     def execute(self, context):
         try:
-            workspace = get_vta_workspace(context)
+            workspace = create_vta_workspace(context)
         except (OSError, ValueError, RuntimeError) as error:
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
         context.window.workspace = workspace
         # Open the layout only. Enter/Load/New are the explicit Scene actions.
         vta_invalidation.request_redraw()
-        self.report({'INFO'}, 'StudioFree MoCap workspace opened. Layout is provisional.')
+        self.report({'INFO'}, 'StudioFree MoCap workspace created.')
         return {'FINISHED'}
 
 
