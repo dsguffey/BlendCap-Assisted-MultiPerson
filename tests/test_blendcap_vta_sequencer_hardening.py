@@ -216,7 +216,8 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
              mock.patch.object(ui, "_review_key_selection", SimpleNamespace(keyframe_ids=("key",))), \
              mock.patch.object(ui, "tracking_character_ids", return_value=('red',)), \
              mock.patch.object(ui, "refresh", return_value=True):
-            enabled = ui._action_availability()
+            with mock.patch(ui.__package__+'.vta_management_selection.selected',return_value='amy'):
+                enabled = ui._action_availability()
             self.assertTrue(all(enabled.values()))
             panel = Layout()
             ui._draw_management_actions(panel)

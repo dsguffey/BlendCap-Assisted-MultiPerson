@@ -29,7 +29,7 @@ class UiPass2Tests(unittest.TestCase):
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_current_frame.bl_label,'Character Assignment')
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_review.bl_label,'MoCap Setup')
         names={c.__name__ for c in registration.classes}
-        self.assertNotIn('VIEW3D_PT_blendcap_vta_characters',names)
+        self.assertIn('VIEW3D_PT_blendcap_vta_characters',names)
         self.assertNotIn('VIEW3D_PT_blendcap_vta_generation_camera',names)
         self.assertNotIn('VIEW3D_PT_vta_credits',names)
         self.assertEqual(self.module('vta_retarget').VIEW3D_PT_vta_retarget.bl_label,'Export / Retarget')
@@ -41,7 +41,7 @@ class UiPass2Tests(unittest.TestCase):
                      and getattr(c,'bl_space_type','')=='VIEW_3D'
                      and getattr(c,'bl_category','')=='MoCap' and not getattr(c,'bl_parent_id','')]
         ordered=sorted(root_panels,key=lambda c:getattr(c,'bl_order',0))
-        self.assertEqual([c.bl_label for c in ordered],['MoCap Setup','Analyze','Character Assignment','Update Tracking','Animation','Overview','Export / Retarget','Resources'])
+        self.assertEqual([c.bl_label for c in ordered],['MoCap Setup','Analyze','Character Management','Character Assignment','Update Tracking','Animation','Overview','Export / Retarget','Resources'])
         self.assertEqual(sum(c.bl_label=='MoCap Setup' for c in root_panels),1)
         self.assertIn('DEFAULT_CLOSED',ui.VIEW3D_PT_blendcap_vta_review.bl_options)
         layout=Layout()

@@ -137,7 +137,7 @@ class SceneTimingTests(unittest.TestCase):
             self.timing.match_source_rate(self.original,self.fixture.pid,self.source)
         self.assertEqual((self.original.render.fps,self.original.render.fps_base),before)
         s=self.prepare()
-        with self.assertRaisesRegex(ValueError,'matching VTA-owned'):
+        with self.assertRaisesRegex(ValueError,'matching MoCap-owned'):
             self.timing.match_source_rate(s,self.fixture.pid,dict(self.source,source_id='wrong'))
 
     def test_invalid_and_variable_source_rate_fail_without_creation(self):
@@ -229,7 +229,7 @@ class SceneTimingTests(unittest.TestCase):
         s=self.prepare()
         duplicate=s.copy()
         before=set(bpy.data.scenes)
-        with self.assertRaisesRegex(ValueError,'Multiple VTA Scenes'):
+        with self.assertRaisesRegex(ValueError,'Multiple MoCap Scenes'):
             self.prepare()
         self.assertEqual(set(bpy.data.scenes),before)
 

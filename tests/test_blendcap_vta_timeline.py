@@ -278,8 +278,8 @@ class BlenderTimelineTests(unittest.TestCase):
             self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
                              {"character_id": "amy", "source_id": "source", "frame": 5})
             operator.action = "delete-character"
-            self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),
-                             {"character_id": "amy"})
+            with mock.patch(ui.__package__+'.vta_management_selection.selected',return_value='managed'):
+                self.assertEqual(ui.BLENDCAP_OT_vta_review_manage._arguments(operator),{'character_id':'managed'})
         scene.frame_set.assert_not_called()
 
     def test_right_click_from_blank_selection_activates_key_before_native_menu(self):
@@ -435,7 +435,7 @@ class BlenderTimelineTests(unittest.TestCase):
                      mock.patch.object(ui, "_selection", selection), \
                      mock.patch.object(ui, "_review_key_selection", selected), \
                      mock.patch.object(ui, "refresh", return_value=True), \
-                     mock.patch.object(ui, "_get_backend", return_value=backend):
+                     mock.patch.object(ui, "_get_backend", return_value=backend),mock.patch(ui.__package__+".vta_management_selection.selected",return_value="amy"):
                     self.assertEqual(
                         ui.BLENDCAP_OT_vta_review_manage.invoke(operator, context, None),
                         {'RUNNING_MODAL'},

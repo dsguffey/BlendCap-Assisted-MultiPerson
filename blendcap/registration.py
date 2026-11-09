@@ -304,6 +304,7 @@ classes = (
     BLENDCAP_PT_vta_timeline,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
+    VIEW3D_PT_blendcap_vta_characters,
     VIEW3D_PT_blendcap_vta_current_frame,
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_animation,

@@ -369,7 +369,7 @@ class SceneBindingTests(unittest.TestCase):
             loc=replace(self.ui._location,source_frame=frame,blender_frame=frame+1)
             self.ui._display.frame(backend,loc)
         self.assertLessEqual(len(self.ui._display.frames),256)
-        with self.assertRaisesRegex(self.ui.VtaReviewUiError,'outside VTA source coverage'):
+        with self.assertRaisesRegex(self.ui.VtaReviewUiError,'outside MoCap source coverage'):
             self.ui._display.frame(backend,replace(self.ui._location,source_frame=-1))
 
     def test_true_explicit_round_trip_preserves_user_choice_restores_on_load(self):
@@ -437,7 +437,7 @@ class SceneBindingTests(unittest.TestCase):
 
     def test_enter_without_memory_never_guesses(self):
         self.owned()
-        with self.assertRaisesRegex(ValueError,'No VTA Scene loaded'): self.session.enter(bpy.context)
+        with self.assertRaisesRegex(ValueError,'No MoCap Scene loaded'): self.session.enter(bpy.context)
         self.assertIsNone(self.workspace.blendcap_vta_loaded_scene)
 
     def test_failed_load_rolls_back_preserves_last_success(self):
@@ -532,7 +532,7 @@ class SceneBindingTests(unittest.TestCase):
         a=self.owned();self.session.load(bpy.context,a)
         bpy.context.window.scene=self.original
         bpy.data.scenes.remove(a,do_unlink=True)
-        with self.assertRaisesRegex(ValueError,'No VTA Scene loaded'): self.session.enter(bpy.context)
+        with self.assertRaisesRegex(ValueError,'No MoCap Scene loaded'): self.session.enter(bpy.context)
         self.assertIs(bpy.context.window.scene,self.original)
 
     def test_different_sources_a_b_a_query_only_loaded_owner(self):

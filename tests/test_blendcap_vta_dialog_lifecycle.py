@@ -16,14 +16,12 @@ class DialogLifecycleTests(unittest.TestCase):
   self.marks=importlib.import_module(self.addon.__name__+'.blendcap.vta_marks')
   self.context=NS(scene=NS(as_pointer=lambda:1,frame_current=125),window=mock.Mock(),window_manager=mock.Mock())
   self.addCleanup(setattr,self.busy,'_active',None);self.addCleanup(setattr,self.marks,'_busy',False)
- def test_repeat_confirmation_completes_once_and_preserves_cancelled_prepare(self):
+ def test_repeat_unavailable_has_no_assignment_or_second_modal_handoff(self):
   cls=self.ui.BLENDCAP_OT_vta_repeat_assignment;self.busy.install(cls,defer=False)
-  op=NS(_prepare=mock.Mock(return_value=True),_repeat_next_frame=125,_repeat_location=NS(blender_frame=125))
-  with mock.patch.object(self.busy,'bpy',NS(app=NS(background=False))),mock.patch.object(self.ui.BLENDCAP_OT_vta_review_assign,'execute',return_value={'FINISHED'}) as apply:
-   self.assertEqual(cls.execute(op,self.context),{'FINISHED'});apply.assert_called_once()
-   self.context.window_manager.modal_handler_add.assert_not_called();self.context.window_manager.event_timer_add.assert_not_called()
-   op._prepare.return_value=False;apply.reset_mock()
-   self.assertEqual(cls.execute(op,self.context),{'CANCELLED'});apply.assert_not_called();self.assertFalse(self.busy.busy())
+  op=NS(report=mock.Mock())
+  with mock.patch.object(self.busy,'bpy',NS(app=NS(background=False))),mock.patch.object(self.ui,'_edit_available',return_value=False),mock.patch.object(self.ui.BLENDCAP_OT_vta_review_assign,'execute') as apply:
+   self.assertEqual(cls.execute(op,self.context),{'CANCELLED'});apply.assert_not_called()
+   self.context.window_manager.modal_handler_add.assert_not_called();self.context.window_manager.event_timer_add.assert_not_called();self.assertFalse(self.busy.busy())
  def marked_op(self,kind='assign'):
   cls=self.marks.BLENDCAP_OT_vta_apply_marks
   class Op:

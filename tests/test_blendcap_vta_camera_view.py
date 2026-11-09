@@ -78,6 +78,6 @@ class CameraViewTests(unittest.TestCase):
         self.context.area=SimpleNamespace(type='DOPESHEET_EDITOR')
         self.context.workspace={}
         self.space.region_3d.view_perspective='PERSP'
-        with self.assertRaisesRegex(ValueError,'3D viewport or the VTA workspace'):
+        with self.assertRaisesRegex(ValueError,'3D viewport or the MoCap workspace'):
             self.workspace.snap_source_camera_view(self.context)
         self.assertEqual(self.space.region_3d.view_perspective,'PERSP')

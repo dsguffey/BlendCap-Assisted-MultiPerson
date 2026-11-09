@@ -692,6 +692,19 @@ def create_vta_workspace(context):
     return workspace
 
 
+def _open_workspace_sidebar(workspace):
+    """Best effort through public RNA only; sidebar failure never breaks Create."""
+    for screen in getattr(workspace, 'screens', ()):
+        for area in screen.areas:
+            if area.type != 'VIEW_3D': continue
+            try:
+                area.spaces.active.show_region_ui = True
+                for region in area.regions:
+                    if region.type == 'UI': region.active_panel_category = 'MoCap'
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                pass
+
+
 class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
     bl_idname = 'blendcap.open_vta_workspace'
     bl_label = 'Create MoCap Workspace'
@@ -704,6 +717,8 @@ class BLENDCAP_OT_open_vta_workspace(bpy.types.Operator):
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
         context.window.workspace = workspace
+        try: _open_workspace_sidebar(workspace)
+        except (AttributeError, ReferenceError, RuntimeError, TypeError, ValueError): pass
         # Open the layout only. Enter/Load/New are the explicit Scene actions.
         vta_invalidation.request_redraw()
         self.report({'INFO'}, 'StudioFree MoCap workspace created.')
@@ -734,6 +749,8 @@ class BLENDCAP_MT_vta_timeline_commands(bpy.types.Menu):
         ui = _ui()
         layout = self.layout
         layout.operator('blendcap.vta_reconcile', text='Retry Reconciliation')
+        repeat = layout.row(); repeat.enabled = ui.BLENDCAP_OT_vta_repeat_assignment.poll(context)
+        repeat.operator('blendcap.vta_repeat_assignment', text='Repeat Last Assignment Mark')
         ui.draw_scene_workflow(layout, context)
         layout.operator('blendcap.vta_review_refresh', text='Refresh Review')
         layout.operator('blendcap.vta_snap_source_camera', text='Snap to Source Camera', icon='CAMERA_DATA')

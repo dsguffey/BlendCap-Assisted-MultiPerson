@@ -373,6 +373,7 @@ def _repeat_character_id():
 
 
 def _repeat_assignment_context(context):
+    if _is_timeline_context(context): return True
     return (getattr(getattr(context, 'area', None), 'type', None) == 'SEQUENCE_EDITOR'
             and getattr(getattr(context, 'space_data', None), 'view_type', None)
             in {'PREVIEW', 'SEQUENCER_PREVIEW'}
@@ -2027,82 +2028,51 @@ class BLENDCAP_OT_vta_review_assign(bpy.types.Operator):
 class BLENDCAP_OT_vta_repeat_assignment(bpy.types.Operator):
     bl_idname = 'blendcap.vta_repeat_assignment'
     bl_label = 'Repeat Last Assignment'
-    bl_options = set()  # Domain decisions use explicit correction, not native history.
-    bl_description = 'Assign the current candidate to the last explicitly assigned Character and advance one frame'
+    bl_options = set()
+    bl_description = 'Mark the current candidate using the previous assignment target and advance; Apply Marked is still required. Select the previous target Character to enable'
 
     @classmethod
     def poll(cls, context):
+        from .vta_review_undo import blocked
         target = _repeat_character_id()
-        if not _presentation_current(context) or target is None or _analysis_locked() or not _repeat_assignment_context(context):
-            return False
-        intent = SelectionState()
-        intent.character_id = target
-        intent.observation_id = _selection.observation_id
-        return intent.can_assign(_view)
-
-    def _prepare(self, context, *, executing=False):
-        if not _edit_available(self):
-            return False
-        if not _repeat_assignment_context(context):
-            self.report({'ERROR'}, 'Use Repeat Last Assignment in the MoCap Preview.')
-            return False
-        if not refresh(context, check_disk=True):
-            self.report({'ERROR'}, _status)
-            return False
-        target = _repeat_character_id()
-        if target is None:
-            self.report({'ERROR'}, 'Assign a candidate to a Character first in this session.')
-            return False
-        try:
-            if getattr(self, '_repeat_location', None) is not None and (
-                    self._repeat_location != _location or self._repeat_target != target):
-                raise VtaReviewUiError('The repeat target or review frame changed. Select again.')
-            # Do not overwrite a changed selection while a confirmation is open:
-            # normal Assign must reject it using its existing request guards.
-            if not (executing and getattr(self, '_confirmed_request', None) is not None):
-                _selection.select_character(_view, target)
-                _sync_properties(context)
-            if not _selection.can_assign(_view):
-                raise VtaReviewUiError('Select one valid candidate for Repeat Last Assignment.')
-            scene = context.scene
-            strip = _active_video_strip(scene.sequence_editor)
-            if strip is None:
-                raise VtaReviewUiError('Select the matching movie strip in the Video Sequencer.')
-            _first, last = _source_coverage(context, _location)
-            final_frame = min(visible_frame(_location, last), _strip_visible_end(strip) - 1)
-            if not _location.blender_frame <= final_frame:
-                raise VtaReviewUiError('The current frame is outside the source review range.')
-            self._repeat_target = target
-            self._repeat_location = _location
-            self._repeat_scene = scene
-            self._repeat_next_frame = min(_location.blender_frame + 1, final_frame)
-            return True
-        except Exception as exc:
-            self.report({'ERROR'}, user_message(exc))
-            return False
+        return bool(_presentation_current(context) and target and current_character_id(context) == target
+                    and not blocked() and not _analysis_locked() and _repeat_assignment_context(context)
+                    and _selection.can_assign(_view))
 
     def invoke(self, context, event):
-        if not self._prepare(context):
-            return {'CANCELLED'}
-        # Same preparation, confirmation dialog, persistence and stale guards.
-        return BLENDCAP_OT_vta_review_assign.invoke(self, context, event)
-
-    def draw(self, context):
-        BLENDCAP_OT_vta_review_assign.draw(self, context)
+        return self.execute(context)
 
     def execute(self, context):
-        if not self._prepare(context, executing=True):
+        if not _edit_available(self): return {'CANCELLED'}
+        if not refresh(context, check_disk=True):
+            self.report({'ERROR'}, _status); return {'CANCELLED'}
+        if not BLENDCAP_OT_vta_repeat_assignment.poll(context):
+            self.report({'ERROR'}, 'Select the previous assignment target and a valid candidate in the MoCap Preview or timeline. Existing marks were retained.')
             return {'CANCELLED'}
-        result = BLENDCAP_OT_vta_review_assign.execute(self, context)
-        if result == {'FINISHED'} and self._repeat_next_frame != self._repeat_location.blender_frame:
-            # Only after durable assignment success; no candidate is carried forward.
-            _selection.observation_id = ''
-            self._repeat_scene.frame_set(self._repeat_next_frame)
-            if not refresh(context, check_disk=True):
-                self.report({'WARNING'}, 'Assignment saved; refresh MoCap Review for the next frame.')
-            else:
-                _sync_properties(context)
-        return result
+        from . import vta_marks
+        import copy
+        previous = copy.deepcopy(vta_marks.marks.scopes)
+        location = _location
+        scene = context.scene
+        try:
+            info = cached_scene_source(context)
+            if info is None: raise VtaReviewUiError('Load the source Scene before repeating an assignment mark.')
+            offset = location.blender_frame - location.source_frame
+            strip = _active_video_strip(scene.sequence_editor)
+            if strip is None: raise VtaReviewUiError('Select the matching movie strip.')
+            last = min(info[1]['end_frame'] + offset, _strip_visible_end(strip) - 1)
+            if location.blender_frame > last: raise VtaReviewUiError('Current frame is outside the source range.')
+            vta_marks.mark_candidate(context, 'assign', ensure=True)
+            next_frame = min(location.blender_frame + 1, last)
+            if next_frame != location.blender_frame: scene.frame_set(next_frame)
+        except Exception as exc:
+            vta_marks.marks.scopes = previous
+            self.report({'ERROR'}, user_message(exc)); return {'CANCELLED'}
+        _selection.observation_id = ''
+        if not refresh(context, check_disk=True):
+            self.report({'WARNING'}, 'Assignment mark retained; refresh review for the next frame.')
+        else: _sync_properties(context)
+        return {'FINISHED'}
 
 
 class BLENDCAP_OT_vta_review_hard_state(bpy.types.Operator):
@@ -2254,11 +2224,11 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
                 project=_get_backend(context).observe(_location)
                 vta_scene_characters.add(context.scene,project,character.character_id)
             _view = refreshed
-            if not _selection.select_character(refreshed, character.character_id):
-                raise VtaReviewUiError("The new Character is not available after reload.")
             context.window_manager.blendcap_vta_new_character_name = ""
             _accept_mutated_review(context, refreshed)
-            _status = f"Created Character {character.display_name}. Select a candidate and Assign it separately."
+            from .vta_management_selection import select
+            select(character.character_id)
+            _status = f"Created Character {character.display_name}. Selected in Character Management."
             _status_is_error = False
             self.report({'INFO'}, _status)
             return {'FINISHED'}
@@ -2501,12 +2471,25 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
     new_name: bpy.props.StringProperty(name="Character Name")
 
     @classmethod
+    def description(cls, context, properties):
+        action = getattr(properties, 'action', '')
+        if action in {'rename-character', 'delete-character'}:
+            return ('Rename' if action == 'rename-character' else 'Delete') + ' the Character selected in Available Characters; select a management Character to enable'
+        return cls.bl_description
+
+    @classmethod
     def poll(cls, _context):
         return _presentation_current(_context) and not _analysis_locked() and _view is not None and _location is not None
 
+    def _target(self):
+        if self.action in {'rename-character', 'delete-character'}:
+            from .vta_management_selection import selected
+            return selected()
+        return _selection.character_id
+
     def _arguments(self):
         if self.action == "clear-assignment":
-            return dict(character_id=_selection.character_id,
+            return dict(character_id=BLENDCAP_OT_vta_review_manage._target(self),
                         source_id=_view.source_id, frame=_view.source_frame)
         if self.action == "clear-review-key":
             ids = _review_key_selection.keyframe_ids
@@ -2518,8 +2501,8 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
         if self.action == "clear-all-review-keys-on-frame":
             return dict(source_id=_view.source_id, frame=_view.source_frame)
         if self.action == "rename-character":
-            return dict(character_id=_selection.character_id, display_name=self.new_name)
-        return dict(character_id=_selection.character_id)
+            return dict(character_id=BLENDCAP_OT_vta_review_manage._target(self), display_name=self.new_name)
+        return dict(character_id=BLENDCAP_OT_vta_review_manage._target(self))
 
     def invoke(self, context, _event):
         global _status, _status_is_error
@@ -2530,23 +2513,24 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
         try:
-            _use_timeline_active(context)
+            if self.action not in {'rename-character','delete-character'}: _use_timeline_active(context)
+            elif BLENDCAP_OT_vta_review_manage._target(self) is None: raise VtaReviewUiError('Select a Character in Available Characters first.')
             if self.action == "rename-character":
                 row = next((item for item in _view.characters
-                            if item.character_id == _selection.character_id), None)
+                            if item.character_id == BLENDCAP_OT_vta_review_manage._target(self)), None)
                 if row is None:
                     raise VtaReviewUiError("Select a Character to rename.")
                 self.new_name = row.display_name
             if self.action == 'rename-character':
                 request = _engine_client(context).call('character-state',dict(
-                    companion_root=str(_location.companion_root),character_id=_selection.character_id))
+                    companion_root=str(_location.companion_root),character_id=BLENDCAP_OT_vta_review_manage._target(self)))
             else:
                 request = _get_backend(context).prepare_management(
                     _location, self.action, **self._arguments())
             self._pending_request = request
             self._pending_location = _location
             character = next((item for item in _view.characters
-                              if item.character_id == _selection.character_id), None)
+                              if item.character_id == BLENDCAP_OT_vta_review_manage._target(self)), None)
             self._pending_character_name = None if character is None else character.display_name
             assigned = next((item for item in _view.candidates
                              if character is not None
@@ -2597,8 +2581,7 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                 from . import vta_review_undo as bridge
                 if _location != self._pending_location:
                     raise VtaReviewUiError('The MoCap review location changed during confirmation.')
-                _use_timeline_active(context)
-                if _selection.character_id != request['character_id']:
+                if BLENDCAP_OT_vta_review_manage._target(self) != request['character_id']:
                     raise VtaReviewUiError('The selected Character changed during confirmation.')
                 bridge.rename(context,self._pending_location.companion_root,request,self.new_name)
                 renamed = True
@@ -2607,9 +2590,9 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                 return {'FINISHED'}
             if _location != self._pending_location:
                 raise VtaReviewUiError("The MoCap review location changed during confirmation.")
-            _use_timeline_active(context)
+            if self.action not in {'rename-character','delete-character'}: _use_timeline_active(context)
             if self.action in {"clear-assignment", "rename-character", "delete-character"}:
-                if _selection.character_id != request.character_id:
+                if BLENDCAP_OT_vta_review_manage._target(self) != request.character_id:
                     raise VtaReviewUiError("The selected Character changed during confirmation.")
             if self.action in {"clear-review-key", "clear-selected-review-keys"}:
                 if _review_key_selection.keyframe_ids != request.keyframe_ids:
@@ -2634,6 +2617,7 @@ def _action_availability(context=None):
     """Sequencer review availability shared by panel, header, and context."""
     character = next((item for item in _view.characters
                       if item.character_id == current_character_id(context)), None) if _view else None
+    from .vta_management_selection import selected as management_target
     selected_keys = _review_key_selection.keyframe_ids
     frame_has_key = bool(_view and _timeline and any(
         key.source_frame == _view.source_frame for key in _timeline.keys
@@ -2647,8 +2631,8 @@ def _action_availability(context=None):
         "clear-review-key": len(selected_keys) == 1,
         "clear-selected-review-keys": bool(selected_keys),
         "clear-all-review-keys-on-frame": frame_has_key,
-        "rename-character": character is not None,
-        "delete-character": character is not None,
+        "rename-character": management_target() is not None,
+        "delete-character": management_target() is not None,
         "update-tracking": bool(tracking_character_ids(context)) and _view is not None and _location is not None,
     }
 
@@ -3145,21 +3129,22 @@ class VIEW3D_PT_blendcap_vta_analyze(_VtaReviewSubpanel, bpy.types.Panel):
 
 
 class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
-    bl_label = "Characters"
-    bl_idname = "VIEW3D_PT_blendcap_vta_characters"
+    bl_label = 'Character Management'
+    bl_idname = 'VIEW3D_PT_blendcap_vta_characters'
+    bl_order = 25
+    bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
+        from . import vta_management_selection as management
         layout = self.layout
-        if _view is None:
-            layout.label(text="Load a MoCap project to manage Characters.")
-            return
-        layout.prop(context.window_manager, "blendcap_vta_character", text="Character")
-        create_row = layout.row(align=True)
-        create_row.enabled = not _analysis_locked()
-        create_row.prop(context.window_manager, "blendcap_vta_new_character_name", text="New")
-        create_row.operator("blendcap.vta_review_create_character", text="Create", icon='ADD')
-        layout.label(text=f"Blank name creates {next_generic_character_name(_view)}")
-        _draw_management_actions(layout, actions={"rename-character", "delete-character"})
+        row = layout.row(align=True); row.enabled = _view is not None and not _analysis_locked()
+        row.prop(context.window_manager, 'blendcap_vta_new_character_name', text='New')
+        row.operator('blendcap.vta_review_create_character', text='Create New Character', icon='ADD')
+        layout.prop(context.window_manager, 'blendcap_vta_management_character', text='Available Characters')
+        for action, label in [('rename-character','Rename Character'),('delete-character','Delete Character')]:
+            row = layout.row(); row.enabled = management.selected() is not None and not _analysis_locked()
+            row.operator_context = 'INVOKE_DEFAULT'
+            row.operator('blendcap.vta_review_manage', text=label).action = action
 
 
 class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
@@ -3175,14 +3160,9 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
         if _view is None:
             layout.label(text="Current review unavailable.")
             actions = layout.column(); actions.enabled = False
-            actions.operator('blendcap.vta_repeat_assignment')
             actions.operator('blendcap.vta_apply_marks', text='Assign Marked (0)').kind = 'assign'
             actions.operator('blendcap.vta_apply_marks', text='Suppress Marked (0)').kind = 'suppress'
             return
-        VIEW3D_PT_blendcap_vta_characters.draw(self, context)
-        repeat = layout.row()
-        repeat.enabled = BLENDCAP_OT_vta_repeat_assignment.poll(context)
-        repeat.operator('blendcap.vta_repeat_assignment', text='Repeat Last Assignment')
         selected_character = next(
             (item for item in _view.characters if item.character_id == _selection.character_id),
             None,
@@ -3199,6 +3179,7 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
                     text=f"Candidate {candidate.position}: {candidate.assigned_character_name}",
                     icon='CHECKMARK',
                 )
+        assignment_box.prop(context.window_manager, "blendcap_vta_character", text="Character")
         assignment_box.prop(context.window_manager, "blendcap_vta_candidate", text="Selected Candidate")
         assignment_box.prop(context.window_manager, 'blendcap_vta_show_suppressed',
                             text='Show Suppressed Candidates')
@@ -3445,6 +3426,7 @@ classes = (
     BLENDCAP_MT_vta_commands,
     VIEW3D_PT_blendcap_vta_review,
     VIEW3D_PT_blendcap_vta_analyze,
+    VIEW3D_PT_blendcap_vta_characters,
     VIEW3D_PT_blendcap_vta_current_frame,
     VIEW3D_PT_blendcap_vta_tracking,
     VIEW3D_PT_blendcap_vta_display,
@@ -3530,8 +3512,15 @@ def register_properties() -> None:
     bpy.types.WindowManager.blendcap_vta_character = bpy.props.EnumProperty(
         name="Character",
         items=character_items,
+        description="Select the Character targeted by assignment marks",
         update=_character_changed,
     )
+    from . import vta_management_selection as management
+    management.clear()
+    if management.clear not in bpy.app.handlers.load_post: bpy.app.handlers.load_post.append(management.clear)
+    bpy.types.WindowManager.blendcap_vta_management_character = bpy.props.EnumProperty(
+        name='Available Characters', items=character_items, get=management.get_index, set=management.set_index,
+        description='Select a Character for Rename/Delete only; does not change the assignment target', options={'SKIP_SAVE'})
     bpy.types.WindowManager.blendcap_vta_new_character_name = bpy.props.StringProperty(
         name="New Character",
         description="Optional display name; blank creates the next numbered Character",
@@ -3610,5 +3599,9 @@ def unregister_properties() -> None:
     del bpy.types.WindowManager.blendcap_vta_analysis_progress
     del bpy.types.WindowManager.blendcap_vta_error_details
     del bpy.types.WindowManager.blendcap_vta_candidate
+    from . import vta_management_selection as management
+    if management.clear in bpy.app.handlers.load_post: bpy.app.handlers.load_post.remove(management.clear)
+    management.clear()
+    del bpy.types.WindowManager.blendcap_vta_management_character
     del bpy.types.WindowManager.blendcap_vta_character
     del bpy.types.WindowManager.blendcap_vta_new_character_name

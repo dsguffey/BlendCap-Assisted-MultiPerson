@@ -446,12 +446,13 @@ class BlenderAnalyzeUiTests(unittest.TestCase):
     def test_workflow_subpanels_and_direct_keymap_register(self):
         ui = self.ui
         children = (ui.VIEW3D_PT_blendcap_vta_analyze,
+                    ui.VIEW3D_PT_blendcap_vta_characters,
                     ui.VIEW3D_PT_blendcap_vta_current_frame,
                     ui.VIEW3D_PT_blendcap_vta_tracking,
                     ui.VIEW3D_PT_blendcap_vta_display,
                     ui.VIEW3D_PT_blendcap_vta_advanced)
         self.assertEqual([item.bl_label for item in children],
-                         ['Analyze', 'Character Assignment',
+                         ['Analyze', 'Character Management', 'Character Assignment',
                           'Update Tracking', 'Overview', 'Resources'])
         self.assertEqual(ui.VIEW3D_PT_blendcap_vta_advanced.bl_parent_id, '')
         self.assertTrue(all(item.bl_parent_id == ''

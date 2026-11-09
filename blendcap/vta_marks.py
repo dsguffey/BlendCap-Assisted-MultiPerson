@@ -35,6 +35,7 @@ def apply_marked(context,key,kind,items,character,confirmed=False,expected_check
         items=[{k:r[k] for k in ('frame','observation_id')} for r in items],confirmed=confirmed,session_id=backend.session_id)
     result=backend._send(ui._location,'review-batch',payload,observed)
     action_end=time.perf_counter();ui._accept_mutated_review(context,backend.query(ui._location))
+    if kind == "assign" and character: ui._remember_assignment(character)
     marks.handled(key,kind,items)
     measurements.append(dict(action=kind,count=len(items),action_s=action_end-started,refresh_s=time.perf_counter()-action_end))
     ui._status=f'Applied {len(items)} marked candidates.';ui._status_is_error=False
@@ -84,6 +85,19 @@ def draw(layout,context):
                 candidate=next((c for c in ui._view.candidates if c.observation_id==item['observation_id']),None)
                 if candidate:layout.label(text=f'{symbol} Candidate {candidate.position}')
 
+def mark_candidate(context, kind, *, ensure=False):
+    from . import vta_review_ui as ui
+    if not ui._presentation_current(context) or ui._analysis_locked():raise ValueError('Refresh the current source frame before marking.')
+    backend=ui._get_backend(context);observed=backend.observation
+    row=next((c for c in ui._view.candidates if c.observation_id==ui._selection.observation_id),None)
+    if row is None or row.suppressed:raise ValueError('Choose an unsuppressed candidate.')
+    existing = marks.items(scope(context), kind)
+    if ensure and any(r["frame"] == ui._view.source_frame and r["observation_id"] == row.observation_id for r in existing): return
+    marks.toggle(scope(context),kind,ui._view.source_frame,row.observation_id,
+        ui._view.analysis_revision_id,observed.value['cache_sha256'])
+    ui.vta_invalidation.request_redraw()
+
+
 class BLENDCAP_OT_vta_mark_candidate(bpy.types.Operator):
     bl_idname='blendcap.vta_mark_candidate';bl_label='Mark Candidate'
     bl_description='Toggle a temporary mark; assignment replaces the previous mark on this frame, suppression allows several'
@@ -93,16 +107,11 @@ class BLENDCAP_OT_vta_mark_candidate(bpy.types.Operator):
         from . import vta_review_ui as ui
         return ui._presentation_current(context) and bool(ui._selection.observation_id) and not ui._analysis_locked()
     def execute(self,context):
-        from . import vta_review_ui as ui
         try:
-            if not ui._presentation_current(context) or ui._analysis_locked():raise ValueError('Refresh the current source frame before marking.')
-            backend=ui._get_backend(context);observed=backend.observation
-            row=next((c for c in ui._view.candidates if c.observation_id==ui._selection.observation_id),None)
-            if row is None or row.suppressed:raise ValueError('Choose an unsuppressed candidate.')
-            marks.toggle(scope(context),self.kind,ui._view.source_frame,row.observation_id,
-                ui._view.analysis_revision_id,observed.value['cache_sha256'])
-            ui.vta_invalidation.request_redraw();return {'FINISHED'}
+            mark_candidate(context, self.kind)
+            return {'FINISHED'}
         except Exception as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
+
 
 class BLENDCAP_OT_vta_clear_marks(bpy.types.Operator):
     bl_idname='blendcap.vta_clear_marks';bl_label='Clear Marks'

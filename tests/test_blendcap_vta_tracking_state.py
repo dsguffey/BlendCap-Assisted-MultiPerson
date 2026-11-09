@@ -120,7 +120,7 @@ class ReviewRecoveryBridgeTests(unittest.TestCase):
                 mock.patch.object(ui,'_selection',NS(character_id='a')),mock.patch.object(ui,'_use_timeline_active'), \
                 mock.patch.object(ui,'refresh',return_value=True),mock.patch.object(ui,'_engine_client',return_value=self.client), \
                 mock.patch.object(ui,'_get_backend',side_effect=AssertionError('Legacy rename path used')), \
-                mock.patch.object(ui,'_edit_available',return_value=True):
+                mock.patch.object(ui,'_edit_available',return_value=True),mock.patch(ui.__package__+'.vta_management_selection.selected',return_value='a'):
             self.assertEqual(ui.BLENDCAP_OT_vta_review_manage.invoke(operator,context,None),{'RUNNING_MODAL'})
             self.assertEqual(self.path.read_bytes(),self.before) # Cancel/invoke is read-only.
             operator.new_name='Through engine'

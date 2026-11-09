@@ -77,6 +77,12 @@ class RepeatOperatorTests(unittest.TestCase):
             apply_confirmed_reassignment=mock.Mock(side_effect=lambda loc, req: self.apply(loc,
                 observation_id=req.observation_id, character_id=req.character_id)),
             source_coverage=mock.Mock(return_value=(0, 9)))
+        self.marks = __import__(ui.__package__+'.vta_marks',fromlist=['marks'])
+        from blendcap_vta_marks import CandidateMarks
+        self.stack.enter_context(mock.patch.object(self.marks,'marks',CandidateMarks()))
+        self.context.scene.as_pointer=lambda:1
+        self.backend.observation=NS(value={'cache_sha256':'0'*64})
+        self.stack.enter_context(mock.patch.object(ui,'cached_scene_source',side_effect=lambda context: ('project',{'end_frame':self.backend.source_coverage.return_value[1]},ui._location,None)))
         self.calls = []
         for name, value in (('_selection', SelectionState()), ('_view', view()),
             ('_location', ReviewLocation(Path('project_vta'), Path('source.mp4'), 0, 1)),
@@ -122,7 +128,7 @@ class RepeatOperatorTests(unittest.TestCase):
     def operator(self, repeat=False):
         cls = self.ui.BLENDCAP_OT_vta_repeat_assignment if repeat else self.ui.BLENDCAP_OT_vta_review_assign
         op = NS(report=mock.Mock())
-        for name in ('invoke', 'execute', 'draw') + (('_prepare',) if repeat else ()):
+        for name in (('invoke','execute') if repeat else ('invoke','execute','draw')):
             setattr(op, name, MethodType(getattr(cls, name), op))
         return op
 
@@ -148,31 +154,28 @@ class RepeatOperatorTests(unittest.TestCase):
         self.context.scene.frame_set.assert_not_called()
 
     def test_repeat_uses_current_candidate_and_advances_exactly_one(self):
-        self.explicit()
-        self.next()
-        self.select('yellow')  # current Character selection must not replace remembered White
+        self.explicit();self.next();self.select('white')
         self.assertTrue(self.ui.BLENDCAP_OT_vta_repeat_assignment.poll(self.context))
-        self.assertEqual(self.operator(True).invoke(self.context, None), {'FINISHED'})
-        self.assertEqual(self.calls, [(0, 'obs-0', 'white'), (1, 'obs-1', 'white')])
-        self.context.scene.frame_set.assert_called_once_with(3)
-        self.assertEqual(self.ui._selection.observation_id, '')
-        self.assertEqual(self.ui._repeat_character_id(), 'white')
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.assertEqual(self.calls,[(0,'obs-0','white')])
+        self.assertEqual(self.context.scene.frame_current,3)
+        rows=self.marks.marks.items(self.marks.scope(self.context),'assign')
+        self.assertEqual([(r['frame'],r['observation_id']) for r in rows],[(1,'obs-1')])
+        self.assertEqual(self.ui._selection.observation_id,'')
 
     def test_multiple_repeats_keep_target_and_require_new_selection(self):
-        self.explicit(); self.next()
-        for frame in (2, 3, 4):
-            self.select('yellow')
-            self.assertEqual(self.operator(True).invoke(self.context, None), {'FINISHED'})
-            self.assertEqual(self.context.scene.frame_current, frame+1)
+        self.explicit();self.next()
+        for frame in (2,3,4):
+            self.select('white');self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+            self.assertEqual(self.context.scene.frame_current,frame+1)
             self.assertFalse(self.ui.BLENDCAP_OT_vta_repeat_assignment.poll(self.context))
-        self.assertEqual([c[2] for c in self.calls], ['white']*4)
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(len(self.marks.marks.items(self.marks.scope(self.context),'assign')),3)
 
     def test_new_explicit_assignment_changes_target(self):
-        self.explicit(); self.next()
-        self.assertEqual(self.explicit('yellow'), {'FINISHED'})
-        self.next()
-        self.operator(True).invoke(self.context, None)
-        self.assertEqual(self.calls[-1], (2, 'obs-2', 'yellow'))
+        self.explicit();self.next();self.explicit('yellow');self.next();self.select('yellow')
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.assertEqual(self.ui._repeat_character_id(),'yellow');self.assertEqual(len(self.calls),2)
 
     def test_rename_retains_stable_id_delete_clears_no_substitution(self):
         self.explicit(); self.next()
@@ -190,12 +193,12 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertIsNone(self.ui._repeat_character_id())
 
     def test_failure_preserves_target_and_frame(self):
-        self.explicit(); self.next()
-        remembered = self.ui._last_assignment_target
-        self.backend.apply.side_effect = RuntimeError('persistence-failed')
-        self.assertEqual(self.operator(True).invoke(self.context, None), {'CANCELLED'})
-        self.assertEqual(self.ui._last_assignment_target, remembered)
-        self.context.scene.frame_set.assert_not_called()
+        self.explicit();self.next();remembered=self.ui._last_assignment_target
+        self.context.scene.frame_set.side_effect=RuntimeError('navigation failed')
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'CANCELLED'})
+        self.assertEqual(self.ui._last_assignment_target,remembered)
+        self.assertFalse(self.marks.marks.items(self.marks.scope(self.context),'assign'))
+        self.assertEqual(len(self.calls),1);self.assertEqual(self.context.scene.frame_current,2)
 
     def test_suppressed_missing_and_no_selection_are_blocked(self):
         self.explicit(); self.next()
@@ -207,71 +210,42 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.context.scene.frame_set.assert_not_called()
 
-    def test_owned_candidate_uses_normal_confirmation_and_cancel_does_not_advance(self):
-        self.explicit(); self.next()
-        self.ui._view = replace(self.ui._view, candidates=(replace(self.ui._view.candidates[0],
-            assigned_character_id='yellow', assigned_character_name='Yellow'),))
-        op = self.operator(True)
-        self.assertEqual(op.invoke(self.context, None), {'RUNNING_MODAL'})
-        self.assertEqual(len(self.calls), 1)
-        self.context.scene.frame_set.assert_not_called()
-        self.assertEqual(self.context.window_manager.invoke_props_dialog.call_args.kwargs['confirm_text'], 'Reassign')
-        self.assertEqual(op.execute(self.context), {'FINISHED'})
-        self.backend.apply_confirmed_reassignment.assert_called_once()
-        self.context.scene.frame_set.assert_called_once_with(3)
+    def test_owned_candidate_is_marked_without_confirmation_or_authority_write(self):
+        self.explicit();self.next()
+        self.ui._view=replace(self.ui._view,candidates=(replace(self.ui._view.candidates[0],assigned_character_id='yellow',assigned_character_name='Yellow'),))
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.context.window_manager.invoke_props_dialog.assert_not_called()
+        self.assertEqual(len(self.calls),1);self.assertTrue(self.marks.marks.items(self.marks.scope(self.context),'assign'))
 
-    def test_hard_states_require_confirmation_not_history_change(self):
-        self.explicit(); self.next()
-        remembered = self.ui._last_assignment_target
-        for state in ('occluded', 'not-visible', 'no-valid-candidate'):
-            self.ui._view = replace(view(1), characters=(CharacterRow('white', 'White', None, state),
-                                                         CharacterRow('yellow', 'Yellow', None)))
-            op = self.operator(True)
-            self.assertEqual(op.invoke(self.context, None), {'RUNNING_MODAL'})
-            self.assertEqual(self.ui._last_assignment_target, remembered)
-            self.assertTrue(any(state.replace('-', ' ').title() in s for s in op._confirmation_lines))
-        self.assertEqual(len(self.calls), 1)
-        self.context.scene.frame_set.assert_not_called()
+    def test_repeat_marks_hard_state_conflict_without_applying(self):
+        self.explicit();self.next()
+        self.ui._view=replace(view(1),characters=(CharacterRow('white','White',None,'occluded'),))
+        self.assertEqual(self.operator(True).execute(self.context),{'FINISHED'})
+        self.assertEqual(len(self.calls),1);self.assertEqual(self.ui._repeat_character_id(),'white')
+        self.context.window_manager.invoke_props_dialog.assert_not_called()
 
-    def test_direct_execute_cannot_bypass_conflict_confirmation(self):
-        self.explicit(); self.next()
-        self.ui._view = replace(view(1), characters=(CharacterRow('white', 'White', 'old-observation'),))
-        # Existing occupancy with a visible old candidate is what triggers normal confirmation.
-        old = replace(view(1).candidates[0], observation_id='old-observation',
-                      assigned_character_id='white', assigned_character_name='White', position=2)
-        self.ui._view = replace(self.ui._view, candidates=(*self.ui._view.candidates, old))
-        self.assertEqual(self.operator(True).execute(self.context), {'CANCELLED'})
-        self.assertEqual(len(self.calls), 1)
-        self.context.scene.frame_set.assert_not_called()
+    def test_direct_repeat_cannot_commit_conflict(self):
+        self.explicit();self.next()
+        self.ui._view=replace(self.ui._view,candidates=(replace(self.ui._view.candidates[0],assigned_character_id='yellow',assigned_character_name='Yellow'),))
+        self.assertEqual(self.operator(True).execute(self.context),{'FINISHED'})
+        self.assertEqual(len(self.calls),1);self.assertEqual(self.context.scene.frame_current,3)
 
-    def test_changed_confirmation_selection_or_frame_rejects_without_advance(self):
-        self.explicit(); self.next()
-        self.ui._view = replace(view(1), characters=(CharacterRow('white', 'White', None, 'occluded'),))
-        op = self.operator(True)
-        self.assertEqual(op.invoke(self.context, None), {'RUNNING_MODAL'})
-        self.ui._selection.observation_id = 'missing'
-        self.assertEqual(op.execute(self.context), {'CANCELLED'})
-        self.select()
-        op = self.operator(True)
-        self.assertEqual(op.invoke(self.context, None), {'RUNNING_MODAL'})
-        self.context.scene.frame_current = 3
-        self.assertEqual(op.execute(self.context), {'CANCELLED'})
-        self.assertEqual(len(self.calls), 1)
-        self.context.scene.frame_set.assert_not_called()
+    def test_target_mismatch_rejects_without_retargeting_existing_marks(self):
+        self.explicit();self.next()
+        scope=self.marks.scope(self.context);self.marks.marks.toggle(scope,'assign',0,'old','rev','0'*64)
+        before=self.marks.marks.items(scope,'assign');self.select('yellow')
+        self.assertEqual(self.operator(True).execute(self.context),{'CANCELLED'})
+        self.assertEqual(self.marks.marks.items(scope,'assign'),before)
+        self.context.scene.frame_set.assert_not_called();self.assertEqual(len(self.calls),1)
 
     def test_final_frame_success_stays_in_source_and_trimmed_strip_range(self):
-        self.explicit(); self.next()
-        self.backend.source_coverage.return_value = (0, 1)
-        self.assertEqual(self.operator(True).invoke(self.context, None), {'FINISHED'})
-        self.assertEqual(self.calls[-1], (1, 'obs-1', 'white'))
-        self.context.scene.frame_set.assert_not_called()
-        # A trimmed VSE strip can end before the complete source range.
-        self.next()
-        self.backend.source_coverage.return_value = (0, 9)
-        with mock.patch.object(self.ui, '_strip_visible_end', return_value=4):
-            self.assertEqual(self.operator(True).invoke(self.context, None), {'FINISHED'})
-        self.assertEqual(self.calls[-1], (2, 'obs-2', 'white'))
-        self.context.scene.frame_set.assert_not_called()
+        self.explicit();self.next();self.backend.source_coverage.return_value=(0,1)
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.context.scene.frame_set.assert_not_called();self.assertEqual(len(self.calls),1)
+        self.next();self.backend.source_coverage.return_value=(0,9)
+        with mock.patch.object(self.ui,'_strip_visible_end',return_value=4):
+            self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.context.scene.frame_set.assert_not_called();self.assertEqual(len(self.calls),1)
 
     def test_lock_unanalyzed_and_non_vta_context_disable(self):
         self.explicit(); self.next()
@@ -422,37 +396,26 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertEqual(selected.assigned_character_id, 'white')
         self.assertIsNone(selected.tracked_character_id)
 
-    def test_repeat_real_core_inherits_retirement_and_advances_after_durable_success(self):
-        core, root, before, _cache, refresh = self.real_backend_fixture()
-        self.select('white')
-        self.assertEqual(self.operator().invoke(self.context, None), {'FINISHED'})
-        self.context.scene.frame_current = 2
-        refresh(self.context)
-        self.select('yellow')
-        self.assertEqual(self.operator(True).invoke(self.context, None), {'FINISHED'})
-        self.context.scene.frame_set.assert_called_once_with(3)
-        loaded = core.load_project_state(root)
-        self.assertEqual(loaded.effective_record('white', 'source', 1).to_dict()['authority'], 'user')
-        self.assertIsNone(loaded.effective_record('yellow', 'source', 1))
-        self.assertEqual(loaded.effective_record('yellow', 'source', 2),
-                         before.effective_record('yellow', 'source', 2))
-        self.assertEqual(self.ui._selection.observation_id, '')
-        self.assertEqual(self.ui._repeat_character_id(), 'white')
+    def test_repeat_real_core_marks_and_advances_without_retiring_existing_authority(self):
+        core,root,before,cache,refresh=self.real_backend_fixture()
+        self.select('white');self.operator().invoke(self.context,None);self.context.scene.frame_current=2;refresh(self.context);self.select('white')
+        backend=self.ui._get_backend(self.context);backend.observation=NS(value={'cache_sha256':hashlib.sha256((root/'analysis/rev.json').read_bytes()).hexdigest()})
+        frozen=(root/'project_state.json').read_bytes()
+        self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.assertEqual((root/'project_state.json').read_bytes(),frozen)
+        self.assertEqual(core.load_analysis_cache(root,'rev').to_json(),cache.to_json())
+        self.assertEqual(self.context.scene.frame_current,3)
+        self.assertTrue(self.marks.marks.items(self.marks.scope(self.context),'assign'))
 
-    def test_repeat_real_publication_failure_keeps_frame_authority_and_derived_ownership(self):
-        _core, root, _before, _cache, refresh = self.real_backend_fixture()
-        self.select('white')
-        self.assertEqual(self.operator().invoke(self.context, None), {'FINISHED'})
-        self.context.scene.frame_current = 2
-        refresh(self.context)
-        self.select('yellow')
-        frozen = (root / 'project_state.json').read_bytes()
-        with mock.patch('vta_core.atomic_json.os.replace', side_effect=OSError('publish failed')):
-            self.assertEqual(self.operator(True).invoke(self.context, None), {'CANCELLED'})
-        self.assertEqual((root / 'project_state.json').read_bytes(), frozen)
-        self.context.scene.frame_set.assert_not_called()
-        self.assertEqual(self.context.scene.frame_current, 2)
-        self.assertEqual(self.ui._repeat_character_id(), 'white')
+    def test_repeat_never_publishes_when_atomic_writer_is_unavailable(self):
+        core,root,before,cache,refresh=self.real_backend_fixture()
+        self.select('white');self.operator().invoke(self.context,None);self.context.scene.frame_current=2;refresh(self.context);self.select('white')
+        backend=self.ui._get_backend(self.context);backend.observation=NS(value={'cache_sha256':hashlib.sha256((root/'analysis/rev.json').read_bytes()).hexdigest()})
+        frozen=(root/'project_state.json').read_bytes()
+        with mock.patch('vta_core.atomic_json.os.replace',side_effect=OSError('writer unavailable')):
+            self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.assertEqual((root/'project_state.json').read_bytes(),frozen)
+        self.assertEqual(self.context.scene.frame_current,3)
 
 
 if __name__ == '__main__':

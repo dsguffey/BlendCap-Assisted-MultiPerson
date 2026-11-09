@@ -503,7 +503,7 @@ class RetargetTests(unittest.TestCase):
         import inspect
         ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui')
         panel=self.rt.VIEW3D_PT_vta_retarget
-        self.assertEqual((panel.bl_space_type,panel.bl_category),('VIEW_3D','VTA'))
+        self.assertEqual((panel.bl_space_type,panel.bl_category),('VIEW_3D','MoCap'))
         self.assertNotIn('blendcap.vta_retarget',inspect.getsource(ui.BLENDCAP_MT_vta_commands.draw))
         self.assertIn("'source'",inspect.getsource(self.rt.draw_rig_choices))
 
@@ -515,7 +515,7 @@ class RetargetTests(unittest.TestCase):
                 panels.draw_blendcap_ui(SimpleNamespace(layout=RecordingLayout()),bpy.context)
         legacy.assert_not_called();donate.assert_not_called()
         self.assertFalse(hasattr(panels,'_draw_capture_section'))
-        self.assertEqual(panels.VIEW3D_PT_blendcap_ui.bl_category,'VTA')
+        self.assertEqual(panels.VIEW3D_PT_blendcap_ui.bl_category,'MoCap')
         self.assertTrue(callable(panels._draw_retarget_mapper_table))
         self.assertTrue(hasattr(self.scene,'blendcap_retarget_pairs'))
         for name in ('apply_retarget','convert_fk_to_ik','retarget_reload_preset'):
@@ -526,7 +526,7 @@ class RetargetTests(unittest.TestCase):
         with mock.patch.object(panels,'addon_prefs',return_value=None),mock.patch.object(panels,'SHOW_DONATE_BUTTON',True):
             panels.VIEW3D_PT_vta_credits.draw(SimpleNamespace(layout=layout),bpy.context)
         self.assertGreater(panels.VIEW3D_PT_vta_credits.bl_order,self.rt.VIEW3D_PT_vta_retarget.bl_order)
-        self.assertEqual(panels.VIEW3D_PT_vta_credits.bl_category,'VTA')
+        self.assertEqual(panels.VIEW3D_PT_vta_credits.bl_category,'MoCap')
         self.assertIn(('label','© 2026 Arcomade — BlendCap'),layout.calls)
         self.assertTrue(any('GPL-3.0' in str(c) for c in layout.calls))
         self.assertTrue(any(c[:2]==('operator','blendcap.donate') for c in layout.calls))

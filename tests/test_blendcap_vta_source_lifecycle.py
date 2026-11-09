@@ -236,7 +236,7 @@ class SourceLifecycleTests(unittest.TestCase):
     def test_unowned_scene_cannot_choose_clip_even_direct_command(self):
         bpy.context.window.scene=self.original
         self.assertFalse(self.ui.BLENDCAP_OT_vta_choose_clip.poll(bpy.context))
-        with self.assertRaisesRegex(ValueError,'Load this VTA Scene'):self.configure()
+        with self.assertRaisesRegex(ValueError,'Load this MoCap Scene'):self.configure()
 
     def test_clear_preserves_unrelated_user_camera_without_stale_local_camera(self):
         self.configure()
