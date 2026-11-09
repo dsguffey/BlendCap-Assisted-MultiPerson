@@ -3,7 +3,8 @@
 Start with [current checkpoint and Public 1.0 roadmap](current_status.md),
 [current UI workflow](vta_ui_workflow.md), [technical workflow](vta_workflow.md),
 [completed M1–M5 engine boundary](vta_engine_boundary.md) and
-[runtime/setup foundation](vta_runtime_installation.md).
+[runtime/setup foundation](vta_runtime_installation.md) and
+[approved licensing/update/rollback strategy](vta_release_strategy.md).
 StudioFree MoCap is the tentative product name, not a released Public 1.0 build.
 Body retargeting: [FK V1](vta_retargeting.md), [profile status](vta_retarget_profiles.md).
 

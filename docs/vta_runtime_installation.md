@@ -160,6 +160,22 @@ modified. Final setup UX is still to be implemented.
 
 ## Update, repair and uninstall
 
+The [approved licensing/update/rollback strategy](vta_release_strategy.md) makes a
+supported update/rollback mechanism an explicit Public 1.0 requirement. Preferred
+initial access is Resources / Preferences → Check for Updates. Verify a versioned,
+authenticated/signed manifest and compatible package, stage beside the existing
+release, switch recoverably, validate startup and keep the previous known-good
+release. Projects remain separate; configs/caches/models/assets remain separate
+where appropriate. Protect against source substitution, path/archive traversal,
+stale/partial downloads and incompatible versions; signing/retention/UX details
+remain open for the later ARAP T2/security pass. Public 1.0 does not require
+binary-delta patching; full release packages are acceptable.
+
+Gumroad-oriented lightweight licensing and protected private-engine compilation
+remain future prototypes. Activation and update entitlement are conceptually
+separate; pricing/paid-upgrade policy is not selected. No licensing, updater or
+runtime implementation is added by this documentation update.
+
 Use a manifest-driven hybrid: stage a full coherent program release; reuse pinned,
 verified runtime/assets by content identity. Verify all files and component
 compatibility, run registration/control/provider smoke, then atomically replace

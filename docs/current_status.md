@@ -107,28 +107,34 @@ Export/Retarget.** Test coherence of the whole product, not only isolated featur
 
 The remaining broad sequence is:
 
-1. **Fresh end-to-end workflow**, then meaningful **workflow-driven bug/performance
-   fixes**. Avoid speculative optimization without real-use evidence.
-2. **Private-engine compilation/IP-protection prototype before shipping**:
-   investigate distributing a compiled private engine rather than plain private
-   Python. Preserve separation; this is theft deterrence, not perfect DRM. The
-   exact compilation technology is not selected. No implementation in this pass.
-3. **Lightweight licensing**: forgiving activation, practical offline use after
-   activation and no aggressive hardware locking. Seller-platform-backed keys
-   are likely; Gumroad is a candidate, not an architectural commitment. Prefer
-   enforcement inside the protected private-runtime boundary. Provider/store and
-   final commercial/pricing model remain open; no licensing implementation here.
-4. **Final packaging/installer/update/repair/uninstall**: users install Blender
-   separately; StudioFree MoCap provisions required private runtime/provider
-   environments/assets where licenses permit. Complete final installer/update UX.
-5. **Security/release assurance**, including ARAP T2 and package/update/recovery
-   hardening; exact third-party provenance, notices, source delivery and license
-   review. Visible Credits do not replace legal notices or shipping clearance.
-6. **Final regression/release QA**: clean-machine installation, full functional,
-   recovery, export/retarget and difficult multi-person cases.
-7. **Release documentation/support**: installation, first run, limitations,
+1. **Fresh end-to-end workflow** on a new clip/project.
+2. **Workflow-driven bug/performance cleanup** for demonstrated problems, avoiding
+   speculative optimization.
+3. **Private-engine compilation/IP-protection prototype**: ideally distribute a
+   compiled proprietary engine while public/GPL Blender code stays source-visible.
+   Technology is undecided; compilation is deterrence, not perfect protection.
+4. **Lightweight Gumroad-oriented licensing prototype**: Gumroad is currently
+   preferred, subject to API/behavior/terms/pricing validation at implementation.
+   Forgiving activation, practical offline use, no every-launch online check or
+   aggressive hardware locking; prefer enforcement in the protected private runtime.
+5. **Installer/package/update/repair/uninstall implementation**, including supported
+   side-by-side immutable releases, authenticated updates and known-good rollback.
+   Users install Blender separately; provision required runtime/provider/assets
+   only where terms permit. Full release packages are acceptable; no binary-delta
+   patching requirement for 1.0.
+6. **Security / ARAP T2 release assurance**, including package/update/recovery
+   hardening and explicit compatibility/authenticity checks.
+7. **Licensing/compliance/provenance final pass**: exact third-party provenance,
+   notices and source delivery. Visible Credits do not replace legal notices.
+8. **Final regression and clean-machine release QA**, including recovery,
+   export/retarget and difficult multi-person cases.
+9. **Release documentation/support**: installation, first run, limitations,
    troubleshooting/log collection, version and support information.
 
-Final product name, licensing/store, compilation technology, exceptional presence
-states, UI wording/polish, installer/update UX and pricing are unresolved. This
-roadmap records direction, not authorization to implement those systems now.
+The [approved release strategy](vta_release_strategy.md) consolidates licensing
+failure philosophy, private-runtime protection, update UX/security and rollback
+requirements. It is documentation of direction, not an implemented updater/license
+system. Exact storefront, compiler, activation limits, offline grace/revalidation,
+update entitlement/pricing, signing infrastructure, retention/rollback policy and
+installer/updater UX remain open. Final product name, exceptional presence-state
+treatment and final UI wording/polish also remain unresolved.

@@ -16,6 +16,12 @@ remaining-pass estimates, legacy-compatibility/export and undeployed-host claims
 are superseded by this current checkpoint and the coordinated deployment record.
 They are not instructions to restart completed milestones.
 
+Private-engine compilation and lightweight licensing are complementary roadmap
+protections: public/GPL code remains source-visible, private code should ideally
+ship compiled, and enforcement should preferably be within that protected runtime.
+Compiler/provider choices remain open; neither is perfect DRM. See the
+[approved release strategy](vta_release_strategy.md); no implementation here.
+
 
 ## Review latency optimization — source checkpoint, 2026-10-31
 
