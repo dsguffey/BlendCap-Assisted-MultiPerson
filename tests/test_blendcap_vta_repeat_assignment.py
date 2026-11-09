@@ -171,6 +171,16 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertEqual(self.marks.marks.items(scope,'assign'),before)
         self.context.scene.frame_set.assert_not_called();self.assertEqual(len(self.calls),1)
 
+    def test_foreground_repeat_finishes_without_authority_or_modal_handoff(self):
+        self.explicit();self.next();self.context.window=mock.Mock()
+        self.context.window_manager.modal_handler_add=mock.Mock();self.context.window_manager.event_timer_add=mock.Mock()
+        busy=__import__(self.ui.__package__+'.vta_busy',fromlist=['install']);busy.install(self.ui.BLENDCAP_OT_vta_repeat_assignment,defer=False)
+        with mock.patch.object(busy,'bpy',NS(app=NS(background=False))):
+            self.assertEqual(self.operator(True).invoke(self.context,None),{'FINISHED'})
+        self.assertEqual(len(self.calls),1);self.assertEqual(self.context.scene.frame_current,3)
+        self.context.window_manager.modal_handler_add.assert_not_called();self.context.window_manager.event_timer_add.assert_not_called()
+        self.context.window.cursor_modal_restore.assert_called_once();self.assertFalse(busy.busy())
+
     def test_multiple_repeats_keep_target_and_require_new_selection(self):
         self.explicit();self.next()
         for frame in (2,3,4):
