@@ -92,7 +92,13 @@ def mark_candidate(context, kind, *, ensure=False):
     row=next((c for c in ui._view.candidates if c.observation_id==ui._selection.observation_id),None)
     if row is None or row.suppressed:raise ValueError('Choose an unsuppressed candidate.')
     existing = marks.items(scope(context), kind)
-    if ensure and any(r["frame"] == ui._view.source_frame and r["observation_id"] == row.observation_id for r in existing): return
+    if ensure:
+        matching = next((r for r in existing if r['frame'] == ui._view.source_frame and r['observation_id'] == row.observation_id), None)
+        if matching is not None:
+            if (matching['analysis_revision_id'] != ui._view.analysis_revision_id
+                    or matching['cache_sha256'] != observed.value['cache_sha256']):
+                raise ValueError('Marked evidence changed; clear stale marks before repeating.')
+            return
     marks.toggle(scope(context),kind,ui._view.source_frame,row.observation_id,
         ui._view.analysis_revision_id,observed.value['cache_sha256'])
     ui.vta_invalidation.request_redraw()

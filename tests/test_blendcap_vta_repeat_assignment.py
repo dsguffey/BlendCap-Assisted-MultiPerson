@@ -163,6 +163,14 @@ class RepeatOperatorTests(unittest.TestCase):
         self.assertEqual([(r['frame'],r['observation_id']) for r in rows],[(1,'obs-1')])
         self.assertEqual(self.ui._selection.observation_id,'')
 
+    def test_repeat_rejects_stale_existing_mark_without_advance_or_write(self):
+        self.explicit();self.next();scope=self.marks.scope(self.context)
+        self.marks.marks.toggle(scope,'assign',1,'obs-1','rev','a'*64)
+        before=self.marks.marks.items(scope,'assign')
+        self.assertEqual(self.operator(True).execute(self.context),{'CANCELLED'})
+        self.assertEqual(self.marks.marks.items(scope,'assign'),before)
+        self.context.scene.frame_set.assert_not_called();self.assertEqual(len(self.calls),1)
+
     def test_multiple_repeats_keep_target_and_require_new_selection(self):
         self.explicit();self.next()
         for frame in (2,3,4):
