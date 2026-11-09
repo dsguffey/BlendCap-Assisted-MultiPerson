@@ -37,6 +37,33 @@ class EngineReviewProcessTests(unittest.TestCase):
         return {k:v for k,v in value.items() if k in ('companion_root','project_id','expected_revision','source_id','character_id')}|dict(
             frame=5,action='clear-assignment',keyframe_ids=[],confirmed=True,session_id='1'*32)
 
+    def test_selected_assignment_key_delete_matches_clear_and_protected_restore(self):
+        self.client.call('review-assign',dict(**self.payload(),observation_id='selected'))
+        before=(self.root/'project_state.json').read_bytes()
+        key=json.loads(before)['identity_keyframes'][0]['keyframe_id']
+        original=self.root
+        outcomes=[]
+        for action in ('clear-assignment','clear-selected-review-keys'):
+            destination=original/action
+            destination.mkdir()
+            shutil.copyfile(original/'project_state.json',destination/'project_state.json')
+            shutil.copytree(original/'analysis',destination/'analysis')
+            self.root=destination
+            payload=self.management()
+            payload.update(action=action,keyframe_ids=[key] if action!='clear-assignment' else [])
+            result=self.client.call('review-management',payload)
+            after=(destination/'project_state.json').read_bytes()
+            self.assertNotEqual(after,before)
+            self.assertFalse(any(k['keyframe_id']==key for k in json.loads(after)['identity_keyframes']))
+            outcomes.append(after)
+            self.client.call('review-restore-last',dict(companion_root=str(destination),
+                project_id=result['project_id'],expected_revision=result['after']['revision'],
+                restore_id=result['request_id'],session_id='1'*32))
+            self.assertEqual((destination/'project_state.json').read_bytes(),before)
+            self.assertFalse((destination/'.vta-engine/restore/slot.json').exists())
+        self.root=original
+        self.assertEqual(outcomes[0],outcomes[1])
+
     def test_destructive_crash_save_as_recovery_and_restore_consume(self):
         self.client.call('review-assign',dict(**self.payload(),observation_id='selected'))
         before=(self.root/'project_state.json').read_bytes();identity=uuid4().hex

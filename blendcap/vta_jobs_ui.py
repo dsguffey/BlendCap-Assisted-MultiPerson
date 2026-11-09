@@ -122,7 +122,8 @@ def _start(context,kind,*,recover=False):
             members=stored(scene)
             if members is not None and not set(ids)<=members:raise ValueError('Select reviewed Characters belonging to this Scene.')
             offset=location.blender_frame-location.source_frame
-            selected=(wm.blendcap_vta_animation_start-offset,wm.blendcap_vta_animation_end-offset)
+            selected=(domain if wm.blendcap_vta_animation_scope=='WHOLE' else
+                      (wm.blendcap_vta_animation_start-offset,wm.blendcap_vta_animation_end-offset))
             from .vta_generation import plan_options,owners,fingerprint
             plan_options(selected,domain)
             from .vta_camera_cleanup import require_source_aligned

@@ -39,7 +39,7 @@ class UiPass2Tests(unittest.TestCase):
         root_panels=[c for c in self.addon._registration.classes
                      if isinstance(c,type) and issubclass(c,bpy.types.Panel)
                      and getattr(c,'bl_space_type','')=='VIEW_3D'
-                     and getattr(c,'bl_category','')=='MoCap' and not getattr(c,'bl_parent_id','')]
+                     and getattr(c,'bl_category','')=='MoCap' and not getattr(c,'bl_parent_id','') and 'HIDE_HEADER' not in getattr(c,'bl_options',set())]
         ordered=sorted(root_panels,key=lambda c:getattr(c,'bl_order',0))
         self.assertEqual([c.bl_label for c in ordered],['MoCap Setup','Analyze','Character Management','Character Assignment','Update Tracking','Animation','Overview','Export / Retarget','Resources'])
         self.assertEqual(sum(c.bl_label=='MoCap Setup' for c in root_panels),1)
@@ -83,7 +83,7 @@ class UiPass2Tests(unittest.TestCase):
             for _ in range(20):ui.VIEW3D_PT_blendcap_vta_display.draw(NS(layout=layout),context)
         self.assertFalse(any(kind=='panel' for kind,_ in layout.events))
         self.assertIn(('label','Source: talk.mp4'),layout.events)
-        self.assertIn(('label','Generation selection: 1–90'),layout.events)
+        self.assertFalse(any(kind=='label' and 'Generation selection:' in (value or '') for kind,value in layout.events))
         self.assertFalse(any('Update needed' in str(value) for _,value in layout.events))
     def test_apply_tooltip_explains_unavailable_without_changing_action(self):
         marks=self.module('vta_marks');ui=self.module('vta_review_ui');bridge=self.module('vta_review_undo')

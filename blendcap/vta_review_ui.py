@@ -1760,8 +1760,8 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
         # fail the execute-time edit guard while a job holds the source lock.
         from .vta_jobs_ui import busy
         return busy() or (_source_actions_available(context) and bool(tracking_character_ids(context)))
-    bl_label = 'Generate Animation Range'
-    bl_description = 'Generate animation for selected Characters in this range; select Character rows and load analyzed source data to enable'
+    bl_label = 'Generate Animation'
+    bl_description = 'Generate animation for selected Characters using Coverage; select Character rows and load analyzed source data to enable'
 
     action: bpy.props.EnumProperty(items=(('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
         ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='RANGE')
@@ -1777,6 +1777,7 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
             if self.action=='CANCEL':return {'FINISHED'} if jobs.request_cancel() else {'CANCELLED'}
             if self.action in ('START_CURRENT','END_CURRENT'):
                 name='blendcap_vta_animation_'+('start' if self.action=='START_CURRENT' else 'end')
+                context.window_manager.blendcap_vta_animation_scope='RANGE'
                 setattr(context.window_manager,name,context.scene.frame_current);return {'FINISHED'}
             if not _edit_available(self,quiet=True):raise VtaReviewUiError('Another MoCap operation is pending.')
             if not tracking_character_ids(context):raise VtaReviewUiError('Select at least one Character.')
@@ -2963,6 +2964,21 @@ class BLENDCAP_OT_vta_update_tracking(bpy.types.Operator):
             return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
 
 
+class VIEW3D_PT_blendcap_vta_title(bpy.types.Panel):
+    """Product identity banner, not another collapsible workflow section."""
+    bl_label = 'StudioFree MoCap'
+    bl_idname = 'VIEW3D_PT_blendcap_vta_title'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'MoCap'
+    bl_order = 0
+    bl_options = {'HIDE_HEADER'}
+
+    def draw(self, context):
+        from ..blendcap_vta_product import PRODUCT_NAME
+        self.layout.label(text=PRODUCT_NAME)
+
+
 class VIEW3D_PT_blendcap_vta_review(bpy.types.Panel):
     bl_label = "MoCap Setup"
     bl_idname = "VIEW3D_PT_blendcap_vta_review"
@@ -3210,7 +3226,6 @@ class VIEW3D_PT_blendcap_vta_current_frame(_VtaReviewSubpanel, bpy.types.Panel):
                 assignment_box.label(text=f"{selected_character.display_name} — Derived: Unresolved", icon='INFO')
             else:
                 assignment_box.label(text=f"{selected_character.display_name} — No Decision", icon='INFO')
-        _draw_management_actions(assignment_box, actions={"clear-assignment"})
         decision_box = assignment_box
         hard_row = decision_box.row(align=True)
         for kind, label in (("occluded", "Occluded"), ("not-visible", "Not Visible")):
@@ -3271,19 +3286,22 @@ class VIEW3D_PT_blendcap_vta_animation(_VtaReviewSubpanel, bpy.types.Panel):
         if info:
             source = info[1]
             offset = info[2].blender_frame - info[2].source_frame
-            self.layout.label(text=f'Source frames: {source["start_frame"]+offset}–{source["end_frame"]+offset}. Choose this range for the full source.')
+            self.layout.label(text=f'Source frames: {source["start_frame"]+offset}–{source["end_frame"]+offset}')
         controls = self.layout.column()
         controls.enabled = _view is not None and not _analysis_locked()
         reason=generation_unavailable_reason(context)
         if reason:self.layout.label(text=reason,icon='INFO')
         controls.label(text='Characters: selected MoCap rows only')
-        bounds = controls.row(align=True)
-        bounds.prop(context.window_manager, 'blendcap_vta_animation_start')
-        bounds.prop(context.window_manager, 'blendcap_vta_animation_end')
-        current = controls.row(align=True)
-        current.operator('blendcap.vta_generate_animation', text='Start = Current Frame').action = 'START_CURRENT'
-        current.operator('blendcap.vta_generate_animation', text='End = Current Frame').action = 'END_CURRENT'
-        controls.operator('blendcap.vta_generate_animation', text='Generate Animation Range').action = 'RANGE'
+        wm = context.window_manager
+        controls.prop(wm, 'blendcap_vta_animation_scope', text='Coverage')
+        if wm.blendcap_vta_animation_scope == 'RANGE':
+            bounds = controls.row(align=True)
+            bounds.prop(wm, 'blendcap_vta_animation_start', text='Start Frame')
+            bounds.prop(wm, 'blendcap_vta_animation_end', text='End Frame')
+            current = controls.row(align=True)
+            current.operator('blendcap.vta_generate_animation', text='Start = Current Frame').action = 'START_CURRENT'
+            current.operator('blendcap.vta_generate_animation', text='End = Current Frame').action = 'END_CURRENT'
+        controls.operator('blendcap.vta_generate_animation', text='Generate Animation').action = 'RANGE'
         self.layout.label(text='Reviewed Characters only; Freeze / Interpolate repair rejected poses.')
         if any(o.get('vta_output_stale') for o in context.scene.objects):
             self.layout.label(text='Review changed since generation. Generate the affected range to update it.', icon='INFO')
@@ -3359,8 +3377,6 @@ class VIEW3D_PT_blendcap_vta_display(_VtaReviewSubpanel, bpy.types.Panel):
         layout.label(text=f'Assignment marks: {len(vta_marks.marks.items(scope,"assign"))}')
         layout.label(text=f'Suppression marks: {len(vta_marks.marks.items(scope,"suppress"))}')
         layout.label(text='Reconciliation: ' + ('Pending' if vta_review_undo.blocked() else 'Ready'))
-        wm = context.window_manager
-        layout.label(text=f'Generation selection: {wm.blendcap_vta_animation_start}–{wm.blendcap_vta_animation_end}')
         if _view is not None:
             layout.label(text=f'Selected Characters: {len(tracking_character_ids(context))}')
         feedback = _operation_feedback.get(_feedback_key('animation', context))
@@ -3466,6 +3482,11 @@ def register_properties() -> None:
         bpy.app.handlers.frame_change_post.append(_frame_presentation_changed)
     if not bpy.app.timers.is_registered(_scene_observer_timer):
         bpy.app.timers.register(_scene_observer_timer, first_interval=0.0, persistent=True)
+    bpy.types.WindowManager.blendcap_vta_animation_scope = bpy.props.EnumProperty(
+        name='Generation Coverage', items=(
+            ('WHOLE', 'Whole Source', 'Generate the whole source for selected Characters'),
+            ('RANGE', 'Frame Range', 'Generate an inclusive Blender frame range for selected Characters'),
+        ), default='WHOLE')
     bpy.types.WindowManager.blendcap_vta_animation_start = bpy.props.IntProperty(
         name='Animation Start', description='Inclusive Blender frame', default=1)
     bpy.types.WindowManager.blendcap_vta_animation_end = bpy.props.IntProperty(
@@ -3568,6 +3589,7 @@ def unregister_properties() -> None:
     _pending_presentation = None
     if bpy.app.timers.is_registered(_presentation_timer):
         bpy.app.timers.unregister(_presentation_timer)
+    del bpy.types.WindowManager.blendcap_vta_animation_scope
     del bpy.types.WindowManager.blendcap_vta_animation_start
     del bpy.types.WindowManager.blendcap_vta_animation_end
     del bpy.types.Scene.blendcap_vta_automatic_depth

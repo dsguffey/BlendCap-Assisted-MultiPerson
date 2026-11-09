@@ -586,13 +586,9 @@ def draw_cleanup(layout,context):
     controls=layout.column();controls.enabled=enabled
     controls.operator('blendcap.vta_camera_cleanup',text='Remove Camera Movement').action='REMOVE'
     if not enabled:layout.label(text=reason,icon='INFO')
-    try:
-        objects,_ = targets(context,allow_partial=True)
-        if any(obj.get(FINAL) for obj in objects):
-            layout.label(text='Selection includes finalized Characters',icon='CHECKMARK')
-            restore=layout.row();restore.enabled=availability(context,'RESTORE')[0]
-            restore.operator('blendcap.vta_camera_cleanup',text='Restore Source Alignment').action = 'RESTORE'
-    except (ValueError,ui.VtaReviewUiError):
-        pass
+    restore_enabled,restore_reason=availability(context,'RESTORE')
+    restore=layout.row();restore.enabled=restore_enabled
+    restore.operator('blendcap.vta_camera_cleanup',text='Restore Source Alignment').action = 'RESTORE'
+    if not restore_enabled:layout.label(text=restore_reason,icon='INFO')
     if busy(): layout.operator('blendcap.vta_camera_cleanup',text='Cancel Camera Cleanup').action = 'CANCEL'
     ui.draw_operation_feedback(layout,context,'camera_cleanup')

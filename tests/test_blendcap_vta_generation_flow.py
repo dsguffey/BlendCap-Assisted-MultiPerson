@@ -52,10 +52,10 @@ class GenerationFlowTests(unittest.TestCase):
 
     def test_single_ui_command_below_range_controls(self):
         text = inspect.getsource(self.ui.VIEW3D_PT_blendcap_vta_animation.draw)
-        self.assertEqual(text.count("text='Generate Animation Range'"), 1)
-        self.assertLess(text.index('blendcap_vta_animation_start'), text.index("text='Generate Animation Range'"))
-        self.assertLess(text.index('blendcap_vta_animation_end'), text.index("text='Generate Animation Range'"))
-        self.assertLess(text.index("text='End = Current Frame'"), text.index("text='Generate Animation Range'"))
+        self.assertEqual(text.count("text='Generate Animation'"), 1)
+        self.assertLess(text.index('blendcap_vta_animation_start'), text.index("text='Generate Animation'"))
+        self.assertLess(text.index('blendcap_vta_animation_end'), text.index("text='Generate Animation'"))
+        self.assertLess(text.index("text='End = Current Frame'"), text.index("text='Generate Animation'"))
         self.assertNotIn('Generate / Update', inspect.getsource(self.ui))
 
     def test_selected_range_is_distinct_and_full_source_uses_same_command(self):

@@ -53,6 +53,7 @@ class JobsUiTests(unittest.TestCase):
         self.context=NS(scene=self.scene,window_manager=bpy.context.window_manager)
         self.location=NS(companion_root=self.root,source_path=self.root/'source.mp4',blender_frame=11,source_frame=10)
         self.source=dict(source_id='s',start_frame=0,end_frame=162,video_sha256='a'*64)
+        self.context.window_manager.blendcap_vta_animation_scope='RANGE'
         self.context.window_manager.blendcap_vta_animation_start=11;self.context.window_manager.blendcap_vta_animation_end=15
         self.client=mock.Mock();self.backend=mock.Mock()
         def prepare(location,ids,bounds,**kw):
@@ -80,6 +81,23 @@ class JobsUiTests(unittest.TestCase):
         self.assertEqual(self.backend.prepare.call_args.kwargs['depth_mode'],'FIXED');self.assertEqual(self.backend.prepare.call_args.kwargs['fov_mode'],'FIRST')
         self.assertTrue(self.jobs.busy());self.assertTrue(self.jobs._path(self.root,job['pointer']).is_file())
         self.assertEqual(job['phase'],'prepare');self.client.call.assert_not_called() # No implicit provider start until main-thread adoption.
+    def test_whole_source_ignores_hidden_range_and_keeps_selected_characters(self):
+        self.context.window_manager.blendcap_vta_animation_scope='WHOLE'
+        self.context.window_manager.blendcap_vta_animation_start=500
+        self.context.window_manager.blendcap_vta_animation_end=-2
+        with mock.patch.object(self.ui,'tracking_character_ids',return_value=('yellow',)):
+            self.jobs.start_generation(self.context)
+        self.jobs._active['task'].thread.join(5)
+        self.assertEqual(self.backend.prepare.call_args.args,(self.location,('yellow',),(0,162)))
+    def test_invalid_frame_range_does_not_prepare_or_save_job(self):
+        for start,end in ((15,11),(0,15),(11,165)):
+            with self.subTest(start=start,end=end):
+                self.context.window_manager.blendcap_vta_animation_start=start
+                self.context.window_manager.blendcap_vta_animation_end=end
+                with self.assertRaises(ValueError):self.jobs.start_generation(self.context)
+                self.assertIsNone(self.jobs._active)
+                self.backend.prepare.assert_not_called()
+                self.assertFalse((self.root/'.vta-engine').exists())
     def test_automatic_and_every_are_explicit_job_inputs(self):
         self.scene.blendcap_vta_automatic_depth=True;self.scene.blendcap_props.fov_mode='EVERY'
         self.jobs.start_generation(self.context);self.jobs._active['task'].thread.join(5)
