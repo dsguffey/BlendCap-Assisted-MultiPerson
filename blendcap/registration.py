@@ -134,6 +134,7 @@ from .vta_workspace import (
     unregister as unregister_vta_workspace,
 )
 from .vta_camera_depth import BLENDCAP_OT_vta_camera_depth
+from .vta_timeline_markers import BLENDCAP_OT_vta_marker_edit, BLENDCAP_OT_vta_marker_drag
 from .vta_camera_cleanup import BLENDCAP_OT_vta_camera_cleanup
 from . import retarget
 
@@ -289,6 +290,8 @@ classes = (
     BLENDCAP_OT_vta_timeline_hover,
     BLENDCAP_OT_vta_timeline_scroll,
     BLENDCAP_OT_vta_depth_delete,
+    BLENDCAP_OT_vta_marker_edit,
+    BLENDCAP_OT_vta_marker_drag,
     BLENDCAP_OT_vta_goto_review_key,
     BLENDCAP_OT_vta_analyze,
     BLENDCAP_OT_vta_analyze_stop,

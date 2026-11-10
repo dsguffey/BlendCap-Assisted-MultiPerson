@@ -16,7 +16,7 @@ from unittest import mock
 
 from blendcap_vta_timeline import TimelineCharacter, TimelineKey, TimelineView, ReviewKeySelection
 from blendcap_vta_workspace import (
-    TimelineMetrics, channel_items, channel_rows, character_lanes,
+    TimelineMetrics, channel_items, channel_rows, character_lanes, NATIVE_BOTTOM,
     hit_character, hit_review_key, review_keys_in_box, characters_in_box,
 )
 from blendcap_vta_review import ReviewView, CharacterRow, ReviewLocation, SelectionState, VtaReviewUiError
@@ -91,7 +91,13 @@ class DispatchTests(unittest.TestCase):
     def setUp(self):
         self.view=model()
         self.ui=NS(_timeline=self.view)
-        self.env=dict(math=math, replace=replace, TimelineMetrics=TimelineMetrics,
+        package=ModuleType('_dispatch_regression');package.__path__=[]
+        markers=NS(focused=lambda c:False,contains=lambda *a:False,draw=mock.Mock())
+        patch=mock.patch.dict(sys.modules,{'_dispatch_regression':package,
+            '_dispatch_regression.vta_timeline_markers':markers})
+        patch.start();self.addCleanup(patch.stop)
+        self.env=dict(__package__='_dispatch_regression',math=math, replace=replace,
+            TimelineMetrics=TimelineMetrics,NATIVE_BOTTOM=NATIVE_BOTTOM,
             channel_items=channel_items, _row_scroll={}, _row_pan={}, _box_gesture=None,
             _text_size=lambda c:13, _expansion_key=lambda c:c.scope,
             expanded_characters=lambda c,v:[ch.character_id for ch in v.characters],
@@ -147,12 +153,12 @@ class DispatchTests(unittest.TestCase):
         self.scroll(event)
         self.assertEqual(self.env['_row_scroll']['A'][2],1)
 
-    def test_native_bottom_b_a_alt_a_delete_pass_through_even_with_review_selection(self):
+    def test_painted_native_band_b_a_alt_a_delete_do_not_edit_underlying_keys(self):
         for scale in (1,2,3):
             self.ctx.preferences=NS(system=NS(ui_scale=scale))
             for action in ('BOX','ALL','NONE','DELETE'):
                 self.assertEqual(self.env['BLENDCAP_OT_vta_timeline_keys'].invoke(
-                    NS(action=action),self.ctx,self.event('DEL',y=41*scale)),{'PASS_THROUGH'})
+                    NS(action=action),self.ctx,self.event('DEL',y=41*scale)),{'CANCELLED'})
 
     def test_menu_off_and_on_and_mode_commands_removed(self):
         package=ModuleType('_marker_regression');package.__path__=[]
@@ -171,7 +177,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in layout.operator.call_args_list],
                          ['blendcap.vta_load_scene','blendcap.vta_new_scene'])
 
-    def test_draw_clip_restored_even_when_view_is_unavailable(self):
+    def test_full_canvas_covers_native_bottom_even_when_view_is_unavailable(self):
         callbacks('blendcap/vta_workspace.py',('_draw_window',),self.env)
         self.env.update(_scope=lambda c:True,_state=lambda c:(None,(),None,0,0,None),
                         _fill=mock.Mock(),bpy=NS(context=self.ctx))
@@ -179,9 +185,10 @@ class DispatchTests(unittest.TestCase):
         gpu=NS(shader=NS(from_builtin=mock.Mock()),state=NS(scissor_get=lambda:(7,11,1000,240),scissor_set=mock.Mock()))
         with mock.patch.dict(sys.modules,{'gpu':gpu,'gpu_extras.batch':NS(batch_for_shader=mock.Mock())}):
             self.env['_draw_window']()
-        self.assertEqual(gpu.state.scissor_set.call_args_list,[mock.call(7,53,1000,198),mock.call(7,11,1000,240)])
+        gpu.state.scissor_set.assert_not_called()
+        self.assertEqual(self.env['_fill'].call_args.args[2:6],(0,0,1000,240))
 
-    def test_registration_leaves_native_m_f2_g_and_modified_wheel_unbound(self):
+    def test_registration_routes_m_f2_g_and_leaves_modified_wheel_native(self):
         bindings=[]
         def add(identifier,button,value,**mods):
             item=NS(idname=identifier,type=button,properties=NS(),**mods)
@@ -198,7 +205,7 @@ class DispatchTests(unittest.TestCase):
                     keyconfigs=NS(addon=NS(keymaps=NS(new=lambda **kw:keymap)))))))
         callbacks('blendcap/vta_workspace.py',('register',),self.env)
         self.env['register']()
-        self.assertFalse({'M','F2','G'} & {b.type for b in bindings})
+        self.assertTrue({'M','F2','G'} <= {b.type for b in bindings})
         self.assertTrue({'B','A','X','DEL'} <= {b.type for b in bindings})
         self.assertEqual({b.type for b in bindings if b.idname=='blendcap.vta_timeline_scroll'},
                          {'WHEELUPMOUSE','WHEELDOWNMOUSE','TRACKPADPAN'})

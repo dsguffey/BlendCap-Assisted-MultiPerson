@@ -20,9 +20,11 @@ ROW_HEIGHT = 26.0
 # Blender's native Dope Sheet reserves the top of WINDOW for its frame ruler.
 # Keep the first VTA key below that event zone, not merely below our drawn text.
 TOP_PADDING = 62.0
-# Blender's UI_MARKER_MARGIN_Y includes its native marker names and bottom
-# scroller. Leave these pixels to Blender in both the draw and event paths.
+# The stock Dopesheet keymap excludes Blender's 42-pixel native marker event
+# band. Paint over it, but put our thin marker bridge ABOVE that band so its
+# clicks reach our keymap and its labels clear the native horizontal scroller.
 NATIVE_BOTTOM = 42.0
+MARKER_HEIGHT = 28.0
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class TimelineMetrics:
 
     @property
     def bottom_padding(self):
-        return NATIVE_BOTTOM * self.ui_scale
+        return (NATIVE_BOTTOM + MARKER_HEIGHT) * self.ui_scale
 
     @property
     def font_size(self):
