@@ -1,6 +1,6 @@
 # StudioFree MoCap — current checkpoint and Public 1.0 roadmap
 
-Updated **2026-11-09**. This is a development checkpoint before fresh-clip
+Updated **2026-11-10**. This is a development checkpoint before fresh-clip
 end-to-end testing, not Public 1.0 or a release. **StudioFree MoCap** is the
 tentative public name; **MoCap** is the user-facing shorthand. Name/trademark
 clearance remains open. Internal `VTA`/`vta` identifiers intentionally remain.
@@ -70,6 +70,13 @@ always visible in Animation Cleanup and disabled when unavailable. Its protected
 restore reinstates saved generated Root channels, preserves later Object Mode/
 limb edits and leaves the source camera unchanged. It is distinct from Restore
 Last Protected Edit for destructive review edits. See [workflow](vta_ui_workflow.md).
+
+The [bounded animation-editing compatibility pass](research/studiofree_mocap_animation_editing_20261110.md)
+preserves sparse anchors during rotation cleanup, adds Cancel-default mixed-range
+regeneration choices per Character, and exposes native Scene markers plus basic
+Blender-like selection in the MoCap timeline. Automated validation is complete;
+foreground editing/visual acceptance remains pending. No automatic stabilization
+or change to review/tracking authority is included.
 
 ## QA and UI development policy
 

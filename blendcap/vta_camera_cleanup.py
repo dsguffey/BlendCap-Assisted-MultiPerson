@@ -129,7 +129,7 @@ def availability(context,action='REMOVE'):
                 stamp=obj.get('vta_reconstruction_fingerprint')
                 if not stamp or stamp=='legacy-per-frame-intrinsics' or cameras[0].data.get('vta_reconstruction_fingerprint')!=stamp:
                     raise ValueError('Generate compatible current camera-calibrated animation first.')
-            validate_rig(obj)
+            validate_rig(obj,require_aligned_keys=action!='RESTORE')
             return True,''
         except (ValueError,AttributeError) as exc:reasons.append(str(exc))
     return False,next(iter(reasons),'Select an eligible generated Character.')
@@ -142,9 +142,9 @@ def target(context, info=None):
     return objects[0],info
 
 
-def validate_rig(obj):
+def validate_rig(obj,*,require_aligned_keys=True):
     from .vta_skeletal_output import _regenerable_curves
-    _regenerable_curves(obj,None,True)
+    _regenerable_curves(obj,None,True,allow_pose_edits=True)
     if (obj.library or obj.override_library or obj.animation_data.action_blend_type != 'REPLACE'
             or obj.animation_data.action_influence != 1.):
         raise ValueError('Cleanup requires a local generated rig with ordinary replacement Action blending.')
@@ -163,6 +163,8 @@ def validate_rig(obj):
     frames = {float(p.co.x) for fc in curves.values() for p in fc.keyframe_points}
     if not frames or any(not math.isfinite(f) or f != int(f) for f in frames):
         raise ValueError('Cleanup requires integer-frame generated Root keys.')
+    if require_aligned_keys and any({float(p.co.x) for p in fc.keyframe_points} != frames for fc in curves.values()):
+        raise ValueError('Root location/rotation keys have different frame sets. Align those Root keys before cleanup; no missing keys were inserted.')
     return root,curves,(int(min(frames)),int(max(frames)))
 
 
@@ -181,10 +183,11 @@ def apply_solve(scene, obj, solve, core):
     offset = request['offset']
     if first-offset < request['range'][0] or last-offset > request['range'][1]:
         raise ValueError('Camera solve does not cover all generated Root animation.')
+    key_frames=sorted({int(p.co.x) for fc in curves.values() for p in fc.keyframe_points})
     # The first source frame defines identity, not an estimated cleanup. If no
     # supported later frame overlaps this rig, leave both Action and state alone.
     if not any(solve['rotations'][frame-offset-request['range'][0]] is not None
-               and frame-offset > request['range'][0] for frame in range(first,last+1)):
+               and frame-offset > request['range'][0] for frame in key_frames):
         return None
     old = obj.animation_data.action
     result = old.copy()
@@ -198,17 +201,14 @@ def apply_solve(scene, obj, solve, core):
     output = {(fc.data_path,fc.array_index):fc for fc in root_curves(result)}
     rotation_field,size = ('rotation_quaternion',4) if root.rotation_mode == 'QUATERNION' else ('rotation_euler',3)
     scale_curves = {(fc.data_path,fc.array_index):fc for fc in _iter_action_fcurves(old)}
-    values,preserved = [],[]
+    values = []
     compatible_euler,compatible_quaternion = None,None
     try:
-        for frame in range(first,last+1):
+        for frame in key_frames:
             index = frame-offset-request['range'][0]
             if index == 0 or solve['rotations'][index] is None:
                 # Preserve source channels verbatim, including raw Euler/quaternion
                 # values; never decompose or normalize a skipped frame.
-                preserved.append((frame,
-                    tuple(curves[ROOT+'location',i].evaluate(frame) for i in range(3)),
-                    tuple(curves[ROOT+rotation_field,i].evaluate(frame) for i in range(size))))
                 continue
             location = Vector([curves[ROOT+'location',i].evaluate(frame) for i in range(3)])
             raw = [curves[ROOT+rotation_field,i].evaluate(frame) for i in range(size)]
@@ -229,12 +229,19 @@ def apply_solve(scene, obj, solve, core):
                     rot.negate()
                 angles = tuple(rot); compatible_quaternion = rot
             values.append((frame,tuple(loc),angles))
-        # The staged Action already contains every original source key. Replace
-        # only supported frames; gaps retain their original CONSTANT animation.
-        for frame,loc,angles in values+preserved:
+        # Change existing anchors only. Translate handle ordinates with each key
+        # to retain its local tangent/handle types; AUTO handles remain native.
+        # Time-varying correction between sparse anchors is approximate.
+        points={key:{int(p.co.x):p for p in fc.keyframe_points} for key,fc in output.items()}
+        for frame,loc,angles in values:
             for field,components in (('location',loc),(rotation_field,angles)):
                 for axis,value in enumerate(components):
-                    output[ROOT+field,axis].keyframe_points.insert(frame,value,options={'FAST'}).interpolation = 'CONSTANT'
+                    p=points[ROOT+field,axis][frame]
+                    left,right=p.handle_left.copy(),p.handle_right.copy()
+                    delta=value-p.co.y
+                    p.co.y=value
+                    left.y+=delta;right.y+=delta
+                    p.handle_left=left;p.handle_right=right
         for fc in output.values():
             fc.update()
         tracks = json.loads(tracks_before or '{}')
@@ -276,7 +283,7 @@ def restore_source(obj):
         raise ValueError('Source-aligned recovery Action is missing; restore the saved pre-cleanup file.')
     if action_signature(backup,root_only=True) != metadata['original_root_sha256']:
         raise ValueError('Recovery Root animation changed. Restore the saved pre-cleanup file.')
-    validate_rig(obj)
+    validate_rig(obj,require_aligned_keys=False)
     old = obj.animation_data.action
     result = old.copy()
     original_slot = obj.animation_data.action_slot
@@ -428,13 +435,16 @@ def completion_feedback(scene,obj,solve,log=None):
     else:
         primary = 'Camera rotation removed. Character finalized.'
     details = 'Rotation only; translation/depth remain. '
+    keyed={p.co.x for fc in root_curves(obj.animation_data.action) for p in fc.keyframe_points}
+    if len(keyed)<last-first+1:
+        details+='Only existing sparse anchors were corrected. Between-anchor correction is approximate; no missing keys were inserted. '
     if finalized:
         details += 'Restore Source Alignment before further MoCap work. '
     if partial:
         details+=('Pan/tilt were not corrected on roll-only frames. Changing accepted components may jump; inspect boundaries.\n'
             'Roll-only Blender frames: '+', '.join(str(row['frame']+offset) for row in partial)+'\n')
     if skipped:
-        details += ('Skipped frames retain their original source-aligned animation. '
+        details += ('Existing keys on skipped frames retain their source-aligned values. Sparse in-between motion follows native interpolation. '
             'Corrected/uncorrected boundaries may jump; inspect them during QA.\n'
             'Skipped Blender frames (source frame):\n'+ '\n'.join(
                 f"{row['frame']+offset} ({row['frame']}): {row['reason']}" for row in skipped))

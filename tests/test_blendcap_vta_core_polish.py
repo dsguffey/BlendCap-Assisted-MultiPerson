@@ -26,6 +26,7 @@ class CorePolishTests(unittest.TestCase):
         cls.workspace = importlib.import_module(name + '.blendcap.vta_workspace')
         cls.depth = importlib.import_module(name + '.blendcap.vta_camera_depth')
         cls.output = BlenderOutputTests.output
+        cls.editing=importlib.import_module(name+'.blendcap.vta_animation_editing')
 
     def invalid_plan(self):
         return {'project_id':'p','source_id':'s','characters':[{'character_id':'yellow','display_name':'Yellow',
@@ -36,7 +37,7 @@ class CorePolishTests(unittest.TestCase):
         import importlib
         ui=self.ui;jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
         message='Yellow: Interpolate repair 79–90 needs trustworthy anchor poses.'
-        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation',side_effect=ValueError(message)),mock.patch.object(ui.subprocess,'Popen') as launch:
+        with mock.patch.object(self.editing,'request',return_value={'states':{'white':'FULL','yellow':'FULL'}}),mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation',side_effect=ValueError(message)),mock.patch.object(ui.subprocess,'Popen') as launch:
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),None),{'CANCELLED'})
             launch.assert_not_called()
         self.assertIn(message,ui._generation_details)
@@ -66,7 +67,7 @@ class CorePolishTests(unittest.TestCase):
         import importlib
         ui=self.ui;jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
         context=NS(window_manager=NS(blendcap_vta_generation_scope='ALL'))
-        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
+        with mock.patch.object(self.editing,'request',return_value={'states':{'white':'FULL','yellow':'FULL'}}),mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(NS(action='RANGE'),context),{'FINISHED'})
             start.assert_called_once_with(context);launch.assert_not_called()
 

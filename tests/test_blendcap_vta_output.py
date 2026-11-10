@@ -174,7 +174,8 @@ class BlenderOutputTests(unittest.TestCase):
         ui=importlib.import_module(self.addon.__name__+'.blendcap.vta_review_ui');jobs=importlib.import_module(ui.__package__+'.vta_jobs_ui')
         wm=SimpleNamespace(blendcap_vta_animation_start=11,blendcap_vta_animation_end=15,blendcap_vta_motion_start=67,blendcap_vta_motion_end=90)
         context=SimpleNamespace(window_manager=wm);operator=SimpleNamespace(action='RANGE',report=mock.Mock())
-        with mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
+        editing=importlib.import_module(ui.__package__+'.vta_animation_editing')
+        with mock.patch.object(editing,'request',return_value={'states':{'white':'FULL','yellow':'FULL'}}),mock.patch.object(ui,'_edit_available',return_value=True),mock.patch.object(ui,'tracking_character_ids',return_value=('white','yellow')),mock.patch.object(jobs,'start_generation') as start,mock.patch.object(ui.subprocess,'Popen') as launch:
             self.assertEqual(ui.BLENDCAP_OT_vta_generate_animation.execute(operator,context),{'FINISHED'})
             start.assert_called_once_with(context);launch.assert_not_called()
         self.assertEqual((wm.blendcap_vta_motion_start,wm.blendcap_vta_motion_end),(67,90))

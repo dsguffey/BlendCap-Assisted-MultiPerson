@@ -81,6 +81,24 @@ class JobsUiTests(unittest.TestCase):
         self.assertEqual(self.backend.prepare.call_args.kwargs['depth_mode'],'FIXED');self.assertEqual(self.backend.prepare.call_args.kwargs['fov_mode'],'FIRST')
         self.assertTrue(self.jobs.busy());self.assertTrue(self.jobs._path(self.root,job['pointer']).is_file())
         self.assertEqual(job['phase'],'prepare');self.client.call.assert_not_called() # No implicit provider start until main-thread adoption.
+
+    def test_native_editing_choice_survives_pointer_roundtrip_and_recovery(self):
+        import copy
+        self.jobs.start_generation(self.context);job=self.jobs._active;job['task'].thread.join(5)
+        pointer=copy.deepcopy(job['pointer']);edit=pointer['native_edit']
+        edit['mode']='EXISTING';edit['bounds']=[1,5000]
+        edit['frames']={cid:list(range(1,5001)) for cid in edit['frames']}
+        edit['states']={cid:'FULL' for cid in edit['frames']}
+        self.jobs._persist(self.root,pointer)
+        raw=self.jobs._path(self.root,pointer).read_bytes()
+        self.assertGreater(len(raw),16384)
+        self.assertEqual(self.jobs._read_pointer(raw),pointer)
+        self.jobs._active=None
+        self.jobs._start(self.context,'generation',recover=True)
+        self.jobs._active['task'].thread.join(5)
+        self.assertEqual(self.jobs._active['pointer']['native_edit'],edit)
+        self.assertEqual(self.backend.prepare.call_count,1)
+        with self.assertRaises(ValueError):self.jobs._read_pointer(b'{"version":1,"version":1}')
     def test_whole_source_ignores_hidden_range_and_keeps_selected_characters(self):
         self.context.window_manager.blendcap_vta_animation_scope='WHOLE'
         self.context.window_manager.blendcap_vta_animation_start=500

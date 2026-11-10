@@ -64,6 +64,8 @@ def expanded_characters(context, view):
 def _clear_channel_presentation(*_args):
     _collapsed_depth.clear()
     _depth_focus.clear()
+    from .vta_timeline_markers import _focus
+    _focus.clear()
 
 
 def _rows(context, view, first, metrics):
@@ -528,6 +530,8 @@ def _draw_window():
         _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
               (.105, .105, .105, 1))
         if view is None:
+            from .vta_timeline_markers import draw
+            draw(context,scale,shader,batch_for_shader,_fill,_line)
             return
         expanded = expanded_characters(context, view)
         rows = _rows(context, view, first, metrics)
@@ -657,6 +661,8 @@ def _draw_window():
                           (x + radius, y + radius)), color)
                     _line(shader, batch_for_shader, ((x - radius, y + radius),
                           (x + radius, y - radius)), color)
+        from .vta_timeline_markers import draw
+        draw(context,scale,shader,batch_for_shader,_fill,_line)
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
     except Exception:
@@ -969,6 +975,15 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
         metrics = _metrics(context)
+        from . import vta_timeline_markers as markers
+        if context.region.type=='WINDOW' and point[1]<=markers.HEIGHT*metrics.ui_scale:
+            markers.select(context,point[0],extend=bool(event.shift or event.ctrl),scale=metrics.ui_scale)
+            _depth_focus.discard(_expansion_key(context))
+            vta_invalidation.request_redraw()
+            if event.type=='RIGHTMOUSE':
+                bpy.ops.wm.call_menu('INVOKE_DEFAULT',name='DOPESHEET_MT_marker')
+            return {'FINISHED'}
+        if isinstance(getattr(context,'scene',None),bpy.types.Scene):markers.focus(context,False)
         if _box_gesture is None and event.type in {'LEFTMOUSE','RIGHTMOUSE'}:
             try:
                 depth_result = _depth_interaction(context, view, first, metrics, point, event)
@@ -1078,8 +1093,86 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                     _ui().select_timeline_character(context, cid, extend=self._gesture_extend)
                 else:
                     _ui().select_timeline_characters(context, (), extend=self._gesture_extend)
+            elif not self._gesture_extend:
+                _ui().select_timeline_keys(context, ())
             return self._finish_box('FINISHED')
         return {'RUNNING_MODAL'}
+
+
+def _delegated_timeline_result(result):
+    # The nested native/dialog operator owns its own handler. Only BOX starts
+    # this dispatcher's modal lifecycle; do not leave a second operator alive.
+    return {'FINISHED'} if 'RUNNING_MODAL' in result else result
+
+
+class BLENDCAP_OT_vta_timeline_keys(bpy.types.Operator):
+    bl_idname='blendcap.vta_timeline_keys'
+    bl_label='MoCap Timeline Editing'
+    bl_options={'INTERNAL'}
+    __annotations__={'action':bpy.props.EnumProperty(items=[(a,a,'') for a in ('BOX','ALL','NONE','DELETE','ADD','RENAME','MOVE')])}
+
+    @classmethod
+    def poll(cls,context):return _scope(context)
+
+    def invoke(self,context,event):
+        from . import vta_timeline_markers as markers
+        marker_focus=context.region.type=='WINDOW' and markers.focused(context)
+        if self.action in ('ADD','RENAME','MOVE'):
+            if self.action!='ADD' and not marker_focus:return {'PASS_THROUGH'}
+            return _delegated_timeline_result(markers.command(context,self.action))
+        if self.action=='DELETE':
+            if marker_focus:return _delegated_timeline_result(markers.command(context,'DELETE'))
+            if _expansion_key(context) in _depth_focus:return bpy.ops.blendcap.vta_depth_delete()
+            if _ui()._review_key_selection.keyframe_ids:
+                return _delegated_timeline_result(bpy.ops.blendcap.vta_review_manage('INVOKE_DEFAULT',action='clear-selected-review-keys'))
+            return {'CANCELLED'}  # Never delete hidden native pose keys.
+        view=_state(context)[0]
+        if view is None:return {'CANCELLED'}
+        if marker_focus:
+            if self.action in ('ALL','NONE'):
+                return bpy.ops.marker.select_all(action='SELECT' if self.action=='ALL' else 'DESELECT')
+            return {'CANCELLED'}
+        if self.action in ('ALL','NONE'):
+            _depth_focus.discard(_expansion_key(context))
+            if context.region.type=='CHANNELS':
+                _ui().select_timeline_characters(context,[c.character_id for c in view.characters] if self.action=='ALL' else ())
+            else:
+                _ui().select_timeline_keys(context,[k.keyframe_id for k in view.keys] if self.action=='ALL' else ())
+            return {'FINISHED'}
+        self._waiting=True;self._selector=None
+        context.window.cursor_modal_set('CROSSHAIR');context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def cancel(self,context):
+        if self._selector is not None:self._selector.cancel(context)
+        context.window.cursor_modal_restore()
+
+    def modal(self,context,event):
+        if self._selector is None:
+            if event.type in ('ESC','RIGHTMOUSE','WINDOW_DEACTIVATE'):
+                self.cancel(context);return {'CANCELLED'}
+            if event.type!='LEFTMOUSE' or event.value!='PRESS':return {'RUNNING_MODAL'}
+            # Reuse the existing bounded marquee implementation, without adding
+            # another modal handler or another selection model.
+            from types import SimpleNamespace,MethodType
+            cls=BLENDCAP_OT_vta_timeline_select
+            proxy=SimpleNamespace()
+            proxy._finish_box=MethodType(cls._finish_box,proxy)
+            proxy.cancel=MethodType(cls.cancel,proxy)
+            # B always starts a rectangle, even over an existing key/Depth row.
+            view,_,_,offset,first,_=_state(context);metrics=_metrics(context)
+            point=(event.mouse_region_x,event.mouse_region_y)
+            proxy._gesture_view=view;proxy._gesture_metrics=metrics;proxy._gesture_offset=offset
+            proxy._gesture_first=first;proxy._gesture_expanded=expanded_characters(context,view)
+            proxy._gesture_extend=bool(event.shift);proxy._gesture_characters=context.region.type=='CHANNELS'
+            proxy._gesture=dict(area=context.area,region=context.region,start=point,end=point,dragged=False)
+            global _box_gesture
+            _box_gesture=proxy._gesture;self._selector=proxy
+            return {'RUNNING_MODAL'}
+        result=BLENDCAP_OT_vta_timeline_select.modal(self._selector,context,event)
+        if result=={'FINISHED'}:_depth_focus.discard(_expansion_key(context))
+        if result!={'RUNNING_MODAL'}:context.window.cursor_modal_restore()
+        return result
 
 
 class BLENDCAP_OT_vta_depth_delete(bpy.types.Operator):
@@ -1149,9 +1242,16 @@ def register():
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
+            for button,action,mods in (('B','BOX',{}),('A','ALL',{}),('A','NONE',{'alt':True})):
+                item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS',**mods)
+                item.properties.action=action;items.append(item)
             if name == 'Dopesheet':
                 for button in ('X', 'DEL'):
-                    items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_depth_delete.bl_idname, button, 'PRESS'))
+                    item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname, button, 'PRESS')
+                    item.properties.action='DELETE';items.append(item)
+                for button,action in (('M','ADD'),('F2','RENAME'),('G','MOVE')):
+                    item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS')
+                    item.properties.action=action;items.append(item)
 
 
 def unregister():

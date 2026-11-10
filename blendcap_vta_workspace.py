@@ -87,7 +87,8 @@ def channel_rows(view, height, first=0, *, metrics=TimelineMetrics(), expanded=(
             for kind in (('character', 'depth') if c.character_id in expanded else ('character',))]
     if not rows:
         return ()
-    visible = max(1, int((height - metrics.top_padding) // metrics.row_height))
+    visible = max(0, int((height - metrics.top_padding - 28*metrics.ui_scale) // metrics.row_height))
+    if not visible:return ()
     first = min(max(0, first), len(view.characters)-1)
     cid = view.characters[first].character_id
     start = next(i for i, (identity, kind) in enumerate(rows) if identity == cid and kind == 'character')

@@ -1765,6 +1765,28 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
 
     action: bpy.props.EnumProperty(items=(('RANGE', 'Frame Range', ''), ('START_CURRENT', 'Start = Current Frame', ''),
         ('END_CURRENT', 'End = Current Frame', ''), ('CANCEL', 'Cancel Generation', 'Stop between model calls')), default='RANGE')
+    from .vta_animation_editing import CHOICES as _editing_choices
+    editing_mode: bpy.props.EnumProperty(items=_editing_choices,default='CANCEL',options={'SKIP_SAVE'})
+
+    def invoke(self,context,event):
+        if self.action!='RANGE':return self.execute(context)
+        try:
+            from .vta_animation_editing import request,mixed
+            snapshot=request(context)
+            if not mixed(snapshot):return self.execute(context)
+            self._editing_snapshot=snapshot
+            self.editing_mode='CANCEL'
+            return context.window_manager.invoke_props_dialog(self,width=560)
+        except Exception as exc:
+            _generation_failure(exc,context=context,reconstruction_started=False);return {'CANCELLED'}
+
+    def draw(self,context):
+        self.layout.label(text='The selected range contains frames with and without pose keys.',icon='INFO')
+        self.layout.label(text='Gaps and existing poses may be intentional manual edits.')
+        self.layout.label(text='Apply separately to each selected Character:')
+        self.layout.prop(self,'editing_mode',expand=True)
+        if self.editing_mode=='ALL':
+            self.layout.label(text='This replaces manual poses and intentional gaps.',icon='ERROR')
 
     @classmethod
     def description(cls, context, properties):
@@ -1772,6 +1794,8 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
         return cls.bl_description + (' Unavailable: ' + reason if reason else '')
 
     def execute(self, context):
+        if getattr(self,'_editing_snapshot',None) is not None and self.editing_mode=='CANCEL':
+            return {'CANCELLED'}
         try:
             from . import vta_jobs_ui as jobs
             if self.action=='CANCEL':return {'FINISHED'} if jobs.request_cancel() else {'CANCELLED'}
@@ -1781,7 +1805,15 @@ class BLENDCAP_OT_vta_generate_animation(bpy.types.Operator):
                 setattr(context.window_manager,name,context.scene.frame_current);return {'FINISHED'}
             if not _edit_available(self,quiet=True):raise VtaReviewUiError('Another MoCap operation is pending.')
             if not tracking_character_ids(context):raise VtaReviewUiError('Select at least one Character.')
-            jobs.start_generation(context);return {'FINISHED'}
+            edit=None
+            snapshot=getattr(self,'_editing_snapshot',None)
+            if snapshot is not None:edit=dict(snapshot,mode=self.editing_mode)
+            else:
+                from .vta_animation_editing import request,mixed
+                if mixed(request(context)):return self.invoke(context,None)
+            if edit is None:jobs.start_generation(context)
+            else:jobs.start_generation(context,native_edit=edit)
+            return {'FINISHED'}
         except Exception as exc:
             _generation_failure(exc,context=context,reconstruction_started=False);return {'CANCELLED'}
 

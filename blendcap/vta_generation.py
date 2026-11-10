@@ -110,18 +110,24 @@ def failure_message(detail, cancelled=False):
     return 'Couldn’t update the animation. Your existing animation was kept unchanged. ' + reason
 
 
-def import_generation(paths, location, backend, *, migration=False, depth_mode='AUTOMATIC', validated=None):
+def import_generation(paths, location, backend, *, migration=False, depth_mode='AUTOMATIC', validated=None, native_edit=None):
     """Publish migration + requested output in one rollback boundary.
 
     Worker failures never enter here. Existing generated Actions/camera data are
     kept alive until both imports succeed; no review files are written.
     """
     from . import vta_skeletal_output as output
+    if native_edit and migration:
+        # Calibration replacement is source-wide and cannot retain native poses
+        # in a previous camera gauge. Never silently expand a selective choice.
+        if native_edit['mode']!='ALL':
+            raise ValueError('Shared camera calibration migration requires replacing all animation. Select Replace all animation explicitly; prior poses were retained.')
     if not migration:
         if len(paths) != 1:
             raise ValueError('Unexpected generation output count')
         return output.import_reviewed_output(paths[0], location, backend, configure_views=False, depth_mode=depth_mode,
-            **({'validated':validated[0]} if validated is not None else {}))
+            **({'validated':validated[0]} if validated is not None else {}),
+            **({'native_edit':native_edit} if native_edit else {}))
     if len(paths) != 2:
         raise ValueError('Update requires migration and requested output; previous animation retained')
     reports = [output._read_report(p) for p in paths]

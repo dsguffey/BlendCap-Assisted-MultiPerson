@@ -126,7 +126,7 @@ def _user_transform_curve(fc):
     return fc.data_path in _OBJECT_TRANSFORMS and 0 <= fc.array_index < _OBJECT_TRANSFORMS[fc.data_path]
 
 
-def _regenerable_curves(previous, segment, preserve_object_transforms):
+def _regenerable_curves(previous, segment, preserve_object_transforms, *, allow_pose_edits=False):
     data = previous.animation_data
     if data is None or data.action is None or data.nla_tracks or data.drivers:
         raise ValueError('Range update requires a generated Action without NLA or drivers')
@@ -136,6 +136,7 @@ def _regenerable_curves(previous, segment, preserve_object_transforms):
             or len({(fc.data_path, fc.array_index) for fc in curves}) != len(curves)
             or any(fc.modifiers or fc.sampled_points or
                 (not (preserve_object_transforms and _user_transform_curve(fc))
+                 and not (allow_pose_edits and fc.data_path.startswith('pose.bones['))
                  and any(p.interpolation != 'CONSTANT' for p in fc.keyframe_points)) for fc in curves)):
         raise ValueError('Range update cannot safely preserve edited/interpolated animation; use a separate generated rig')
     if preserve_object_transforms:
@@ -342,7 +343,7 @@ def _read_report(path):
 
 
 def import_reviewed_output(path, location, backend, *, configure_views=True, migration_approved=False,
-                           depth_mode='AUTOMATIC', validated=None):
+                           depth_mode='AUTOMATIC', validated=None, native_edit=None):
     root = Path(path).resolve().parent
     expected_root = (location.companion_root / 'reconstruction').resolve()
     if not root.is_relative_to(expected_root):
@@ -360,6 +361,13 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
     saved=json.loads(cameras[0].data['vta_scene_reference']) if len(cameras)==1 and cameras[0].data.get('vta_scene_reference') else None
     validated=validated or backend.validate_output(location,path,previous_fingerprints=stamps,saved_reference=saved,migration_approved=migration_approved)
     report=validated['report'];plan=report['plan'];bounded=plan.get('generation_scope')=='range'
+    if native_edit:
+        from . import vta_animation_editing as editing
+        editing.validate(native_edit)
+        visible=[f+location.blender_frame-location.source_frame for f in plan['source_range']]
+        if (native_edit['bounds']!=visible or set(native_edit['frames'])!=set(plan['character_scope'])
+                or (native_edit['project_id'],native_edit['source_id'])!=(plan['project_id'],plan['source_id'])):
+            raise ValueError('Native editing request differs from the accepted generation scope.')
     if depth_mode!=validated['depth_mode']:raise ValueError('Native Depth mode differs from the accepted job setting.')
     if _hash(path)!=validated['output_sha256']:raise ValueError('Validated output report changed.')
     cache=SimpleNamespace(revision_id=plan['analysis_revision_id'],source=SimpleNamespace(**validated['source']))
@@ -450,15 +458,19 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
             find_scene_root(scene, plan['project_id'], plan['source_id'])
             # Includes owned Characters with no new successful pose this run.
             for obj in prior:
-                _regenerable_curves(obj, None, True)
+                _regenerable_curves(obj, None, True,allow_pose_edits=bool(native_edit))
         for record in records:
             cid = record['character_id']
             owned = [o for o in prior if o.get('vta_character_id') == cid]
             if len(owned) > 1:
                 raise ValueError('Multiple generated rigs own this Character; resolve duplicate output first')
             previous = owned[0] if owned else None
+            if native_edit and not editing.selected_frames(native_edit,cid):
+                continue  # This Character has no frames eligible for the chosen option.
             if cid not in paths:
-                if bounded and previous is not None:
+                if native_edit and previous is not None:
+                    staged.append((previous,editing.merge(previous,None,native_edit,cid),None))
+                elif bounded and previous is not None:
                     staged.append((previous, merge_reviewed_range(previous, None, *bounds,
                         source_bounds=source_bounds, preserve_object_transforms=True), None))
                 continue
@@ -495,7 +507,7 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
                 if not _same_skeleton(previous, obj):
                     raise ValueError('Range update skeleton differs; previous animation retained')
                 merge_bounds = bounds if bounded else (0, 0)
-                staged.append((previous, merge_reviewed_range(previous, obj.animation_data.action,
+                staged.append((previous, editing.merge(previous,obj.animation_data.action,native_edit,cid) if native_edit else merge_reviewed_range(previous, obj.animation_data.action,
                     *merge_bounds, source_bounds=source_bounds, preserve_object_transforms=True,
                     full=not bounded or replacing_calibration), obj))
             elif bounded:
@@ -505,6 +517,8 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
                 for fc in _iter_action_fcurves(obj.animation_data.action):
                     for point in fc.keyframe_points:
                         point.interpolation = 'CONSTANT'
+            if previous is None and native_edit:
+                editing.limit_new(obj.animation_data.action,native_edit,cid)
         if report['version'] == 4:
             if replacing_calibration and bounded:
                 # A replacement Action has no inherited out-of-range availability.
@@ -519,7 +533,8 @@ def import_reviewed_output(path, location, backend, *, configure_views=True, mig
                 obj.matrix_world = scene_translation(reference)
                 limit_source_visibility(obj.animation_data.action, *source_bounds)
             for previous, action, fresh in staged:
-                limit_source_visibility(action, *source_bounds, preserve_object_transforms=True)
+                if not native_edit:
+                    limit_source_visibility(action, *source_bounds, preserve_object_transforms=True)
             camera_previous, camera_stage = stage_source_camera(plan, records, location,
                 bounded and not replacing_calibration, bounds, reference)
             camera_stage.data['vta_reconstruction_fingerprint'] = fingerprint

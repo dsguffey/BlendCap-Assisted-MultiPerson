@@ -224,6 +224,14 @@ class BlenderWorkspaceTests(unittest.TestCase):
         cls.workspace = sys.modules[package + '.blendcap.vta_workspace']
         cls.ui = sys.modules[package + '.blendcap.vta_review_ui']
 
+    def setUp(self):
+        # These tests register the workspace hooks independently of addon-wide
+        # registration; its new parameterized shortcut operator must exist too.
+        cls=self.workspace.BLENDCAP_OT_vta_timeline_keys
+        if not cls.is_registered:
+            bpy.utils.register_class(cls)
+            self.addCleanup(lambda:bpy.utils.unregister_class(cls) if cls.is_registered else None)
+
     def test_bundled_workspace_contains_only_tagged_unique_review_host(self):
         path = Path(__file__).resolve().parents[1] / 'vta_workspace_mode.blend'
         before_scenes = set(bpy.data.scenes.keys())
@@ -374,7 +382,8 @@ class BlenderWorkspaceTests(unittest.TestCase):
                     result = cls.modal(operator, context, event)
                     self.assertEqual(result, {'FINISHED'} if case == 'click' else {'CANCELLED'})
                     self.assertIsNone(self.workspace._box_gesture)
-                    select.assert_not_called()
+                    if case=='click':select.assert_called_once_with(context, ())
+                    else:select.assert_not_called()
                 finally:
                     self.workspace._box_gesture = None
 

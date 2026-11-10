@@ -157,11 +157,12 @@ class DepthChannelTests(unittest.TestCase):
             metrics=TimelineMetrics(scale,24)
             for height in (100,200,600):
                 rows=channel_rows(self.view,height,1,metrics=metrics,expanded=('a','b'))
-                self.assertEqual(rows[0].kind,'character')
+                if rows:self.assertEqual(rows[0].kind,'character')
+                else:self.assertLess(height,metrics.top_padding+28*scale+metrics.row_height)
                 for a,b in zip(rows,rows[1:]):self.assertAlmostEqual(a.y-b.y,metrics.row_height)
 
     def test_small_viewport_keeps_focused_character_and_its_child_visible(self):
-        rows=channel_rows(self.view,140,1,expanded=('a','b'))
+        rows=channel_rows(self.view,168,1,expanded=('a','b'))  # Includes native-marker strip space.
         self.assertEqual([(r.character_id,r.kind) for r in rows],[('b','character'),('b','depth')])
 
     def test_file_load_clears_only_presentation_state(self):

@@ -19,6 +19,19 @@ _messages={}
 _statuses={}
 _pointer_error=''
 BUSY={'prepared','starting','running','awaiting-decision'}
+POINTER_BYTES=2*1024*1024  # Native keyed-frame selection is local, never an IPC message.
+
+
+def _read_pointer(raw):
+    if not 0<len(raw)<=POINTER_BYTES:raise ValueError('Unsafe host job pointer size.')
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result:raise ValueError('Duplicate host job pointer field.')
+            result[key]=value
+        return result
+    def invalid(value):raise ValueError('Nonfinite host job pointer value.')
+    return _validate(json.loads(raw.decode('utf-8'),object_pairs_hook=pairs,parse_constant=invalid))
 
 def _root():
     return companion_root_for_blend(bpy.data.filepath).resolve()
@@ -32,23 +45,30 @@ def _identity(scene):
 def _key(scene,kind):return (scene.get('vta_scene_owner_id'),kind)
 
 def _validate(value):
-    wire.fields(value,('version','scene_owner_id','project_id','source_id','job_id','kind','settled',*(('native_sha256',) if 'native_sha256' in value else ())))
+    wire.fields(value,('version','scene_owner_id','project_id','source_id','job_id','kind','settled',
+        *(name for name in ('native_sha256','native_edit') if name in value)))
     wire.require(value['version']==1 and type(value['version']) is int,'Unknown host job pointer.')
     for field in ('scene_owner_id','job_id'):wire.identifier(value[field])
     for field in ('project_id','source_id'):wire.text(value[field])
     wire.require(value['kind'] in ('analysis','generation') and type(value['settled']) is bool,'Invalid host job pointer.')
     if value.get('native_sha256') is not None:wire.digest(value['native_sha256'])
+    if 'native_edit' in value:
+        from .vta_animation_editing import validate
+        edit=validate(value['native_edit'])
+        wire.require(value['kind']=='generation' and (edit['project_id'],edit['source_id'])==(value['project_id'],value['source_id']), 'Native editing request belongs to another source.')
     return value
 
 def _path(root,value):return root/'.vta-host-jobs'/(value['scene_owner_id']+'-'+value['kind']+'.json')
 
 def _persist(root,value):
     _validate(value);path=_path(root,value)
+    raw=json.dumps(value,sort_keys=True)
+    if len(raw.encode('utf-8'))>POINTER_BYTES:raise ValueError('Native editing request exceeds the bounded job pointer size.')
     if not path.resolve().is_relative_to(root):raise ValueError('Host job pointer escapes companion.')
     path.parent.mkdir(exist_ok=True);temporary=path.with_name(path.name+'.'+uuid4().hex+'.tmp')
     try:
         with temporary.open('x',encoding='utf-8') as stream:
-            json.dump(value,stream,sort_keys=True);stream.flush();os.fsync(stream.fileno())
+            stream.write(raw);stream.flush();os.fsync(stream.fileno())
         os.replace(temporary,path)
     finally:temporary.unlink(missing_ok=True)
     _saved[(value['scene_owner_id'],value['kind'])]=value.copy()
@@ -88,7 +108,7 @@ def _launch(job,phase,fn):
 
 def _backend(client):return EngineGenerationBackend(client,EngineReviewBackend(client))
 
-def _start(context,kind,*,recover=False):
+def _start(context,kind,*,recover=False,native_edit=None):
     global _active
     from . import vta_review_ui as ui
     from . import vta_review_undo as recovery
@@ -126,6 +146,15 @@ def _start(context,kind,*,recover=False):
                       (wm.blendcap_vta_animation_start-offset,wm.blendcap_vta_animation_end-offset))
             from .vta_generation import plan_options,owners,fingerprint
             plan_options(selected,domain)
+            from .vta_animation_editing import request as editing_request, mixed, validate
+            current=editing_request(context)
+            if native_edit is None:
+                if mixed(current):raise ValueError('This range contains animation gaps. Invoke Generate Animation to choose what to preserve.')
+                native_edit=dict(current,mode='ALL')
+            validate(native_edit)
+            if {k:v for k,v in native_edit.items() if k!='mode'}!=current:
+                raise ValueError('Animation scope or poses changed while the dialog was open. Generate again to review the current range.')
+            pointer['native_edit']=native_edit
             from .vta_camera_cleanup import require_source_aligned
             require_source_aligned(scene,ids,pointer['project_id'],pointer['source_id'])
             mode='AUTOMATIC' if scene.blendcap_vta_automatic_depth else 'FIXED'
@@ -145,7 +174,7 @@ def _start(context,kind,*,recover=False):
         ui.clear_operation_feedback('animation',context);ui._generation_status='';ui._generation_details=''
     if not bpy.app.timers.is_registered(tick):bpy.app.timers.register(tick,first_interval=.05)
 
-def start_generation(context):return _start(context,'generation')
+def start_generation(context,*,native_edit=None):return _start(context,'generation',native_edit=native_edit)
 def start_analysis(context):return _start(context,'analysis')
 
 def request_cancel():
@@ -154,6 +183,9 @@ def request_cancel():
 
 def _native_inputs(job):
     context=_context(job);scene=context.scene;pointer=job['pointer']
+    if pointer.get('native_edit') and not pointer.get('native_sha256'):
+        from .vta_animation_editing import require_unchanged
+        require_unchanged(scene,pointer['native_edit'])
     from .vta_generation import owners,fingerprint
     targets=owners(scene,pointer['project_id'],pointer['source_id'])
     cameras=[o for o in targets if o.type=='CAMERA']
@@ -207,7 +239,12 @@ def _apply(job,paths,values):
         candidate=restore.capture(scene,job['pointer']['project_id'],job['pointer']['source_id'],companion_root=job['root'],job_id=job['handle'].job_id,result_sha256=result['sha256'])
         try:
             from .vta_generation import import_generation
-            import_generation(paths,job['location'],job['backend'],migration=len(paths)==2,depth_mode=values[-1]['depth_mode'],validated=values)
+            edit=job['pointer'].get('native_edit')
+            if edit:
+                from .vta_animation_editing import require_unchanged
+                require_unchanged(scene,edit)
+            import_generation(paths,job['location'],job['backend'],migration=len(paths)==2,depth_mode=values[-1]['depth_mode'],validated=values,
+                **({'native_edit':edit} if edit else {}))
         except Exception:
             restore.discard(candidate);raise
         restore.publish(scene,candidate)
@@ -409,8 +446,8 @@ def load(_unused=None):
         if len(paths)>256:raise ValueError('Too many host job pointers.')
         for path in paths:
             if path.suffix!='.json':continue
-            if not path.resolve().is_relative_to(root) or path.stat().st_nlink!=1 or path.stat().st_size>16384:raise ValueError('Unsafe host job pointer.')
-            value=_validate(wire.loads(path.read_bytes()))
+            if not path.resolve().is_relative_to(root) or path.stat().st_nlink!=1 or path.stat().st_size>POINTER_BYTES:raise ValueError('Unsafe host job pointer.')
+            value=_read_pointer(path.read_bytes())
             if path!=_path(root,value):raise ValueError('Host job pointer filename mismatch.')
             _saved[(value['scene_owner_id'],value['kind'])]=value
     except Exception as exc:

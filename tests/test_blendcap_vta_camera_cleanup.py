@@ -163,8 +163,8 @@ class CameraCleanupTests(unittest.TestCase):
 
     def test_partial_cleanup_preserves_skipped_values_and_restores_exactly(self):
         solve,truth=self.solve()
-        # A sparse source key at skipped frame 3 must not inherit the correction
-        # from frame 2. Record original evaluations before any staged inserts.
+        # Missing frame 3 remains missing. Its interpolated evaluation may change
+        # as neighboring anchors change; only existing skipped anchors are exact.
         curves=self.cleanup.root_curves(self.obj.animation_data.action)
         for fc in curves:
             for point in list(fc.keyframe_points):
@@ -176,7 +176,8 @@ class CameraCleanupTests(unittest.TestCase):
         self.skip(solve,[2,3])
         self.cleanup.apply_solve(self.scene,self.obj,solve,self.core)
         for fc in self.cleanup.root_curves(self.obj.animation_data.action):
-            self.assertEqual([fc.evaluate(f) for f in (3,4)],before[fc.data_path,fc.array_index])
+            self.assertEqual(fc.evaluate(4),before[fc.data_path,fc.array_index][1])
+            self.assertNotIn(3,{p.co.x for p in fc.keyframe_points})
         for frame in (2,5,6):
             self.scene.frame_set(frame);self.obj.hide_viewport=False;bpy.context.view_layer.update()
             actual=self.root.matrix
