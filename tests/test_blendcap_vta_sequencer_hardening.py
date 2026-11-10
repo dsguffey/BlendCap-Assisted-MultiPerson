@@ -172,7 +172,7 @@ class BlenderSequencerRegistryTests(unittest.TestCase):
                     if restore:self.assertTrue(restore[0][4].restore)
                     self.assertIn(("label", "Review Keys"), calls, "Current-frame panel draw stopped early")
                     self.assertTrue(any(c[:2] == ("operator", "blendcap.vta_generate_animation") for c in calls))
-                    range_button = next(c for c in calls if c[0] == 'operator' and c[2] == 'Generate Animation Range')
+                    range_button = next(c for c in calls if c[0] == 'operator' and c[2] == 'Generate Animation')
                     self.assertEqual(range_button[4].action, 'RANGE')
                     self.assertTrue(hasattr(bpy.types.WindowManager, 'blendcap_vta_animation_start'))
                 self.addon.unregister()
