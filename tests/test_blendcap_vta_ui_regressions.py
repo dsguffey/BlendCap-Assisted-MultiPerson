@@ -16,7 +16,7 @@ from unittest import mock
 
 from blendcap_vta_timeline import TimelineCharacter, TimelineKey, TimelineView, ReviewKeySelection
 from blendcap_vta_workspace import (
-    TimelineMetrics, channel_items, channel_rows, character_lanes, NATIVE_BOTTOM,
+    TimelineMetrics, channel_items, channel_rows, character_lanes, SCROLLBAR_HEIGHT,
     hit_character, hit_review_key, review_keys_in_box, characters_in_box,
 )
 from blendcap_vta_review import ReviewView, CharacterRow, ReviewLocation, SelectionState, VtaReviewUiError
@@ -97,7 +97,7 @@ class DispatchTests(unittest.TestCase):
             '_dispatch_regression.vta_timeline_markers':markers})
         patch.start();self.addCleanup(patch.stop)
         self.env=dict(__package__='_dispatch_regression',math=math, replace=replace,
-            TimelineMetrics=TimelineMetrics,NATIVE_BOTTOM=NATIVE_BOTTOM,
+            TimelineMetrics=TimelineMetrics,SCROLLBAR_HEIGHT=SCROLLBAR_HEIGHT,
             channel_items=channel_items, _row_scroll={}, _row_pan={}, _box_gesture=None,
             _text_size=lambda c:13, _expansion_key=lambda c:c.scope,
             expanded_characters=lambda c,v:[ch.character_id for ch in v.characters],
@@ -153,12 +153,12 @@ class DispatchTests(unittest.TestCase):
         self.scroll(event)
         self.assertEqual(self.env['_row_scroll']['A'][2],1)
 
-    def test_painted_native_band_b_a_alt_a_delete_do_not_edit_underlying_keys(self):
+    def test_scrollbar_band_b_a_alt_a_delete_do_not_edit_underlying_keys(self):
         for scale in (1,2,3):
             self.ctx.preferences=NS(system=NS(ui_scale=scale))
             for action in ('BOX','ALL','NONE','DELETE'):
                 self.assertEqual(self.env['BLENDCAP_OT_vta_timeline_keys'].invoke(
-                    NS(action=action),self.ctx,self.event('DEL',y=41*scale)),{'CANCELLED'})
+                    NS(action=action),self.ctx,self.event('DEL',y=12*scale)),{'CANCELLED'})
 
     def test_menu_off_and_on_and_mode_commands_removed(self):
         package=ModuleType('_marker_regression');package.__path__=[]

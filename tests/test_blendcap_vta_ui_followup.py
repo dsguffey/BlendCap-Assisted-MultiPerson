@@ -173,7 +173,8 @@ class HostTests(HostFixture):
         self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),self.context,
             NS(type='WHEELUPMOUSE',mouse_region_y=120)),{'FINISHED'})
         rows=self.ws._rows(self.context,self.ui._timeline,0,self.ws._metrics(self.context))
-        self.assertEqual([(r.character_id,r.kind) for r in rows],[('spare','depth'),('new-owner-a','character')])
+        self.assertIn(('spare','depth'),[(r.character_id,r.kind) for r in rows])
+        self.assertEqual((rows[-1].character_id,rows[-1].kind),('new-owner-a','character'))
         y=rows[-1].y
         def event(kind,x,y,value='PRESS',shift=False):
             return NS(type=kind,value=value,mouse_region_x=x,mouse_region_y=y,mouse_x=x,mouse_y=y,ctrl=False,shift=shift)
@@ -214,11 +215,12 @@ class HostTests(HostFixture):
         self.refresh(self.a);self.drain()
         self.assertIn('tall ref',self.painted_names());self.assertNotIn('Zebra B',self.painted_names())
 
-    def test_without_reveal_model_updates_but_short_canvas_still_misses_new_row(self):
-        self.refresh(self.a)
-        with mock.patch.object(self.ws,'reveal_character',return_value=False):self.create('tall ref')
+    def test_render_reconciles_new_model_without_an_operation_time_reveal_callback(self):
+        self.refresh(self.a);self.painted_names()
+        self.create('tall ref')
         self.assertIn('tall ref',[c.display_name for c in self.ui._timeline.characters])
-        self.assertNotIn('tall ref',self.painted_names(),'Reproduce the previous false-positive test gap')
+        self.assertIn('tall ref',self.painted_names())
+        self.assertFalse(hasattr(self.ws,'reveal_character'))
 
     def test_confirmed_rename_delete_paint_and_keep_other_scene_and_assignment(self):
         self.refresh(self.a);self.ui._selection.character_id='a'
@@ -289,7 +291,7 @@ class MarkerTests(HostFixture):
                 mock.patch.object(self.ws,'_fill',wraps=self.ws._fill) as fill:
             self.ws._draw_window()
         self.assertEqual(fill.call_args_list[0].args[2:6],(0,0,1000,194))
-        self.assertEqual(fill.call_args_list[-1].args[2:6],(0,42,1000,70))
+        self.assertEqual(fill.call_args_list[-1].args[2:6],(0,16,1000,44))
         self.assertIn('Shared native marker',labels,'Also detect swallowed errors before the marker draw')
 
     def test_external_edits_are_read_on_every_draw_and_names_and_positions_hit(self):
@@ -307,7 +309,7 @@ class MarkerTests(HostFixture):
             self.assertEqual(labels,['Native renamed']);self.assertEqual(self.markers.positions(ctx)[0][1],200)
             self.a.timeline_markers.remove(marker)
             self.assertEqual(self.markers.positions(ctx),())
-        self.assertTrue(all(y>=42 for line in lines for x,y in line))
+        self.assertTrue(all(y>=16 for line in lines for x,y in line))
 
     def test_drag_preview_is_local_and_one_undoable_move_is_called_on_release(self):
         ctx=self.marker_context();marker=self.a.timeline_markers.new('Drag',frame=10)
@@ -318,7 +320,7 @@ class MarkerTests(HostFixture):
         self.bpy.ops=NS(blendcap=NS(vta_marker_edit=operation))
         font=NS(size=lambda *a:None,dimensions=lambda f,s:(len(s)*6,12))
         event=lambda kind,x,value='PRESS',shift=False:NS(type=kind,value=value,mouse_region_x=x,
-            mouse_region_y=52,shift=shift,ctrl=False)
+            mouse_region_y=26,shift=shift,ctrl=False)
         op=self.markers.BLENDCAP_OT_vta_marker_drag();op.grab=False
         with mock.patch.dict(sys.modules,{'blf':font}):
             self.assertEqual(op.invoke(ctx,event('LEFTMOUSE',100)),{'RUNNING_MODAL'})
@@ -335,7 +337,7 @@ class MarkerTests(HostFixture):
         ctx=self.marker_context();marker=self.a.timeline_markers.new('Drag',frame=10);marker.select=True
         font=NS(size=lambda *a:None,dimensions=lambda f,s:(len(s)*6,12))
         op=self.markers.BLENDCAP_OT_vta_marker_drag();op.grab=False
-        event=NS(type='LEFTMOUSE',value='PRESS',mouse_region_x=100,mouse_region_y=52,shift=True,ctrl=False)
+        event=NS(type='LEFTMOUSE',value='PRESS',mouse_region_x=100,mouse_region_y=26,shift=True,ctrl=False)
         with mock.patch.dict(sys.modules,{'blf':font}):
             self.assertEqual(op.invoke(ctx,event),{'FINISHED'})
         self.assertFalse(marker.select)
@@ -355,7 +357,7 @@ class MarkerTests(HostFixture):
             return op.invoke(ctx,NS()) if args[0]=='INVOKE_DEFAULT' else op.execute(ctx)
         edit=mock.Mock(side_effect=operation)
         self.bpy.ops=NS(blendcap=NS(vta_marker_edit=edit))
-        event=NS(mouse_region_y=52)
+        event=NS(mouse_region_y=26)
         cls=self.ws.BLENDCAP_OT_vta_timeline_keys
         self.assertEqual(cls.invoke(NS(action='ADD'),ctx,event),{'FINISHED'})
         self.assertEqual(len(self.a.timeline_markers),1)
@@ -366,10 +368,10 @@ class MarkerTests(HostFixture):
         self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,event),{'FINISHED'})
         self.assertEqual(len(self.a.timeline_markers),0)
 
-    def test_left_click_reaches_bridge_above_native_event_band_without_starting_box(self):
+    def test_left_click_reaches_bottom_bridge_without_starting_box(self):
         ctx=self.marker_context();marker=self.a.timeline_markers.new('Click',frame=10)
         font=NS(size=lambda *a:None,dimensions=lambda f,s:(len(s)*6,12))
-        event=NS(type='LEFTMOUSE',value='PRESS',mouse_region_x=100,mouse_region_y=52,shift=False,ctrl=False)
+        event=NS(type='LEFTMOUSE',value='PRESS',mouse_region_x=100,mouse_region_y=26,shift=False,ctrl=False)
         op=self.markers.BLENDCAP_OT_vta_marker_drag();op.grab=False
         self.bpy.ops=NS(blendcap=NS(vta_marker_drag=lambda *args:op.invoke(ctx,event)))
         with mock.patch.dict(sys.modules,{'blf':font}):

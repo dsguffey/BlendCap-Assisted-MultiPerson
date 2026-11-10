@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 import math
 from dataclasses import replace
-from types import SimpleNamespace
 
 import bpy
 
@@ -17,7 +16,7 @@ from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
     motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color, repair_range_colors,
-    authoritative_key_style, channel_rows, channel_items, NATIVE_BOTTOM,
+    authoritative_key_style, channel_rows, channel_items, SCROLLBAR_HEIGHT,
 )
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_tracking_hints import marker_positions, hit_marker
@@ -41,6 +40,7 @@ _collapsed_depth = {}
 _depth_focus = set()  # Editor/domain focus only; actual key selection lives in FCurves.
 _row_scroll = {}  # Scene/source/editor local: stable first row plus fallback index.
 _row_pan = {}  # Fractional trackpad motion, in region pixels.
+_row_models = {}  # Last presented ID/name projection plus pending reveal; UI only.
 
 
 def _expansion_key(context):
@@ -70,6 +70,7 @@ def _clear_channel_presentation(*_args):
     _depth_focus.clear()
     _row_scroll.clear()
     _row_pan.clear()
+    _row_models.clear()
     from .vta_timeline_markers import clear
     clear()
 
@@ -430,45 +431,56 @@ def _metrics(context):
         rows = channel_items(view, expanded_characters(context, view))
         index = next((i for i, row in enumerate(rows) if row == anchor[:2]), anchor[2])
         metrics = replace(metrics, scroll_rows=index)
+    if (key := _expansion_key(context)) is not None and getattr(getattr(context,'area',None),'type',None)=='DOPESHEET_EDITOR':
+        ui=_ui()
+        view,_,_,_,first=ui.timeline_state(context)
+        if view is not None and getattr(context.region,'type',None) in {'WINDOW','CHANNELS'}:
+            metrics=_reconcile_row_viewport(context,view,first,metrics,key)
+    return metrics
+
+
+def _reconcile_row_viewport(context,view,first,metrics,key):
+    """Resolve model edits at the actual draw/hit geometry, not inside a button.
+
+    Management, assignment and timeline selection stay independent of navigation.
+    Retain a reveal until layout can paint it, including observer/recovery model
+    adoption and a resize between mutation and redraw. No selection/data writes.
+    """
+    names={c.character_id:c.display_name for c in view.characters}
+    previous,pending=_row_models.get(key,(None,None))
+    if previous is None:
+        from .vta_management_selection import selected
+        pending=selected()
+    if previous is not None:
+        changed=[cid for cid,name in names.items() if previous.get(cid)!=name]
+        if changed:pending=changed[-1]
+    if pending not in names:pending=None
+    expanded=expanded_characters(context,view)
+    items=channel_items(view,expanded)
+    shown=channel_rows(view,context.region.height,first,metrics=metrics,expanded=expanded)
+    if pending is not None and shown:
+        if not any(r.character_id==pending and r.kind=='character' for r in shown):
+            index=items.index((pending,'character'))
+            start=min(index,max(0,len(items)-len(shown)))
+            _row_scroll[key]=(*items[start],start)
+            metrics=replace(metrics,scroll_rows=start)
+            shown=channel_rows(view,context.region.height,first,metrics=metrics,expanded=expanded)
+        pending=None
+    # Rebase deleted anchors to the actual nearest valid painted row. An old
+    # numeric fallback must not cause a later create/reorder to jump again.
+    if key in _row_scroll and shown:
+        start=items.index((shown[0].character_id,shown[0].kind))
+        _row_scroll[key]=(*items[start],start)
+        metrics=replace(metrics,scroll_rows=start)
+    if not items:_row_scroll.pop(key,None)
+    _row_models[key]=(names,pending)
     return metrics
 
 
 def _native_bottom(context, event, metrics=None):
-    """The native scrollbar/event band stays below the custom marker bridge."""
+    """Leave only the native scrollbar band outside the custom input canvas."""
     return (context.region.type == 'WINDOW' and
-            event.mouse_region_y < NATIVE_BOTTOM*(metrics or _metrics(context)).ui_scale)
-
-
-def reveal_character(context, character_id):
-    """Reveal the completed management edit without changing either selection.
-
-    Refreshing the model is insufficient in short editors: expanded Depth rows
-    and the existing stable viewport anchor can keep the edited parent outside
-    the drawn slice. Only move a matching active Scene's MoCap viewport if needed.
-    """
-    ui=_ui();view=ui._timeline
-    if view is None:return False
-    from .vta_scene_session import main_scene
-    owner=main_scene(context);changed=False
-    for window in getattr(context.window_manager,'windows',()):
-        if window.scene!=owner:continue
-        for area in window.screen.areas:
-            if role_for(window.workspace,window.screen,area)!=ROLE_TIMELINE:continue
-            region=next((r for r in area.regions if r.type=='WINDOW'),None)
-            if region is None:continue
-            target=SimpleNamespace(scene=owner,window=window,workspace=window.workspace,
-                screen=window.screen,area=area,region=region,preferences=context.preferences)
-            metrics=_metrics(target)
-            rows=_rows(target,view,ui._lane_scroll(target),metrics)
-            if any(r.character_id==character_id and r.kind=='character' for r in rows):continue
-            items=channel_items(view,expanded_characters(target,view))
-            index=next((i for i,row in enumerate(items) if row==(character_id,'character')),None)
-            if index is None or not rows:continue
-            start=min(index,max(0,len(items)-len(rows)))
-            _row_scroll[_expansion_key(target)]=(*items[start],start)
-            changed=True
-    if changed:vta_invalidation.request_redraw()
-    return changed
+            event.mouse_region_y < SCROLLBAR_HEIGHT*(metrics or _metrics(context)).ui_scale)
 
 
 class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
@@ -619,8 +631,8 @@ def _draw_window():
         key_radius = metrics.key_radius
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         # Cover the complete native canvas, including keys and native markers.
-        # Blender draws its scrollbar overlay afterwards; our marker bridge is
-        # above its native marker event band, not under the scrollbar.
+        # Blender draws its scrollbar overlay afterwards; the fixed custom
+        # marker lane is directly above that scrollbar.
         _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
               (.105, .105, .105, 1))
         if view is None:
@@ -1069,13 +1081,17 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         if markers.contains(context,event,metrics.ui_scale):
             markers.focus(context)
             _depth_focus.discard(_expansion_key(context))
+            if event.type=='LEFTMOUSE' and event.value=='DOUBLE_CLICK':
+                marker=markers.hit(context,event.mouse_region_x,metrics.ui_scale)
+                if marker is None:return {'CANCELLED'}
+                for m in markers.scene(context).timeline_markers:m.select=m==marker
+                return _delegated_timeline_result(markers.command(context,'RENAME'))
             if event.type=='LEFTMOUSE':
                 return bpy.ops.blendcap.vta_marker_drag('INVOKE_DEFAULT')
             return {'FINISHED'}
         if _native_bottom(context,event,metrics):
-            # Keep the scrollbar native; empty painted pixels above it must
-            # never select an underlying pose key when no Scene markers exist.
-            return {'PASS_THROUGH'} if event.mouse_region_y<16*metrics.ui_scale else {'FINISHED'}
+            return {'PASS_THROUGH'}
+        if getattr(event,'value',None)=='DOUBLE_CLICK':return {'CANCELLED'}
         markers.focus(context,False)
         ui = _ui()
         view, _selected, _active, offset, first, _current = _state(context)
@@ -1332,8 +1348,10 @@ def register():
     config = getattr(bpy.context.window_manager.keyconfigs, 'addon', None)
     if config is not None and not _keymaps:
         # CHANNELS dispatches Animation Channels (EMPTY/WINDOW), not a
-        # Dopesheet/CHANNELS map. Operator poll still limits it to VTA rows.
-        for name, space in (('Dopesheet', 'DOPESHEET_EDITOR'), ('Animation Channels', 'EMPTY')):
+        # Dopesheet/CHANNELS map. Markers receives lower-band events when native
+        # markers exist; Dopesheet receives them when that collection is empty
+        # or native marker display is off. Poll confines both to the MoCap area.
+        for name, space in (('Dopesheet', 'DOPESHEET_EDITOR'), ('Animation Channels', 'EMPTY'), ('Markers','EMPTY')):
             keymap = config.keymaps.new(name=name, space_type=space, region_type='WINDOW')
             items = [keymap.keymap_items.new(
                 BLENDCAP_OT_vta_timeline_select.bl_idname, button, 'PRESS', **modifiers,
@@ -1342,13 +1360,15 @@ def register():
                                        ("LEFTMOUSE", {"shift": True}),
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
+            if name!='Animation Channels':
+                items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_select.bl_idname,'LEFTMOUSE','DOUBLE_CLICK'))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
             for button in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN'):
                 items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname, button, 'ANY'))
             for button,action,mods in (('B','BOX',{}),('A','ALL',{}),('A','NONE',{'alt':True})):
                 item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS',**mods)
                 item.properties.action=action;items.append(item)
-            if name == 'Dopesheet':
+            if name in {'Dopesheet','Markers'}:
                 for button in ('X', 'DEL'):
                     item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname, button, 'PRESS')
                     item.properties.action='DELETE';items.append(item)

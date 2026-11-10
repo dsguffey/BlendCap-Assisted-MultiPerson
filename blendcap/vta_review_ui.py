@@ -2277,8 +2277,6 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             _accept_mutated_review(context, refreshed)
             from .vta_management_selection import select
             select(character.character_id)
-            from .vta_workspace import reveal_character
-            reveal_character(context,character.character_id)
             _status = f"Created Character {character.display_name}. Selected in Character Management."
             _status_is_error = False
             self.report({'INFO'}, _status)
@@ -2636,8 +2634,6 @@ class BLENDCAP_OT_vta_review_manage(bpy.types.Operator):
                     raise VtaReviewUiError('The selected Character changed during confirmation.')
                 bridge.rename(context,self._pending_location.companion_root,request,self.new_name)
                 renamed = True
-                from .vta_workspace import reveal_character
-                reveal_character(context,request['character_id'])
                 _status='Character renamed.';_status_is_error=False
                 self.report({'INFO'},_status)
                 return {'FINISHED'}

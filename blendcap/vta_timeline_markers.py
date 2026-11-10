@@ -1,6 +1,6 @@
 """Thin presentation/gesture bridge to Scene.timeline_markers; no marker store."""
 import bpy
-from ..blendcap_vta_workspace import NATIVE_BOTTOM, MARKER_HEIGHT
+from ..blendcap_vta_workspace import SCROLLBAR_HEIGHT, MARKER_HEIGHT
 from . import vta_invalidation
 
 _focus=set()
@@ -31,7 +31,7 @@ def clear():
 
 def contains(context,event,scale):
     return (context.region.type=='WINDOW' and
-            NATIVE_BOTTOM*scale <= event.mouse_region_y < (NATIVE_BOTTOM+MARKER_HEIGHT)*scale)
+            SCROLLBAR_HEIGHT*scale <= event.mouse_region_y < (SCROLLBAR_HEIGHT+MARKER_HEIGHT)*scale)
 
 
 def positions(context):
@@ -60,7 +60,7 @@ def signature(context):
 
 def draw(context,scale,shader,batch,fill,line):
     import blf
-    low=NATIVE_BOTTOM*scale;high=(NATIVE_BOTTOM+MARKER_HEIGHT)*scale
+    low=SCROLLBAR_HEIGHT*scale;high=(SCROLLBAR_HEIGHT+MARKER_HEIGHT)*scale
     fill(shader,batch,0,low,context.region.width,high,(.14,.14,.14,1))
     line(shader,batch,((0,high),(context.region.width,high)),(.3,.3,.3,1))
     for marker,x in positions(context):

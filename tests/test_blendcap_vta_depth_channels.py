@@ -162,7 +162,7 @@ class DepthChannelTests(unittest.TestCase):
                 for a,b in zip(rows,rows[1:]):self.assertAlmostEqual(a.y-b.y,metrics.row_height)
 
     def test_small_viewport_keeps_focused_character_and_its_child_visible(self):
-        rows=channel_rows(self.view,194,1,expanded=('a','b'))  # Includes custom markers above the native event band.
+        rows=channel_rows(self.view,194,1,expanded=('a','b'))  # Includes fixed markers and the native scrollbar.
         self.assertEqual([(r.character_id,r.kind) for r in rows],[('b','character'),('b','depth')])
 
     def test_file_load_clears_only_presentation_state(self):

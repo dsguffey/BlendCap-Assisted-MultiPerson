@@ -164,12 +164,12 @@ class AnimationEditingTests(unittest.TestCase):
         if isinstance(prop,str):prop=eval(prop,vars(sys.modules[cls.__module__]),vars(cls))
         self.assertEqual(prop.keywords['default'],'CANCEL')
 
-    def test_painted_native_band_does_not_edit_underlying_keys(self):
+    def test_scrollbar_band_does_not_edit_underlying_keys(self):
         ctx=NS(region=NS(type='WINDOW'))
         with mock.patch.object(self.ui,'select_timeline_keys') as review:
             for action in ('BOX','ALL','NONE','DELETE'):
                 result=self.workspace.BLENDCAP_OT_vta_timeline_keys.invoke(
-                    NS(action=action),ctx,NS(mouse_region_y=20))
+                    NS(action=action),ctx,NS(mouse_region_y=10))
                 self.assertEqual(result,{'CANCELLED'})
             review.assert_not_called()
 
@@ -235,7 +235,7 @@ class AnimationEditingTests(unittest.TestCase):
             self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,event),{'FINISHED'})
             review.assert_called_once_with('INVOKE_DEFAULT',action='clear-selected-review-keys')
             review.reset_mock()
-            self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,NS(mouse_region_y=20)),{'CANCELLED'})
+            self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,NS(mouse_region_y=10)),{'CANCELLED'})
             review.assert_not_called()
 
     def test_b_marquee_reuses_review_selection_and_cancel_keeps_selection(self):
