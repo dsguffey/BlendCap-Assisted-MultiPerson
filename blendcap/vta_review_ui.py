@@ -450,8 +450,12 @@ def _get_backend(context, *, force=False):
     configured=_configured_core_location(context)
     if _backend is None or configured!=_backend_location:
         client=_engine_client(context)
-        _backend=EngineReviewBackend(client,mutate=lambda op,payload,observed: _domain_mutation(context,op,payload,observed))
+        _backend=EngineReviewBackend(client)
         _backend_location=configured;_backend_root=client.endpoint.launcher.parent
+    # Cache transport/observations, not an earlier Scene proxy. A single
+    # companion/engine is shared by multiple explicitly loaded Scenes.
+    current=_context_for_main_scene(context)
+    _backend.mutate=lambda op,payload,observed: _domain_mutation(current,op,payload,observed)
     return _backend
 
 
@@ -1317,8 +1321,11 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
             or _cache_signature != cache_signature
             or _presentation_scene is not getattr(context, 'scene', None)
         )
-        timeline_identity = (location.companion_root, location.source_path, project_signature, cache_signature)
-        if force or model_changed or timeline_identity != _timeline_identity or _timeline is None:
+        scene=getattr(context,'scene',None)
+        membership=(pointer(scene),scene.get('vta_scene_characters')) if isinstance(scene,bpy.types.Scene) else None
+        timeline_identity = (location.companion_root, location.source_path, project_signature, cache_signature, membership)
+        timeline_changed=force or model_changed or timeline_identity != _timeline_identity or _timeline is None
+        if timeline_changed:
             _timeline = _display.review_timeline(backend) if capable else backend.query_timeline(location)
             _scene_character_ids=None
             if capable and _display.context is not None and isinstance(getattr(context,'scene',None),bpy.types.Scene):
@@ -1330,7 +1337,7 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
                     _timeline=vta_scene_characters.timeline(_timeline,_scene_character_ids)
             _timeline_identity = timeline_identity
             _review_key_selection.reconcile(_timeline)
-        if force or model_changed or key_changed or _view is None:
+        if timeline_changed or key_changed or _view is None:
             query = _display.frame if capable else lambda owner, loc, **kw: owner.query(loc, **kw)
             _view = query(backend, location, show_suppressed=getattr(
                 context.window_manager, 'blendcap_vta_show_suppressed', False))
@@ -1373,6 +1380,11 @@ def refresh(context, *, force: bool = False, target_scene=None, check_disk=False
 def _accept_mutated_review(context, refreshed) -> None:
     """Requery keys and frame review together before notifying every surface."""
     global _view
+    # Engine replies describe project-wide Characters. Do not overwrite an
+    # already refreshed Scene-filtered view with that unfiltered reply.
+    if _scene_character_ids is not None:
+        from .vta_scene_characters import frame
+        refreshed=frame(refreshed,_scene_character_ids)
     _view = refreshed
     _selection.accept_review(refreshed)
     if not refresh(context, check_disk=True):

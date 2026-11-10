@@ -290,6 +290,57 @@ class SceneBindingTests(unittest.TestCase):
         for _ in range(20):self.ui.refresh(bpy.context)
         backend._fetch.assert_not_called()
 
+    def test_mutation_reply_does_not_replace_scene_filtered_characters(self):
+        from dataclasses import replace
+        from blendcap_vta_review import CharacterRow
+        from blendcap_vta_timeline import TimelineView, TimelineCharacter
+        membership=importlib.import_module(self.ui.__package__+'.vta_scene_characters')
+        backend=self.engine_display_backend();original_fetch=backend._fetch.side_effect
+        rows=(CharacterRow('here','Here',None),CharacterRow('elsewhere','Elsewhere',None))
+        def fetch(location):
+            observation=original_fetch(location);frame=observation.frame
+            observation.characters=rows;observation.members=lambda scene:{'here'}
+            observation.frame=lambda location,**kw:replace(frame(location,**kw),characters=rows)
+            observation.timeline=TimelineView('s',tuple(TimelineCharacter(c.character_id,c.display_name) for c in rows),())
+            return observation
+        backend._fetch.side_effect=fetch
+        scene=self.owned();membership._write(scene,{'here'});self.session.load(bpy.context,scene)
+        backend._fetch.reset_mock()
+        reply=backend.query(self.ui._location)
+        self.assertEqual(len(reply.characters),2)
+        self.ui._accept_mutated_review(bpy.context,reply)
+        self.assertEqual([c.character_id for c in self.ui._view.characters],['here'])
+        self.assertEqual([c[0] for c in self.ui._character_enum_items[1:]],['here'])
+        backend._fetch.assert_not_called()
+
+    def test_membership_change_rebuilds_lists_without_project_reload(self):
+        from dataclasses import replace
+        from blendcap_vta_review import CharacterRow
+        from blendcap_vta_timeline import TimelineView, TimelineCharacter
+        membership=importlib.import_module(self.ui.__package__+'.vta_scene_characters')
+        backend=self.engine_display_backend();original_fetch=backend._fetch.side_effect
+        rows=(CharacterRow('first','First',None),CharacterRow('second','Second',None))
+        def fetch(location):
+            observation=original_fetch(location);frame=observation.frame
+            observation.characters=rows
+            observation.members=lambda scene:{'first','second'}
+            observation.frame=lambda location,**kw:replace(frame(location,**kw),characters=rows)
+            observation.timeline=TimelineView('s',tuple(TimelineCharacter(c.character_id,c.display_name) for c in rows),())
+            return observation
+        backend._fetch.side_effect=fetch
+        scene=self.owned();membership._write(scene,{'first'})
+        self.session.load(bpy.context,scene)
+        self.assertEqual([c.character_id for c in self.ui._view.characters],['first'])
+        backend._fetch.reset_mock()
+        for ids in ({'first','second'},{'second'}):
+            membership._write(scene,ids)
+            self.assertTrue(self.ui.refresh(bpy.context,check_disk=True),self.ui._status)
+            self.assertEqual({c.character_id for c in self.ui._view.characters},ids)
+            self.assertEqual({c.character_id for c in self.ui._timeline.characters},ids)
+            self.assertEqual({c[0] for c in self.ui._character_enum_items[1:]},ids)
+        for _ in range(20):self.ui.refresh(bpy.context)
+        backend._fetch.assert_not_called()
+
     def test_forced_refresh_changed_input_fails_closed_before_presentation_adoption(self):
         backend=self.engine_display_backend();scene=self.owned();self.session.load(bpy.context,scene)
         def get_backend(context, *, force=False):
