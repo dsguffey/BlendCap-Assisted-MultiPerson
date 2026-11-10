@@ -74,11 +74,12 @@ class HostFixture(unittest.TestCase):
             _MANAGEMENT_ACTIONS=(),_pending_presentation=None,_syncing_properties=False,_syncing_objects=False,
             _NO_SELECTION='none',sync_review_to_objects=mock.Mock(),record_scene_source=mock.Mock(),
             _tracking_hints=NS(clear=mock.Mock()))
-        callbacks('blendcap/vta_review_ui.py',('_activate_review_scene','refresh','_accept_mutated_review',
+        callbacks('blendcap/vta_review_ui.py',('_activate_review_scene','refresh','_accept_mutated_review','_project_reuse_items',
             '_is_timeline_context','timeline_character_selection','current_character_id','_lane_scroll',
             '_presentation_current','timeline_state','_assignment_scope','_sync_properties',
             'sync_character_to_timeline','_queue_presentation','_presentation_timer',
-            'BLENDCAP_OT_vta_review_create_character','BLENDCAP_OT_vta_review_manage'),self.env)
+            'BLENDCAP_OT_vta_review_create_character','BLENDCAP_OT_vta_reuse_project_character',
+            'BLENDCAP_OT_vta_review_manage'),self.env)
         self.ws=importlib.import_module(child+'.vta_workspace')
         self.markers=importlib.import_module(child+'.vta_timeline_markers')
         self.busy=importlib.import_module(child+'.vta_busy')
@@ -291,7 +292,7 @@ class MarkerTests(HostFixture):
                 mock.patch.object(self.ws,'_fill',wraps=self.ws._fill) as fill:
             self.ws._draw_window()
         self.assertEqual(fill.call_args_list[0].args[2:6],(0,0,1000,194))
-        self.assertEqual(fill.call_args_list[-1].args[2:6],(0,16,1000,44))
+        self.assertFalse(any(call.args[2:6]==(0,16,1000,44) for call in fill.call_args_list))
         self.assertIn('Shared native marker',labels,'Also detect swallowed errors before the marker draw')
 
     def test_external_edits_are_read_on_every_draw_and_names_and_positions_hit(self):

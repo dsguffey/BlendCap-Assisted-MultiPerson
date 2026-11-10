@@ -27,10 +27,50 @@ class ViewportRootCauseTests(HostFixture):
                 self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),self.context,
                     NS(type=direction,mouse_region_y=100))
                 seen.update(self.painted_names())
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(self.context)][2],
+                         self.ws._scroll_range(self.context,self.ui._timeline,self.ws._metrics(self.context))[2])
+        for _ in range(80):
+            self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),self.context,
+                NS(type='WHEELUPMOUSE',mouse_region_y=100))
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(self.context)][2],0)
         self.assertTrue({f'Extra {i:02}' for i in range(30)}<=seen)
         rows=self.ws._rows(self.context,self.ui._timeline,0,self.ws._metrics(self.context))
         for a,b in zip(rows,rows[1:]):
             if b.kind=='depth':self.assertEqual(a.character_id,b.character_id)
+
+    def test_custom_elevator_moves_down_and_back_to_first_row(self):
+        self.refresh(self.a);self.painted_names()
+        members=self.membership.stored(self.a)
+        for i in range(8):
+            identity=f'extra-{i}'
+            self.characters.append(CharacterRow(identity,f'Extra {i}',None));members.add(identity)
+        self.membership._write(self.a,members)
+        self.revision+=1;self.bridge._refresh();self.drain()
+        ctx=self.context;ctx.area=self.timeline;ctx.region=self.channel_region
+        metrics=self.ws._metrics(ctx);bar=self.ws._scrollbar(ctx,self.ui._timeline,metrics)
+        self.assertIsNotNone(bar)
+        event=lambda y,value='PRESS':NS(type='LEFTMOUSE',value=value,mouse_region_x=(bar[0]+bar[1])/2,
+            mouse_region_y=y,mouse_y=y,shift=False,ctrl=False)
+        op=self.ws.BLENDCAP_OT_vta_timeline_select()
+        self.assertEqual(op.invoke(ctx,event(bar[2]+2)),{'RUNNING_MODAL'})
+        self.assertEqual(op.modal(ctx,event(bar[2]+2,'RELEASE')),{'FINISHED'})
+        self.assertGreater(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
+        op=self.ws.BLENDCAP_OT_vta_timeline_select()
+        self.assertEqual(op.invoke(ctx,event(bar[3]-2)),{'RUNNING_MODAL'})
+        self.assertEqual(op.modal(ctx,event(bar[3]-2,'RELEASE')),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
+
+    def test_off_scene_project_character_is_explicitly_reused_without_duplicate(self):
+        self.refresh(self.a)
+        self.ui._display_backend.observation.value['characters']=[dict(character_id=c.character_id,
+            display_name=c.display_name) for c in self.characters]
+        self.assertEqual([row[1] for row in self.ui._project_reuse_items()],['Foreign'])
+        self.assertEqual([row.display_name for row in self.ui._view.characters],['black shirt','no shirt'])
+        op=self.ui.BLENDCAP_OT_vta_reuse_project_character();op.character_id='b';op.report=mock.Mock()
+        self.assertEqual(op.execute(self.context),{'FINISHED'})
+        self.assertIn('b',self.membership.stored(self.a))
+        self.assertEqual(sum(c.character_id=='b' for c in self.characters),1)
+        self.assertIn('Foreign',[c.display_name for c in self.ui._view.characters])
 
     def test_create_with_unusable_operation_geometry_is_revealed_when_paint_geometry_arrives(self):
         self.refresh(self.a);self.painted_names()
@@ -158,7 +198,7 @@ class BottomMarkerTests(HostFixture):
                 font=NS(position=lambda *a:None,size=lambda *a:None,color=lambda *a:None,draw=lambda *a:None)
                 with mock.patch.dict(sys.modules,{'blf':font}):
                     self.markers.draw(ctx,scale,None,None,lambda *a:fills.append(a[2:6]),lambda *a:None)
-                self.assertEqual(fills,[(0,16*scale,1000,44*scale)])
+                self.assertEqual(fills,[])
                 metrics=TimelineMetrics(scale,scroll_rows=first)
                 for row in channel_rows(self.ui._timeline,400*scale,metrics=metrics,expanded=('a','spare')):
                     self.assertGreaterEqual(row.y-metrics.row_height/2,44*scale)

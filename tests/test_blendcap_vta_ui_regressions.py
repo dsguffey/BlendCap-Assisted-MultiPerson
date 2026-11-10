@@ -103,7 +103,7 @@ class DispatchTests(unittest.TestCase):
             expanded_characters=lambda c,v:[ch.character_id for ch in v.characters],
             _ui=lambda:self.ui, bpy=NS(types=NS(Operator=object),props=NS(EnumProperty=lambda **kw:None)),
             vta_invalidation=NS(request_redraw=mock.Mock()))
-        callbacks('blendcap/vta_workspace.py',('_metrics','_native_bottom','_rows',
+        callbacks('blendcap/vta_workspace.py',('_metrics','_native_bottom','_rows','_scroll_range','_set_row_scroll',
             'BLENDCAP_OT_vta_timeline_scroll','BLENDCAP_OT_vta_timeline_keys'),self.env)
         self.env['channel_rows']=channel_rows
         self.ctx=NS(scope='A',region=NS(type='WINDOW',height=240))

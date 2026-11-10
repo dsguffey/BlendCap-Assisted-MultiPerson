@@ -41,6 +41,7 @@ _depth_focus = set()  # Editor/domain focus only; actual key selection lives in 
 _row_scroll = {}  # Scene/source/editor local: stable first row plus fallback index.
 _row_pan = {}  # Fractional trackpad motion, in region pixels.
 _row_models = {}  # Last presented ID/name projection plus pending reveal; UI only.
+_scroll_drag = None
 
 
 def _expansion_key(context):
@@ -66,11 +67,13 @@ def expanded_characters(context, view):
 
 @bpy.app.handlers.persistent
 def _clear_channel_presentation(*_args):
+    global _scroll_drag
     _collapsed_depth.clear()
     _depth_focus.clear()
     _row_scroll.clear()
     _row_pan.clear()
     _row_models.clear()
+    _scroll_drag = None
     from .vta_timeline_markers import clear
     clear()
 
@@ -78,6 +81,35 @@ def _clear_channel_presentation(*_args):
 def _rows(context, view, first, metrics):
     return channel_rows(view, context.region.height, first, metrics=metrics,
                         expanded=expanded_characters(context, view))
+
+
+def _scroll_range(context, view, metrics):
+    items=channel_items(view,expanded_characters(context,view))
+    visible=max(0,int((context.region.height-metrics.top_padding-metrics.bottom_padding)//metrics.row_height))
+    return items,visible,max(0,len(items)-visible)
+
+
+def _set_row_scroll(context, view, metrics, start):
+    items,_,maximum=_scroll_range(context,view,metrics)
+    if not items:return
+    start=min(max(0,int(start)),maximum)
+    _row_scroll[_expansion_key(context)]=(*items[start],start)
+    vta_invalidation.request_redraw()
+
+
+def _scrollbar(context, view, metrics):
+    items,visible,maximum=_scroll_range(context,view,metrics)
+    if not maximum:return None
+    scale=metrics.ui_scale
+    bottom=metrics.bottom_padding
+    top=context.region.height-metrics.top_padding+metrics.row_height
+    span=max(1,top-bottom)
+    thumb=max(18*scale,span*visible/len(items))
+    thumb=min(span,thumb)
+    shown=_rows(context,view,0,metrics)
+    start=items.index((shown[0].character_id,shown[0].kind)) if shown else 0
+    y=top-thumb-(top-bottom-thumb)*start/maximum
+    return (context.region.width-24*scale,context.region.width-11*scale,bottom,top,y,thumb,maximum)
 
 
 def _row_at(context, view, first, metrics, y):
@@ -516,9 +548,7 @@ class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
         else:
             _row_pan.pop(key, None)
             delta = 1 if event.type == 'WHEELDOWNMOUSE' else -1
-        start = min(max(0, start + delta), max(0, len(rows)-len(shown)))
-        _row_scroll[key] = (*rows[start], start)
-        vta_invalidation.request_redraw()
+        _set_row_scroll(context,view,metrics,start+delta)
         return {'FINISHED'}
 
 
@@ -609,6 +639,11 @@ def _draw_channels():
             blf.size(0, metrics.font_size)
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
+        scrollbar=_scrollbar(context,view,metrics)
+        if scrollbar:
+            x0,x1,bottom,top,y,thumb,_=scrollbar
+            _fill(shader,batch_for_shader,x0,bottom,x1,top,(.18,.18,.18,1))
+            _fill(shader,batch_for_shader,x0,y,x1,y+thumb,(.52,.52,.52,1))
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
     except Exception:
@@ -1075,7 +1110,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         return _scope(context)
 
     def invoke(self, context, event):
-        global _box_gesture
+        global _box_gesture, _scroll_drag
         metrics = _metrics(context)
         from . import vta_timeline_markers as markers
         if markers.contains(context,event,metrics.ui_scale):
@@ -1098,6 +1133,16 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         if view is None:
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
+        if context.region.type=='CHANNELS' and event.type=='LEFTMOUSE':
+            bar=_scrollbar(context,view,metrics)
+            if bar and bar[0]<=point[0]<=bar[1] and bar[2]<=point[1]<=bar[3]:
+                _scroll_drag=(context.area,context.region)
+                self._scroll_view=view
+                self._scroll_metrics=metrics
+                self._scroll_bar=bar
+                self._move_scroll(context,event)
+                context.window_manager.modal_handler_add(self)
+                return {'RUNNING_MODAL'}
         if _box_gesture is None and event.type in {'LEFTMOUSE','RIGHTMOUSE'}:
             try:
                 depth_result = _depth_interaction(context, view, first, metrics, point, event)
@@ -1164,10 +1209,34 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         return {result}
 
     def cancel(self, _context):
+        global _scroll_drag
+        if hasattr(self,'_scroll_bar'):_scroll_drag=None
         if hasattr(self, '_gesture'):
             self._finish_box('CANCELLED')
 
+    def _move_scroll(self,context,event):
+        x0,x1,bottom,top,_y,thumb,maximum=self._scroll_bar
+        region=context.region
+        pointer_y=(event.mouse_y-getattr(region,'y',0) if hasattr(event,'mouse_y')
+                   else event.mouse_region_y)
+        span=max(1,top-bottom-thumb)
+        start=round(max(0,min(1,(top-thumb/2-pointer_y)/span))*maximum)
+        _set_row_scroll(context,self._scroll_view,self._scroll_metrics,start)
+
     def modal(self, context, event):
+        global _scroll_drag
+        if hasattr(self,'_scroll_bar'):
+            if (_scroll_drag!=(context.area,context.region) or not _scope(context)):
+                _scroll_drag=None
+                return {'CANCELLED'}
+            if event.type in {'ESC','RIGHTMOUSE','WINDOW_DEACTIVATE'}:
+                _scroll_drag=None
+                return {'CANCELLED'}
+            if event.type in {'MOUSEMOVE','LEFTMOUSE'}:self._move_scroll(context,event)
+            if event.type=='LEFTMOUSE' and event.value=='RELEASE':
+                _scroll_drag=None
+                return {'FINISHED'}
+            return {'RUNNING_MODAL'}
         gesture = self._gesture
         if (gesture is not _box_gesture or not _scope(context) or
                 context.area != gesture['area'] or context.region != gesture['region'] or

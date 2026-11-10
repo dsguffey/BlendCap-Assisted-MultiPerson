@@ -61,8 +61,6 @@ def signature(context):
 def draw(context,scale,shader,batch,fill,line):
     import blf
     low=SCROLLBAR_HEIGHT*scale;high=(SCROLLBAR_HEIGHT+MARKER_HEIGHT)*scale
-    fill(shader,batch,0,low,context.region.width,high,(.14,.14,.14,1))
-    line(shader,batch,((0,high),(context.region.width,high)),(.3,.3,.3,1))
     for marker,x in positions(context):
         if not -9*scale <= x <= context.region.width:continue
         color=(1,.8,.35,1) if marker.select else (.7,.7,.7,1)
