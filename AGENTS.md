@@ -1,3 +1,11 @@
+# Owner computer access
+
+Do not use computer control, UI automation, screen capture, or desktop takeover
+unless the owner explicitly requests it for the current task. The owner uses
+the computer while development is running. Use code, files, and command-line
+checks; leave interactive QA to the owner. Do not launch Blender for this
+regression pass after the owner's explicit stop request.
+
 # Owner-facing QA workflow
 
 Before preparing a manual-QA .blend handoff, read `docs/qa_workflow.md` in full.

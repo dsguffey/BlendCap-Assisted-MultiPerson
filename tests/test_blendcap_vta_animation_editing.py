@@ -19,7 +19,6 @@ class AnimationEditingTests(unittest.TestCase):
         cls.edit=importlib.import_module(cls.output.__package__+'.vta_animation_editing')
         cls.ui=importlib.import_module(cls.output.__package__+'.vta_review_ui')
         cls.workspace=importlib.import_module(cls.output.__package__+'.vta_workspace')
-        cls.markers=importlib.import_module(cls.output.__package__+'.vta_timeline_markers')
 
     def setUp(self):
         from tests.test_blendcap_vta_camera_cleanup import CameraCleanupTests as C
@@ -165,16 +164,14 @@ class AnimationEditingTests(unittest.TestCase):
         if isinstance(prop,str):prop=eval(prop,vars(sys.modules[cls.__module__]),vars(cls))
         self.assertEqual(prop.keywords['default'],'CANCEL')
 
-    def test_markers_use_scene_selection_native_add_and_do_not_touch_review(self):
-        area=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
-        region=NS(view2d=NS(view_to_region=lambda f,y,clip=False:(f*10,0)))
-        ctx=NS(area=area,scene=self.scene,region=region)
+    def test_native_marker_strip_passes_all_events_through_without_review_selection(self):
+        ctx=NS(region=NS(type='WINDOW'))
         with mock.patch.object(self.ui,'select_timeline_keys') as review:
-            self.markers.select(ctx,30)
-            self.assertTrue(self.marker.select);review.assert_not_called()
-            self.markers.select(ctx,30,extend=True)
-            self.assertFalse(self.marker.select)
-        self.assertEqual(self.scene.timeline_markers['Owner marker'].frame,3)
+            for action in ('BOX','ALL','NONE','DELETE'):
+                result=self.workspace.BLENDCAP_OT_vta_timeline_keys.invoke(
+                    NS(action=action),ctx,NS(mouse_region_y=20))
+                self.assertEqual(result,{'PASS_THROUGH'})
+            review.assert_not_called()
 
     def test_marker_save_reopen_preserves_native_data(self):
         path=self.fixture.root/'marker-save.blend'
@@ -230,18 +227,16 @@ class AnimationEditingTests(unittest.TestCase):
     def test_shortcuts_marker_delete_and_review_delete_are_isolated(self):
         cls=self.workspace.BLENDCAP_OT_vta_timeline_keys
         ctx=NS(region=NS(type='WINDOW'),scene=self.scene,area=NS(as_pointer=lambda:15))
-        event=NS()
+        event=NS(mouse_region_y=100)
         review=mock.Mock(return_value={'FINISHED'})
         ops=NS(ops=NS(blendcap=NS(vta_review_manage=review)))
-        with mock.patch.object(self.markers,'focused',return_value=True),mock.patch.object(self.markers,'command',return_value={'FINISHED'}) as marker,\
-             mock.patch.object(self.workspace,'bpy',ops):
+        with mock.patch.object(self.workspace,'_expansion_key',return_value='review-only'),\
+             mock.patch.object(self.ui,'_review_key_selection',NS(keyframe_ids=('key',))),mock.patch.object(self.workspace,'bpy',ops):
             self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,event),{'FINISHED'})
-            marker.assert_called_once_with(ctx,'DELETE');review.assert_not_called()
-        with mock.patch.object(self.markers,'focused',return_value=False),mock.patch.object(self.workspace,'_expansion_key',return_value='review-only'),\
-             mock.patch.object(self.ui,'_review_key_selection',NS(keyframe_ids=('key',))),mock.patch.object(self.workspace,'bpy',ops),\
-             mock.patch.object(self.markers,'command') as marker:
-            self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,event),{'FINISHED'})
-            review.assert_called_once_with('INVOKE_DEFAULT',action='clear-selected-review-keys');marker.assert_not_called()
+            review.assert_called_once_with('INVOKE_DEFAULT',action='clear-selected-review-keys')
+            review.reset_mock()
+            self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,NS(mouse_region_y=20)),{'PASS_THROUGH'})
+            review.assert_not_called()
 
     def test_b_marquee_reuses_review_selection_and_cancel_keeps_selection(self):
         cls=self.workspace.BLENDCAP_OT_vta_timeline_keys
@@ -253,7 +248,7 @@ class AnimationEditingTests(unittest.TestCase):
         for cancel in (True,False):
             op=NS(action='BOX');op.cancel=MethodType(cls.cancel,op)
             event=lambda typ,value='PRESS',x=50,y=120:NS(type=typ,value=value,mouse_region_x=x,mouse_region_y=y,mouse_x=x,mouse_y=y,shift=True)
-            with mock.patch.object(self.markers,'focused',return_value=False),mock.patch.object(self.workspace,'_state',return_value=(view,(),None,0,0,None)),\
+            with mock.patch.object(self.workspace,'_state',return_value=(view,(),None,0,0,None)),\
                  mock.patch.object(self.workspace,'_scope',return_value=True),mock.patch.object(self.ui,'select_timeline_keys') as selection:
                 self.assertEqual(cls.invoke(op,ctx,event('B')),{'RUNNING_MODAL'})
                 cls.modal(op,ctx,event('LEFTMOUSE'))
@@ -267,8 +262,9 @@ class AnimationEditingTests(unittest.TestCase):
     def test_delegated_dialog_is_terminal_without_another_modal_handler(self):
         cls=self.workspace.BLENDCAP_OT_vta_timeline_keys
         ctx=NS(region=NS(type='WINDOW'),window_manager=NS(modal_handler_add=mock.Mock()))
-        with mock.patch.object(self.markers,'focused',return_value=True),\
-             mock.patch.object(self.markers,'command',return_value={'RUNNING_MODAL'}):
-            for action in ('DELETE','RENAME','MOVE'):
-                self.assertEqual(cls.invoke(NS(action=action),ctx,NS()),{'FINISHED'})
+        with mock.patch.object(self.workspace,'_expansion_key',return_value='review-only'),\
+             mock.patch.object(self.ui,'_review_key_selection',NS(keyframe_ids=('key',))),\
+             mock.patch.object(self.workspace,'bpy',NS(ops=NS(blendcap=NS(
+                 vta_review_manage=mock.Mock(return_value={'RUNNING_MODAL'}))))):
+            self.assertEqual(cls.invoke(NS(action='DELETE'),ctx,NS(mouse_region_y=100)),{'FINISHED'})
         ctx.window_manager.modal_handler_add.assert_not_called()

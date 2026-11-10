@@ -402,7 +402,8 @@ class CleanupBlenderTests(unittest.TestCase):
             view2d=NS(view_to_region=lambda x, y, clip=False: (x*10, y),
                       region_to_view=lambda x, y: (x/10, y)))
         lines = []
-        fake_gpu = NS(shader=NS(from_builtin=mock.Mock(return_value=NS())))
+        fake_gpu = NS(shader=NS(from_builtin=mock.Mock(return_value=NS())),
+                      state=NS(scissor_get=lambda:(0,0,2000,300),scissor_set=mock.Mock()))
         fake_batch = NS(batch_for_shader=mock.Mock())
         # Mock GPU/font sinks, not the renderer's all-row logic or selection state.
         with mock.patch.object(workspace, 'bpy', NS(context=context, types=bpy.types)), \

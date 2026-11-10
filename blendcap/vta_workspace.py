@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import math
+from dataclasses import replace
 
 import bpy
 
@@ -15,7 +16,7 @@ from ..blendcap_vta_workspace import (
     WORKSPACE_NAME, WORKSPACE_TAG, TimelineMetrics, character_lanes, grid_step,
     hit_character, hit_review_key, is_review_region, review_area, review_keys_in_box,
     motion_interval_rects, hit_motion_interval, characters_in_box, derived_mark_color, repair_range_colors,
-    authoritative_key_style, channel_rows,
+    authoritative_key_style, channel_rows, channel_items,
 )
 from ..blendcap_vta_visuals import ASSIGNMENT_COLOR
 from ..blendcap_vta_tracking_hints import marker_positions, hit_marker
@@ -37,6 +38,8 @@ _blank_handler = None
 _hover = None
 _collapsed_depth = {}
 _depth_focus = set()  # Editor/domain focus only; actual key selection lives in FCurves.
+_row_scroll = {}  # Scene/source/editor local: stable first row plus fallback index.
+_row_pan = {}  # Fractional trackpad motion, in region pixels.
 
 
 def _expansion_key(context):
@@ -64,8 +67,8 @@ def expanded_characters(context, view):
 def _clear_channel_presentation(*_args):
     _collapsed_depth.clear()
     _depth_focus.clear()
-    from .vta_timeline_markers import _focus
-    _focus.clear()
+    _row_scroll.clear()
+    _row_pan.clear()
 
 
 def _rows(context, view, first, metrics):
@@ -374,7 +377,8 @@ def _draw_header(self, context):
     self.layout.separator()
     self.layout.operator('blendcap.vta_toggle_editor_mode',
                          text='Exit MoCap Mode' if active else 'Enter MoCap Mode', icon='KEY_HLT', depress=active)
-    self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='MoCap Commands')
+    if active:
+        self.layout.menu('BLENDCAP_MT_vta_timeline_commands', text='MoCap Commands')
 
 
 def _draw_preview_header(self, context):
@@ -416,7 +420,59 @@ def _metrics(context):
     scale = getattr(system, 'ui_scale', 1.0)
     if not math.isfinite(scale) or scale <= 0:
         scale = 1.0
-    return TimelineMetrics(ui_scale=scale, text_size=_text_size(context))
+    metrics = TimelineMetrics(ui_scale=scale, text_size=_text_size(context))
+    anchor = _row_scroll.get(_expansion_key(context))
+    if anchor is not None:
+        view = _ui()._timeline
+        rows = channel_items(view, expanded_characters(context, view))
+        index = next((i for i, row in enumerate(rows) if row == anchor[:2]), anchor[2])
+        metrics = replace(metrics, scroll_rows=index)
+    return metrics
+
+
+def _native_bottom(context, event, metrics=None):
+    """Pass the native marker strip AND scrollbar through, even without a view."""
+    return (context.region.type == 'WINDOW' and
+            event.mouse_region_y < (metrics or _metrics(context)).bottom_padding)
+
+
+class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_timeline_scroll'
+    bl_label = 'Scroll MoCap Rows'
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return _scope(context)
+
+    def invoke(self, context, event):
+        metrics = _metrics(context)
+        if _native_bottom(context, event, metrics) or _box_gesture is not None:
+            return {'PASS_THROUGH'}
+        view, _, _, _, first, _ = _state(context)
+        rows = channel_items(view, expanded_characters(context, view))
+        shown = _rows(context, view, first, metrics)
+        if not rows or not shown:
+            return {'PASS_THROUGH'}
+        start = rows.index((shown[0].character_id, shown[0].kind))
+        key = _expansion_key(context)
+        if event.type == 'TRACKPADPAN':
+            dx = event.mouse_x - event.mouse_prev_x
+            dy = event.mouse_y - event.mouse_prev_y
+            if abs(dx) >= abs(dy):
+                return {'PASS_THROUGH'}  # Keep horizontal navigation native.
+            distance = _row_pan.get(key, 0) + dy
+            delta = int(distance / metrics.row_height)
+            _row_pan[key] = distance - delta * metrics.row_height
+            if not delta:
+                return {'FINISHED'}
+        else:
+            _row_pan.pop(key, None)
+            delta = 1 if event.type == 'WHEELDOWNMOUSE' else -1
+        start = min(max(0, start + delta), max(0, len(rows)-len(shown)))
+        _row_scroll[key] = (*rows[start], start)
+        vta_invalidation.request_redraw()
+        return {'FINISHED'}
 
 
 def _timeline_text_size_changed(_self, _context):
@@ -514,6 +570,7 @@ def _draw_channels():
 
 
 def _draw_window():
+    clip = None
     try:
         import gpu
         from gpu_extras.batch import batch_for_shader
@@ -527,11 +584,15 @@ def _draw_window():
         half_row = metrics.row_height / 2 - scale
         key_radius = metrics.key_radius
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        # Native markers were drawn before POST_PIXEL. Clip every custom draw,
+        # including grid/playhead/gesture/tooltip, above Blender's bottom strip.
+        clip = gpu.state.scissor_get()
+        x, y, width, height = clip
+        bottom = min(height, math.ceil(metrics.bottom_padding))
+        gpu.state.scissor_set(x, y + bottom, width, height - bottom)
         _fill(shader, batch_for_shader, 0, 0, region.width, region.height,
               (.105, .105, .105, 1))
         if view is None:
-            from .vta_timeline_markers import draw
-            draw(context,scale,shader,batch_for_shader,_fill,_line)
             return
         expanded = expanded_characters(context, view)
         rows = _rows(context, view, first, metrics)
@@ -661,12 +722,13 @@ def _draw_window():
                           (x + radius, y + radius)), color)
                     _line(shader, batch_for_shader, ((x - radius, y + radius),
                           (x + radius, y - radius)), color)
-        from .vta_timeline_markers import draw
-        draw(context,scale,shader,batch_for_shader,_fill,_line)
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
     except Exception:
         return
+    finally:
+        if clip is not None:
+            gpu.state.scissor_set(*clip)
 
 
 def get_vta_workspace(context):
@@ -931,7 +993,8 @@ def _draw_hover(context):
     import blf
     text = _hover[2]
     blf.size(0, 12)
-    blf.position(0, 10, 8, 0)
+    bottom = _metrics(context).bottom_padding if context.region.type == 'WINDOW' else 0
+    blf.position(0, 10, bottom + 8, 0)
     blf.color(0, 1, .95, .8, 1)
     blf.draw(0, text)
 
@@ -975,15 +1038,8 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
         metrics = _metrics(context)
-        from . import vta_timeline_markers as markers
-        if context.region.type=='WINDOW' and point[1]<=markers.HEIGHT*metrics.ui_scale:
-            markers.select(context,point[0],extend=bool(event.shift or event.ctrl),scale=metrics.ui_scale)
-            _depth_focus.discard(_expansion_key(context))
-            vta_invalidation.request_redraw()
-            if event.type=='RIGHTMOUSE':
-                bpy.ops.wm.call_menu('INVOKE_DEFAULT',name='DOPESHEET_MT_marker')
-            return {'FINISHED'}
-        if isinstance(getattr(context,'scene',None),bpy.types.Scene):markers.focus(context,False)
+        if _native_bottom(context, event, metrics):
+            return {'PASS_THROUGH'}
         if _box_gesture is None and event.type in {'LEFTMOUSE','RIGHTMOUSE'}:
             try:
                 depth_result = _depth_interaction(context, view, first, metrics, point, event)
@@ -1109,29 +1165,20 @@ class BLENDCAP_OT_vta_timeline_keys(bpy.types.Operator):
     bl_idname='blendcap.vta_timeline_keys'
     bl_label='MoCap Timeline Editing'
     bl_options={'INTERNAL'}
-    __annotations__={'action':bpy.props.EnumProperty(items=[(a,a,'') for a in ('BOX','ALL','NONE','DELETE','ADD','RENAME','MOVE')])}
+    __annotations__={'action':bpy.props.EnumProperty(items=[(a,a,'') for a in ('BOX','ALL','NONE','DELETE')])}
 
     @classmethod
     def poll(cls,context):return _scope(context)
 
     def invoke(self,context,event):
-        from . import vta_timeline_markers as markers
-        marker_focus=context.region.type=='WINDOW' and markers.focused(context)
-        if self.action in ('ADD','RENAME','MOVE'):
-            if self.action!='ADD' and not marker_focus:return {'PASS_THROUGH'}
-            return _delegated_timeline_result(markers.command(context,self.action))
+        if _native_bottom(context, event):return {'PASS_THROUGH'}
         if self.action=='DELETE':
-            if marker_focus:return _delegated_timeline_result(markers.command(context,'DELETE'))
             if _expansion_key(context) in _depth_focus:return bpy.ops.blendcap.vta_depth_delete()
             if _ui()._review_key_selection.keyframe_ids:
                 return _delegated_timeline_result(bpy.ops.blendcap.vta_review_manage('INVOKE_DEFAULT',action='clear-selected-review-keys'))
             return {'CANCELLED'}  # Never delete hidden native pose keys.
         view=_state(context)[0]
         if view is None:return {'CANCELLED'}
-        if marker_focus:
-            if self.action in ('ALL','NONE'):
-                return bpy.ops.marker.select_all(action='SELECT' if self.action=='ALL' else 'DESELECT')
-            return {'CANCELLED'}
         if self.action in ('ALL','NONE'):
             _depth_focus.discard(_expansion_key(context))
             if context.region.type=='CHANNELS':
@@ -1242,6 +1289,8 @@ def register():
                                        ("RIGHTMOUSE", {}))]
             _keymaps.append((keymap, items))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
+            for button in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN'):
+                items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname, button, 'ANY'))
             for button,action,mods in (('B','BOX',{}),('A','ALL',{}),('A','NONE',{'alt':True})):
                 item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS',**mods)
                 item.properties.action=action;items.append(item)
@@ -1249,9 +1298,6 @@ def register():
                 for button in ('X', 'DEL'):
                     item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname, button, 'PRESS')
                     item.properties.action='DELETE';items.append(item)
-                for button,action in (('M','ADD'),('F2','RENAME'),('G','MOVE')):
-                    item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS')
-                    item.properties.action=action;items.append(item)
 
 
 def unregister():

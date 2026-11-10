@@ -158,7 +158,7 @@ class DepthChannelTests(unittest.TestCase):
             for height in (100,200,600):
                 rows=channel_rows(self.view,height,1,metrics=metrics,expanded=('a','b'))
                 if rows:self.assertEqual(rows[0].kind,'character')
-                else:self.assertLess(height,metrics.top_padding+28*scale+metrics.row_height)
+                else:self.assertLess(height,metrics.top_padding+metrics.bottom_padding+metrics.row_height)
                 for a,b in zip(rows,rows[1:]):self.assertAlmostEqual(a.y-b.y,metrics.row_height)
 
     def test_small_viewport_keeps_focused_character_and_its_child_visible(self):
@@ -193,6 +193,8 @@ class DepthChannelTests(unittest.TestCase):
                 mock.patch.object(self.ui,'selected_repair_range',return_value=None), \
                 mock.patch.object(self.ui,'tracking_hints',return_value=(KeyHint('b',30,'forward','competing-candidates'),)), \
                 mock.patch.object(gpu.shader,'from_builtin',return_value=shader), \
+                mock.patch.object(gpu.state,'scissor_get',return_value=(0,0,1000,500)), \
+                mock.patch.object(gpu.state,'scissor_set'), \
                 mock.patch.object(batches,'batch_for_shader',side_effect=batch), \
                 mock.patch.object(blf,'draw',side_effect=lambda font,value:text.append(value)):
             self.ws._draw_window()

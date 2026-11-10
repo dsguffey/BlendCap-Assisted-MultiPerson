@@ -405,7 +405,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
             context.scene.frame_set.assert_not_called()
             self.assertEqual(repr(view), before)
 
-    def test_mode_header_has_one_toggle_and_commands_even_when_off(self):
+    def test_mode_header_has_one_toggle_and_commands_only_when_on(self):
         area = SimpleNamespace(type='DOPESHEET_EDITOR', ui_type='DOPESHEET')
         space = SimpleNamespace(show_region_ui=False)
         context = SimpleNamespace(area=area, space_data=space,
@@ -431,7 +431,7 @@ class BlenderWorkspaceTests(unittest.TestCase):
         self.assertFalse(layout.operator.call_args.kwargs['depress'])
         self.assertEqual(layout.operator.call_args.kwargs['text'], 'Enter MoCap Mode')
         self.assertEqual(layout.operator.call_count, 1)
-        self.assertTrue(layout.menu.called)
+        layout.menu.assert_not_called()
         layout.prop.assert_not_called()
         layout.label.assert_not_called()
 

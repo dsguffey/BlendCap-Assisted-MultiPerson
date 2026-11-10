@@ -545,9 +545,10 @@ class SceneBindingTests(unittest.TestCase):
         with bpy.context.temp_override(area=self.timeline):
             self.ws._draw_header(header,bpy.context)
             self.assertIn('blendcap.vta_toggle_editor_mode',calls)
-            self.assertIn('BLENDCAP_MT_vta_timeline_commands',calls)
+            self.assertNotIn('BLENDCAP_MT_vta_timeline_commands',calls)
             self.ui.draw_scene_workflow(header.layout,bpy.context)
-            self.assertTrue({'blendcap.vta_enter_mode','blendcap.vta_exit_mode','blendcap.vta_load_scene','blendcap.vta_new_scene'} <= set(calls))
+            self.assertTrue({'blendcap.vta_load_scene','blendcap.vta_new_scene'} <= set(calls))
+            self.assertFalse({'blendcap.vta_enter_mode','blendcap.vta_exit_mode'} & set(calls))
         calls.clear()
         with bpy.context.temp_override(area=self.preview): self.ws._draw_preview_header(header,bpy.context)
         self.assertNotIn('blendcap.vta_toggle_editor_mode',calls)

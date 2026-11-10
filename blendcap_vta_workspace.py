@@ -20,6 +20,9 @@ ROW_HEIGHT = 26.0
 # Blender's native Dope Sheet reserves the top of WINDOW for its frame ruler.
 # Keep the first VTA key below that event zone, not merely below our drawn text.
 TOP_PADDING = 62.0
+# Blender's UI_MARKER_MARGIN_Y includes its native marker names and bottom
+# scroller. Leave these pixels to Blender in both the draw and event paths.
+NATIVE_BOTTOM = 42.0
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,11 @@ class TimelineMetrics:
 
     ui_scale: float = 1.0
     text_size: float = 13.0
+    scroll_rows: int | None = None
+
+    @property
+    def bottom_padding(self):
+        return NATIVE_BOTTOM * self.ui_scale
 
     @property
     def font_size(self):
@@ -78,17 +86,25 @@ class ChannelRow:
     y: float
 
 
+def channel_items(view, expanded=()):
+    expanded = frozenset(expanded)
+    return tuple((c.character_id, kind) for c in getattr(view, 'characters', ())
+                 for kind in (('character', 'depth') if c.character_id in expanded else ('character',)))
+
+
 def channel_rows(view, height, first=0, *, metrics=TimelineMetrics(), expanded=()):
     """One shared geometry for painting and hit tests; first remains a Character index."""
     if view is None:
         return ()
-    expanded = frozenset(expanded)
-    rows = [(c.character_id, kind) for c in view.characters
-            for kind in (('character', 'depth') if c.character_id in expanded else ('character',))]
+    rows = channel_items(view, expanded)
     if not rows:
         return ()
-    visible = max(0, int((height - metrics.top_padding - 28*metrics.ui_scale) // metrics.row_height))
+    visible = max(0, int((height - metrics.top_padding - metrics.bottom_padding) // metrics.row_height))
     if not visible:return ()
+    if metrics.scroll_rows is not None:
+        start = min(max(0, metrics.scroll_rows), max(0, len(rows)-visible))
+        return tuple(ChannelRow(cid, kind, height-metrics.top_padding-metrics.row_height*(i+.5))
+                     for i, (cid, kind) in enumerate(rows[start:start+visible]))
     first = min(max(0, first), len(view.characters)-1)
     cid = view.characters[first].character_id
     start = next(i for i, (identity, kind) in enumerate(rows) if identity == cid and kind == 'character')

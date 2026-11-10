@@ -612,7 +612,7 @@ class BLENDCAP_OT_vta_exit_mode(bpy.types.Operator):
 
 
 def draw_scene_workflow(layout, context):
-    for command in ('enter_mode', 'exit_mode', 'load_scene', 'new_scene'):
+    for command in ('load_scene', 'new_scene'):
         layout.operator('blendcap.vta_' + command)
     from .vta_scene_session import warning
     message = warning(context)
@@ -1387,6 +1387,10 @@ def _accept_mutated_review(context, refreshed) -> None:
         refreshed=frame(refreshed,_scene_character_ids)
     _view = refreshed
     _selection.accept_review(refreshed)
+    # A mutation can have already refreshed the backend snapshot before its
+    # final Scene membership is adopted. Rebuild both presentation projections
+    # together instead of retaining a memoized pre-mutation timeline/frame.
+    _display.clear()
     if not refresh(context, check_disk=True):
         raise VtaReviewUiError(_status)
     vta_invalidation.request_redraw()
