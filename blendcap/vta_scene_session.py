@@ -226,11 +226,16 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
             ui._status = ('MoCap Scene loaded; analyze candidates or move inside source coverage.'
                           if info is not None else 'Blank MoCap Scene; choose a clip in Video Source.')
             ui._status_is_error = False
+        from . import vta_native_scroller
+        vta_native_scroller.activate(workspace)
         if commit is not None:
             commit()  # Last fallible step; source history is published only now.
         setattr(workspace,LAST,scene)  # Only after successful validation/setup.
         return scene
     except Exception:
+        if not before[4]:
+            from . import vta_native_scroller
+            vta_native_scroller.deactivate(workspace)
         if membership_before is None:scene.pop(characters.KEY,None)
         else:scene[characters.KEY]=membership_before
         old_scene,old_workspace,pin,last,mode,active,source_mode,fps,base,sequencer = before
@@ -265,8 +270,10 @@ def enter(context):
 
 def exit_mode(context):
     from . import vta_review_ui as ui
+    from . import vta_native_scroller
     workspace = workspace_for(context)
     if enabled(workspace):
+        vta_native_scroller.deactivate(workspace)
         # The dedicated canvas hides native channels using preset filters.
         # Exit supplies normal defaults, not an editor-history restoration.
         for screen in workspace.screens:

@@ -203,6 +203,7 @@ class DispatchTests(unittest.TestCase):
             bpy=NS(types=NS(Scene=Scene),props=NS(IntProperty=lambda **kw:None),
                 app=NS(handlers=NS(load_post=[])),context=NS(window_manager=NS(
                     keyconfigs=NS(addon=NS(keymaps=NS(new=lambda **kw:keymap)))))))
+        sys.modules['_dispatch_regression'].vta_native_scroller=NS(register=mock.Mock())
         callbacks('blendcap/vta_workspace.py',('register',),self.env)
         self.env['register']()
         self.assertTrue({'M','F2','G'} <= {b.type for b in bindings})
