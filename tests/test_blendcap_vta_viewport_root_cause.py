@@ -38,7 +38,7 @@ class ViewportRootCauseTests(HostFixture):
         for a,b in zip(rows,rows[1:]):
             if b.kind=='depth':self.assertEqual(a.character_id,b.character_id)
 
-    def test_custom_elevator_moves_down_and_back_to_first_row(self):
+    def test_right_edge_elevator_moves_both_regions_down_and_back_to_first_row(self):
         self.refresh(self.a);self.painted_names()
         members=self.membership.stored(self.a)
         for i in range(8):
@@ -46,15 +46,25 @@ class ViewportRootCauseTests(HostFixture):
             self.characters.append(CharacterRow(identity,f'Extra {i}',None));members.add(identity)
         self.membership._write(self.a,members)
         self.revision+=1;self.bridge._refresh();self.drain()
-        ctx=self.context;ctx.area=self.timeline;ctx.region=self.channel_region
+        ctx=self.context;ctx.area=self.timeline;ctx.region=self.window_region
         metrics=self.ws._metrics(ctx);bar=self.ws._scrollbar(ctx,self.ui._timeline,metrics)
         self.assertIsNotNone(bar)
+        self.assertEqual(bar[1],ctx.region.width-2*metrics.ui_scale)
+        window_rows=self.ws._rows(ctx,self.ui._timeline,0,metrics)
+        ctx.region=self.channel_region
+        self.assertIsNone(self.ws._scrollbar(ctx,self.ui._timeline,self.ws._metrics(ctx)))
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),window_rows)
+        ctx.region=self.window_region
         event=lambda y,value='PRESS':NS(type='LEFTMOUSE',value=value,mouse_region_x=(bar[0]+bar[1])/2,
             mouse_region_y=y,mouse_y=y,shift=False,ctrl=False)
         op=self.ws.BLENDCAP_OT_vta_timeline_select()
         self.assertEqual(op.invoke(ctx,event(bar[2]+2)),{'RUNNING_MODAL'})
         self.assertEqual(op.modal(ctx,event(bar[2]+2,'RELEASE')),{'FINISHED'})
         self.assertGreater(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
+        window_rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
+        ctx.region=self.channel_region
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),window_rows)
+        ctx.region=self.window_region
         op=self.ws.BLENDCAP_OT_vta_timeline_select()
         self.assertEqual(op.invoke(ctx,event(bar[3]-2)),{'RUNNING_MODAL'})
         self.assertEqual(op.modal(ctx,event(bar[3]-2,'RELEASE')),{'FINISHED'})

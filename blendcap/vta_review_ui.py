@@ -1221,7 +1221,7 @@ def _rebuild_enum_items() -> None:
             row.display_name + (
                 f" ({HARD_STATE_LABELS[row.decision_state]})"
                 if row.decision_state in HARD_STATE_LABELS
-                else " (occupied)" if not row.available else ""
+                else " (assigned this frame)" if row.occupied_observation_id else ""
             ),
             row.character_id,
         )

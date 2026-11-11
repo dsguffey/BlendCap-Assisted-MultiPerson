@@ -98,6 +98,8 @@ def _set_row_scroll(context, view, metrics, start):
 
 
 def _scrollbar(context, view, metrics):
+    if context.region.type != 'WINDOW':
+        return None
     items,visible,maximum=_scroll_range(context,view,metrics)
     if not maximum:return None
     scale=metrics.ui_scale
@@ -109,7 +111,10 @@ def _scrollbar(context, view, metrics):
     shown=_rows(context,view,0,metrics)
     start=items.index((shown[0].character_id,shown[0].kind)) if shown else 0
     y=top-thumb-(top-bottom-thumb)*start/maximum
-    return (context.region.width-24*scale,context.region.width-11*scale,bottom,top,y,thumb,maximum)
+    # The MoCap rows occupy both regions, but the only visible vertical control
+    # belongs at the Dope Sheet's right edge. Leave horizontal scrolling below.
+    return (context.region.width-22*scale,context.region.width-2*scale,
+            bottom,top,y,thumb,maximum)
 
 
 def _row_at(context, view, first, metrics, y):
@@ -639,11 +644,6 @@ def _draw_channels():
             blf.size(0, metrics.font_size)
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
-        scrollbar=_scrollbar(context,view,metrics)
-        if scrollbar:
-            x0,x1,bottom,top,y,thumb,_=scrollbar
-            _fill(shader,batch_for_shader,x0,bottom,x1,top,(.18,.18,.18,1))
-            _fill(shader,batch_for_shader,x0,y,x1,y+thumb,(.52,.52,.52,1))
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
     except Exception:
@@ -806,6 +806,11 @@ def _draw_window():
         draw(context,scale,shader,batch_for_shader,_fill,_line)
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
+        scrollbar=_scrollbar(context,view,metrics)
+        if scrollbar:
+            x0,x1,bottom,top,y,thumb,_=scrollbar
+            _fill(shader,batch_for_shader,x0,bottom,x1,top,(.18,.18,.18,1))
+            _fill(shader,batch_for_shader,x0,y,x1,y+thumb,(.52,.52,.52,1))
     except Exception:
         return
 
@@ -1133,7 +1138,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         if view is None:
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
-        if context.region.type=='CHANNELS' and event.type=='LEFTMOUSE':
+        if context.region.type=='WINDOW' and event.type=='LEFTMOUSE':
             bar=_scrollbar(context,view,metrics)
             if bar and bar[0]<=point[0]<=bar[1] and bar[2]<=point[1]<=bar[3]:
                 _scroll_drag=(context.area,context.region)
