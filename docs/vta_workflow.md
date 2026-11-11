@@ -103,6 +103,18 @@ the main Scene, use **Load VTA Scene** to restore presentation. A mismatch clear
 stale VTA content/disables source actions, not workspace roles or command access.
 No editor-history restoration, automatic mismatch recovery or broad Scene browser.
 
+On opening an existing `.blend` file, StudioFree runs a one-shot reconciliation
+after file data is available. Explicit **Load MoCap Scene** and **Enter MoCap Mode**
+run the same reconciliation before binding presentation. It compares surviving
+Blender Scenes, their StudioFree memberships, canonical project references and
+host-binding receipts. A manually deleted Blender Scene is never recreated or
+replaced; it stops being a valid Load choice. Only a Character with no surviving
+Scene, native, receipt or canonical decision/reference is removed through the
+engine's guarded project mutation. Ambiguous identities are preserved. There is
+no automatic Character transfer or user-facing cross-Scene import in 1.0.
+Same-session manual Scene deletion is handled at the next explicit Load or the
+next `.blend` open, without continuous Scene-topology monitoring.
+
 ## Timing, review and assignments
 
 Source-backed owned Scenes use constant-rate source FPS, including fractional

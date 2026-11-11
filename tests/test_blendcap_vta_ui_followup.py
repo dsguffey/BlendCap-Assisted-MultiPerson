@@ -74,11 +74,11 @@ class HostFixture(unittest.TestCase):
             _MANAGEMENT_ACTIONS=(),_pending_presentation=None,_syncing_properties=False,_syncing_objects=False,
             _NO_SELECTION='none',sync_review_to_objects=mock.Mock(),record_scene_source=mock.Mock(),
             _tracking_hints=NS(clear=mock.Mock()))
-        callbacks('blendcap/vta_review_ui.py',('_activate_review_scene','refresh','_accept_mutated_review','_project_reuse_items',
+        callbacks('blendcap/vta_review_ui.py',('_activate_review_scene','refresh','_accept_mutated_review',
             '_is_timeline_context','timeline_character_selection','current_character_id','_lane_scroll',
             '_presentation_current','timeline_state','_assignment_scope','_sync_properties',
             'sync_character_to_timeline','_queue_presentation','_presentation_timer',
-            'BLENDCAP_OT_vta_review_create_character','BLENDCAP_OT_vta_reuse_project_character',
+            'BLENDCAP_OT_vta_review_create_character',
             'BLENDCAP_OT_vta_review_manage'),self.env)
         self.ws=importlib.import_module(child+'.vta_workspace')
         self.markers=importlib.import_module(child+'.vta_timeline_markers')

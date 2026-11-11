@@ -16,7 +16,7 @@ def path(root):
         raise ValueError('Host binding receipt path is unsafe.')
     return result
 
-def read(root):
+def read(root,*,with_ids=False):
     location=path(root)
     if not location.exists():return []
     files=list(location.glob('*.json'))
@@ -32,6 +32,7 @@ def read(root):
         wire.fields(row,('scene_owner_id','project_id','source_id','video_sha256','character_id'))
         wire.identifier(row['scene_owner_id']);wire.text(row['project_id']);wire.text(row['source_id'])
         wire.digest(row['video_sha256']);wire.text(row['character_id'])
+        if with_ids:row={**row,'request_id':item.stem}
         rows.append(row)
     return rows
 

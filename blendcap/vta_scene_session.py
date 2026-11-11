@@ -140,6 +140,12 @@ def _activate_main_scene(context, scene):
 def load(context, scene, *, source_info=None, project=None, commit=None):
     """Validate, configure once, then remember. Failed setup rolls back."""
     from . import vta_review_ui as ui, vta_workspace as ws, properties
+    try:
+        exists=(scene is not None and any(candidate.as_pointer()==scene.as_pointer()
+                                         for candidate in bpy.data.scenes))
+    except ReferenceError:exists=False
+    if not exists:
+        raise ValueError('This Blender Scene no longer exists.')
     if ui._analysis_locked():
         raise ValueError('Unavailable while MoCap analysis or generation is running.')
     # Prepared inputs are supplied only by the explicit Configure transaction.
@@ -155,6 +161,9 @@ def load(context, scene, *, source_info=None, project=None, commit=None):
         raise ValueError('MoCap workspace has no configured Preview editor.')
     if sum(a.type == 'VIEW_3D' for s in workspace.screens for a in s.areas) > 1:
         raise ValueError('Use the dedicated single-viewport MoCap preset; additional ordinary 3D editors will not be overridden.')
+    if project is None and bpy.data.filepath:
+        from .vta_scene_reconcile import reconcile
+        reconcile(context,info[2].companion_root if info is not None else None)
     before = (context.window.scene,context.window.workspace,workspace.sequencer_scene,
               getattr(workspace,LAST),getattr(workspace,MODE),scene.sequence_editor.active_strip if scene.sequence_editor else None,
               scene.blendcap_props.video_source,scene.render.fps,scene.render.fps_base,scene.render.use_sequencer)

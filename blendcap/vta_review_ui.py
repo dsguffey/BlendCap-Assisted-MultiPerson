@@ -73,7 +73,6 @@ _analysis_fallback_status = None
 _NO_SELECTION = "__blendcap_vta_no_selection__"
 _candidate_enum_items = [(_NO_SELECTION, "No candidate", "Refresh the current frame")]
 _character_enum_items = [(_NO_SELECTION, "No Character", "Refresh the current frame")]
-_reuse_enum_items = [('NONE', 'No other project Characters', '')]
 _syncing_properties = False
 _overlap_cycle = vta_overlay.OverlapCycle()
 _reconstruction_process = None
@@ -1405,20 +1404,6 @@ def character_items(_self, context):
     return _character_enum_items
 
 
-def _project_reuse_items(_self=None, _context=None):
-    """Project identities explicitly excluded from the current Scene view."""
-    global _reuse_enum_items
-    observation=getattr(_display_backend,'observation',None)
-    value=getattr(observation,'value',None)
-    if not isinstance(value,dict) or _scene_character_ids is None:
-        _reuse_enum_items=[('NONE','No other project Characters','')]
-        return _reuse_enum_items
-    _reuse_enum_items=[(row['character_id'],row['display_name'],row['character_id'])
-            for row in value.get('characters',())
-            if row['character_id'] not in _scene_character_ids] or [('NONE','No other project Characters','')]
-    return _reuse_enum_items
-
-
 def _candidate_changed(self, _context):
     if _syncing_properties:
         return
@@ -2278,10 +2263,11 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             _status_is_error = True
             self.report({'ERROR'}, _status)
             return {'CANCELLED'}
-        existing=next((row for row in _project_reuse_items() if row[1].casefold()==name.casefold()),None)
-        if existing is not None:
-            _status=(f"Character {name!r} already exists in this project but is outside the current Scene. "
-                     "Use Existing Project Character to add that identity to this Scene.")
+        observation=getattr(_display_backend,'observation',None)
+        project_names=getattr(observation,'value',{}).get('characters',()) if observation else ()
+        if any(row['display_name'].casefold()==name.casefold() for row in project_names):
+            _status=(f"Character {name!r} already exists elsewhere in this StudioFree project. "
+                     "Choose another name or load its Blender Scene.")
             _status_is_error=True
             self.report({'ERROR'},_status)
             return {'CANCELLED'}
@@ -2309,43 +2295,6 @@ class BLENDCAP_OT_vta_review_create_character(bpy.types.Operator):
             self.report({'ERROR'}, _status)
             from .vta_review_undo import AppliedMutationError
             return {'FINISHED'} if isinstance(exc,AppliedMutationError) else {'CANCELLED'}
-
-
-class BLENDCAP_OT_vta_reuse_project_character(bpy.types.Operator):
-    bl_idname = 'blendcap.vta_reuse_project_character'
-    bl_label = 'Use Existing Project Character'
-    bl_description = 'Explicitly add an existing project identity to this Scene'
-    bl_options = {'REGISTER', 'UNDO'}
-
-    character_id: bpy.props.EnumProperty(name='Project Character', items=_project_reuse_items)
-
-    @classmethod
-    def poll(cls, context):
-        return (_presentation_current(context) and not _analysis_locked()
-                and _scene_character_ids is not None
-                and any(row[0]!='NONE' for row in _project_reuse_items()))
-
-    def invoke(self, context, _event):
-        return context.window_manager.invoke_props_dialog(self)
-
-    def execute(self, context):
-        if not refresh(context, check_disk=True):
-            self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
-        choices={row[0] for row in _project_reuse_items() if row[0]!='NONE'}
-        if self.character_id not in choices:
-            self.report({'ERROR'}, 'Choose an existing project Character outside this Scene.')
-            return {'CANCELLED'}
-        from . import vta_scene_characters
-        from .vta_management_selection import select
-        project=_get_backend(context).observe(_location)
-        vta_scene_characters.add(context.scene,project,self.character_id)
-        if not refresh(context, check_disk=True):
-            self.report({'ERROR'}, _status)
-            return {'CANCELLED'}
-        select(self.character_id)
-        vta_invalidation.request_redraw()
-        return {'FINISHED'}
 
 
 def select_timeline_character(context, character_id: str, *, extend=False) -> bool:
@@ -3264,10 +3213,6 @@ class VIEW3D_PT_blendcap_vta_characters(_VtaReviewSubpanel, bpy.types.Panel):
         row.prop(context.window_manager, 'blendcap_vta_new_character_name', text='New')
         row.operator('blendcap.vta_review_create_character', text='Create New Character', icon='ADD')
         layout.prop(context.window_manager, 'blendcap_vta_management_character', text='Available Characters')
-        if any(row[0]!='NONE' for row in _project_reuse_items()):
-            row=layout.row();row.enabled=not _analysis_locked()
-            row.operator_context='INVOKE_DEFAULT'
-            row.operator('blendcap.vta_reuse_project_character',text='Use Existing Project Character',icon='LINKED')
         for action, label in [('rename-character','Rename Character'),('delete-character','Delete Character')]:
             row = layout.row(); row.enabled = management.selected() is not None and not _analysis_locked()
             row.operator_context = 'INVOKE_DEFAULT'
@@ -3545,7 +3490,6 @@ classes = (
     BLENDCAP_OT_vta_repeat_assignment,
     BLENDCAP_OT_vta_review_hard_state,
     BLENDCAP_OT_vta_review_create_character,
-    BLENDCAP_OT_vta_reuse_project_character,
     BLENDCAP_OT_vta_review_manage,
     BLENDCAP_OT_vta_update_tracking,
     BLENDCAP_OT_vta_restore_protected,
@@ -3584,6 +3528,8 @@ def register_properties() -> None:
     vta_jobs_ui.register()
     bpy.types.WorkSpace.blendcap_vta_mode_enabled = bpy.props.BoolProperty(default=False)
     bpy.types.WorkSpace.blendcap_vta_loaded_scene = bpy.props.PointerProperty(type=bpy.types.Scene)
+    from . import vta_scene_reconcile
+    vta_scene_reconcile.register()
     _reset_repeat_assignment_session()
     _reset_scene_presentation()
     if _reset_repeat_assignment_session not in bpy.app.handlers.load_post:
@@ -3673,6 +3619,8 @@ def register_properties() -> None:
 
 
 def unregister_properties() -> None:
+    from . import vta_scene_reconcile
+    vta_scene_reconcile.unregister()
     from . import vta_marks
     vta_marks.unregister()
     from . import vta_review_undo

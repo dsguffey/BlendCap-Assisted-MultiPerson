@@ -60,17 +60,6 @@ class ViewportRootCauseTests(HostFixture):
         self.assertEqual(op.modal(ctx,event(bar[3]-2,'RELEASE')),{'FINISHED'})
         self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
 
-    def test_off_scene_project_character_is_explicitly_reused_without_duplicate(self):
-        self.refresh(self.a)
-        self.ui._display_backend.observation.value['characters']=[dict(character_id=c.character_id,
-            display_name=c.display_name) for c in self.characters]
-        self.assertEqual([row[1] for row in self.ui._project_reuse_items()],['Foreign'])
-        self.assertEqual([row.display_name for row in self.ui._view.characters],['black shirt','no shirt'])
-        op=self.ui.BLENDCAP_OT_vta_reuse_project_character();op.character_id='b';op.report=mock.Mock()
-        self.assertEqual(op.execute(self.context),{'FINISHED'})
-        self.assertIn('b',self.membership.stored(self.a))
-        self.assertEqual(sum(c.character_id=='b' for c in self.characters),1)
-        self.assertIn('Foreign',[c.display_name for c in self.ui._view.characters])
 
     def test_create_with_unusable_operation_geometry_is_revealed_when_paint_geometry_arrives(self):
         self.refresh(self.a);self.painted_names()
