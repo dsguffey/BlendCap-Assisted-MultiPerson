@@ -70,6 +70,34 @@ class ViewportRootCauseTests(HostFixture):
         self.assertEqual(op.modal(ctx,event(bar[3]-2,'RELEASE')),{'FINISHED'})
         self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
 
+    def test_wheel_in_either_region_scrolls_character_names_and_keys_together(self):
+        self.refresh(self.a);self.painted_names()
+        members=self.membership.stored(self.a)
+        for i in range(8):
+            identity=f'extra-{i}'
+            self.characters.append(CharacterRow(identity,f'Extra {i}',None));members.add(identity)
+        self.membership._write(self.a,members)
+        self.revision+=1;self.bridge._refresh();self.drain()
+        ctx=self.context;ctx.area=self.timeline
+        ctx.region=self.window_region
+        self.ws._set_row_scroll(ctx,self.ui._timeline,self.ws._metrics(ctx),0)
+        for region in (self.window_region,self.channel_region):
+            ctx.region=region
+            self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+                NS(),ctx,NS(type='WHEELDOWNMOUSE',mouse_region_y=100)),{'FINISHED'})
+            window_rows=None
+            for drawing_region in (self.window_region,self.channel_region):
+                ctx.region=drawing_region
+                rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
+                if window_rows is None:window_rows=rows
+                else:self.assertEqual(rows,window_rows)
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],2)
+        for region in (self.channel_region,self.window_region):
+            ctx.region=region
+            self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+                NS(),ctx,NS(type='WHEELUPMOUSE',mouse_region_y=100)),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
+
 
     def test_create_with_unusable_operation_geometry_is_revealed_when_paint_geometry_arrives(self):
         self.refresh(self.a);self.painted_names()
