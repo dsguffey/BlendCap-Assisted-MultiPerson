@@ -114,6 +114,7 @@ class DispatchTests(unittest.TestCase):
     def scroll(self,event):return self.env['BLENDCAP_OT_vta_timeline_scroll'].invoke(NS(),self.ctx,event)
 
     def test_wheel_scroll_stays_on_screen_across_redraw_selection_and_scene_roundtrip(self):
+        self.ctx.region.type='CHANNELS'
         for _ in range(11):self.assertEqual(self.scroll(self.event('WHEELDOWNMOUSE')),{'FINISHED'})
         before=self.env['_rows'](self.ctx,self.view,0,self.env['_metrics'](self.ctx))
         self.assertEqual(before[0].character_id,'5')
@@ -126,6 +127,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(self.env['_metrics'](self.ctx).scroll_rows,11)
 
     def test_rename_create_delete_preserve_anchor_and_delete_anchor_clamps(self):
+        self.ctx.region.type='CHANNELS'
         for _ in range(10):self.scroll(self.event('WHEELDOWNMOUSE'))
         anchor=self.env['_row_scroll']['A'][:2]
         self.ui._timeline=replace(self.view,characters=tuple(reversed(self.view.characters)))
@@ -200,6 +202,7 @@ class DispatchTests(unittest.TestCase):
             _keymaps=[],_clear_channel_presentation=mock.Mock(),_timeline_text_size_changed=mock.Mock(),
             BLENDCAP_OT_vta_timeline_select=NS(bl_idname='blendcap.vta_timeline_select'),
             BLENDCAP_OT_vta_timeline_hover=NS(bl_idname='blendcap.vta_timeline_hover'),
+            BLENDCAP_OT_vta_timeline_pan=NS(bl_idname='blendcap.vta_timeline_pan'),
             bpy=NS(types=NS(Scene=Scene),props=NS(IntProperty=lambda **kw:None),
                 app=NS(handlers=NS(load_post=[])),context=NS(window_manager=NS(
                     keyconfigs=NS(addon=NS(keymaps=NS(new=lambda **kw:keymap)))))))
@@ -209,6 +212,7 @@ class DispatchTests(unittest.TestCase):
         self.assertTrue({'B','A','X','DEL'} <= {b.type for b in bindings})
         self.assertEqual({b.type for b in bindings if b.idname=='blendcap.vta_timeline_scroll'},
                          {'WHEELUPMOUSE','WHEELDOWNMOUSE','TRACKPADPAN'})
+        self.assertIn('MIDDLEMOUSE',{b.type for b in bindings if b.idname=='blendcap.vta_timeline_pan'})
         self.assertFalse(any(getattr(b,'shift',False) or getattr(b,'ctrl',False)
                              for b in bindings if b.idname=='blendcap.vta_timeline_scroll'))
 

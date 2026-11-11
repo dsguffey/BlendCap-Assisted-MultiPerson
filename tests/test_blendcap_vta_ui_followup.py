@@ -167,12 +167,13 @@ class HostFixture(unittest.TestCase):
 class HostTests(HostFixture):
     def test_wheel_then_shift_click_and_b_box_use_the_same_depth_parent_geometry(self):
         self.refresh(self.a);self.create('tall ref')
-        self.context.area=self.timeline;self.context.region=self.window_region
+        self.context.area=self.timeline;self.context.region=self.channel_region
         self.env['key_at']=key_at
         callbacks('blendcap/vta_review_ui.py',('clear_repair_selection','select_timeline_key','select_timeline_keys'),self.env)
         self.ui._timeline=replace(self.ui._timeline,keys=(TimelineKey('new-key','new-owner-a',30,'occluded',None),))
         self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),self.context,
             NS(type='WHEELUPMOUSE',mouse_region_y=120)),{'FINISHED'})
+        self.context.region=self.window_region
         rows=self.ws._rows(self.context,self.ui._timeline,0,self.ws._metrics(self.context))
         self.assertIn(('spare','depth'),[(r.character_id,r.kind) for r in rows])
         self.assertEqual((rows[-1].character_id,rows[-1].kind),('new-owner-a','character'))

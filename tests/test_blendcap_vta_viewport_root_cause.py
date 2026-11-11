@@ -1,4 +1,5 @@
 """Paint-level viewport contracts absent from the operation-time reveal tests."""
+from contextlib import contextmanager
 from dataclasses import replace
 from types import SimpleNamespace as NS
 from types import ModuleType
@@ -8,9 +9,135 @@ import unittest
 from unittest import mock
 from tests.test_blendcap_vta_ui_followup import HostFixture
 from blendcap_vta_review import CharacterRow
+from blendcap_vta_timeline import TimelineKey
 
 
 class ViewportRootCauseTests(HostFixture):
+    def _overflow_rows(self, count=10):
+        self.refresh(self.a);self.painted_names()
+        members=self.membership.stored(self.a)
+        for i in range(count):
+            identity=f'extra-{i}'
+            self.characters.append(CharacterRow(identity,f'Extra {i:02}',None));members.add(identity)
+        self.membership._write(self.a,members)
+        self.revision+=1;self.bridge._refresh();self.drain()
+        self.context.area=self.timeline;self.context.region=self.channel_region
+        self.painted_names()  # Consume one-shot create/reveal before navigation.
+        self.ws._set_row_scroll(self.context,self.ui._timeline,self.ws._metrics(self.context),0)
+
+    def test_left_track_resize_and_thumb_endpoints(self):
+        self._overflow_rows()
+        ctx=self.context
+        for height in (194,280):
+            self.channel_region.height=self.window_region.height=height
+            metrics=self.ws._metrics(ctx)
+            x0,x1,bottom,top,y,thumb,maximum=self.ws._scrollbar(ctx,self.ui._timeline,metrics)
+            self.assertEqual((x0,x1,bottom,top),(0,20,metrics.bottom_padding,height-24))
+            self.assertAlmostEqual(y+thumb,top)
+            self.ws._set_row_scroll(ctx,self.ui._timeline,metrics,maximum)
+            bottom_bar=self.ws._scrollbar(ctx,self.ui._timeline,self.ws._metrics(ctx))
+            self.assertAlmostEqual(bottom_bar[4],bottom)
+            self.ws._set_row_scroll(ctx,self.ui._timeline,metrics,0)
+
+    def test_mmb_vertical_pan_clamps_and_keeps_names_keys_depth_and_empty_rows_together(self):
+        self._overflow_rows()
+        ctx=self.context;ctx.region=self.channel_region
+        self.ui._timeline=replace(self.ui._timeline,keys=(TimelineKey('review','a',10,'occluded',None),))
+        self.bpy.ops=NS(view2d=NS(pan=mock.Mock(return_value={'FINISHED'})))
+        @contextmanager
+        def override(**kw):
+            old=ctx.region;ctx.region=kw['region']
+            try:yield
+            finally:ctx.region=old
+        ctx.temp_override=override
+        event=lambda kind,x,y,value='PRESS':NS(type=kind,value=value,mouse_region_y=100,
+                                               mouse_x=x,mouse_y=y)
+        op=self.ws.BLENDCAP_OT_vta_timeline_pan()
+        self.assertEqual(op.invoke(ctx,event('MIDDLEMOUSE',100,100)),{'RUNNING_MODAL'})
+        self.assertEqual(op.modal(ctx,event('MOUSEMOVE',100,-1000)),{'RUNNING_MODAL'})
+        maximum=self.ws._scroll_range(ctx,self.ui._timeline,self.ws._metrics(ctx))[2]
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],maximum)
+        self.assertEqual(op.modal(ctx,event('MOUSEMOVE',100,1000)),{'RUNNING_MODAL'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
+        self.assertEqual(op.modal(ctx,event('MIDDLEMOUSE',100,1000,'RELEASE')),{'FINISHED'})
+        self.bpy.ops.view2d.pan.assert_not_called()
+        self.assertEqual(len(self.ui._timeline.keys),1)
+        self.assertEqual(self.ui._timeline.keys[0].keyframe_id,'review')
+        self.assertEqual(len(self.ui._timeline.characters),12)
+        # Parent/Depth ordering and WINDOW/CHANNELS geometry share one offset.
+        self.ws._set_row_scroll(ctx,self.ui._timeline,self.ws._metrics(ctx),2)
+        names=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
+        ctx.region=self.window_region
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),names)
+        self.assertIn(('extra-0','character'),[(r.character_id,r.kind) for r in names])
+        for before,after in zip(names,names[1:]):
+            if after.kind=='depth':self.assertEqual(before.character_id,after.character_id)
+
+    def test_diagonal_mmb_uses_native_time_pan_and_shared_row_offset(self):
+        self._overflow_rows()
+        ctx=self.context;ctx.region=self.channel_region
+        self.ui._timeline=replace(self.ui._timeline,keys=(TimelineKey('review','a',10,'occluded',None),))
+        marker=self.a.timeline_markers.new('Guide',frame=10)
+        frame_origin=[0.0]
+        self.window_region.view2d=NS(view_to_region=lambda frame,y,clip=False:
+                                     ((frame-frame_origin[0])*10,y))
+        def native_pan(mode,*,deltax,deltay):
+            self.assertEqual(ctx.region,self.window_region)
+            self.assertEqual(deltay,0)
+            frame_origin[0]+=deltax/10
+            return {'FINISHED'}
+        self.bpy.ops=NS(view2d=NS(pan=mock.Mock(side_effect=native_pan)))
+        @contextmanager
+        def override(**kw):
+            old=ctx.region;ctx.region=kw['region']
+            try:yield
+            finally:ctx.region=old
+        ctx.temp_override=override
+        event=lambda kind,x,y,value='PRESS':NS(type=kind,value=value,mouse_region_y=100,
+                                               mouse_x=x,mouse_y=y)
+        op=self.ws.BLENDCAP_OT_vta_timeline_pan()
+        before=self.window_region.view2d.view_to_region(10,0)[0]
+        self.assertEqual(op.invoke(ctx,event('MIDDLEMOUSE',100,100)),{'RUNNING_MODAL'})
+        self.assertEqual(op.modal(ctx,event('MOUSEMOVE',125,50)),{'RUNNING_MODAL'})
+        self.assertEqual(op.modal(ctx,event('MIDDLEMOUSE',125,50,'RELEASE')),{'FINISHED'})
+        self.bpy.ops.view2d.pan.assert_called_once_with('EXEC_DEFAULT',deltax=-25,deltay=0)
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],2)
+        self.assertEqual(self.window_region.view2d.view_to_region(self.ui._timeline.keys[0].source_frame,0)[0],before+25)
+        self.assertEqual(self.window_region.view2d.view_to_region(marker.frame,0)[0],before+25)
+        self.assertEqual(self.window_region.view2d.view_to_region(self.a.frame_current,0)[0],
+                         self.window_region.view2d.view_to_region(1,0)[0])
+
+    def test_mmb_stays_out_of_fixed_marker_and_ruler_bands(self):
+        self._overflow_rows()
+        ctx=self.context;ctx.region=self.window_region
+        pan=self.ws.BLENDCAP_OT_vta_timeline_pan()
+        for y in (0,ctx.region.height):
+            self.assertEqual(pan.invoke(ctx,NS(type='MIDDLEMOUSE',value='PRESS',
+                                               mouse_region_y=y,mouse_x=100,mouse_y=y)),
+                             {'PASS_THROUGH'})
+        self.wm.modal_handler_add.assert_not_called()
+
+    def test_elevator_then_mmb_then_name_wheel_reuses_one_offset(self):
+        self._overflow_rows()
+        ctx=self.context;ctx.region=self.channel_region
+        bar=self.ws._scrollbar(ctx,self.ui._timeline,self.ws._metrics(ctx))
+        click=lambda kind,value,y:NS(type=kind,value=value,mouse_region_x=10,
+                                     mouse_region_y=y,mouse_y=y,shift=False,ctrl=False)
+        elevator=self.ws.BLENDCAP_OT_vta_timeline_select()
+        self.assertEqual(elevator.invoke(ctx,click('LEFTMOUSE','PRESS',bar[2]+1)),{'RUNNING_MODAL'})
+        self.assertEqual(elevator.modal(ctx,click('LEFTMOUSE','RELEASE',bar[2]+1)),{'FINISHED'})
+        maximum=self.ws._scroll_range(ctx,self.ui._timeline,self.ws._metrics(ctx))[2]
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],maximum)
+        self.bpy.ops=NS(view2d=NS(pan=mock.Mock()))
+        drag=self.ws.BLENDCAP_OT_vta_timeline_pan()
+        begin=NS(type='MIDDLEMOUSE',value='PRESS',mouse_region_y=100,mouse_x=50,mouse_y=100)
+        self.assertEqual(drag.invoke(ctx,begin),{'RUNNING_MODAL'})
+        self.assertEqual(drag.modal(ctx,NS(type='MOUSEMOVE',mouse_x=50,mouse_y=125)),{'RUNNING_MODAL'})
+        self.assertEqual(drag.modal(ctx,NS(type='MIDDLEMOUSE',value='RELEASE')),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],maximum-1)
+        self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),ctx,
+            NS(type='WHEELUPMOUSE',mouse_region_y=100)),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],maximum-2)
     def test_overflow_wheel_visits_every_painted_parent_with_expanded_depth_children(self):
         self.refresh(self.a);self.painted_names()
         members=self.membership.stored(self.a)
@@ -21,7 +148,7 @@ class ViewportRootCauseTests(HostFixture):
         self.membership._write(self.a,members)
         self.revision+=1;self.bridge._refresh();self.drain()
         seen=set(self.painted_names())
-        self.context.area=self.timeline;self.context.region=self.window_region
+        self.context.area=self.timeline;self.context.region=self.channel_region
         for direction in ('WHEELUPMOUSE','WHEELDOWNMOUSE'):
             for _ in range(70):
                 self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(NS(),self.context,
@@ -38,7 +165,7 @@ class ViewportRootCauseTests(HostFixture):
         for a,b in zip(rows,rows[1:]):
             if b.kind=='depth':self.assertEqual(a.character_id,b.character_id)
 
-    def test_right_edge_elevator_moves_both_regions_down_and_back_to_first_row(self):
+    def test_left_edge_elevator_moves_both_regions_down_and_back_to_first_row(self):
         self.refresh(self.a);self.painted_names()
         members=self.membership.stored(self.a)
         for i in range(8):
@@ -46,31 +173,34 @@ class ViewportRootCauseTests(HostFixture):
             self.characters.append(CharacterRow(identity,f'Extra {i}',None));members.add(identity)
         self.membership._write(self.a,members)
         self.revision+=1;self.bridge._refresh();self.drain()
-        ctx=self.context;ctx.area=self.timeline;ctx.region=self.window_region
+        ctx=self.context;ctx.area=self.timeline;ctx.region=self.channel_region
         metrics=self.ws._metrics(ctx);bar=self.ws._scrollbar(ctx,self.ui._timeline,metrics)
         self.assertIsNotNone(bar)
-        self.assertEqual(bar[1],ctx.region.width-2*metrics.ui_scale)
-        window_rows=self.ws._rows(ctx,self.ui._timeline,0,metrics)
-        ctx.region=self.channel_region
-        self.assertIsNone(self.ws._scrollbar(ctx,self.ui._timeline,self.ws._metrics(ctx)))
-        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),window_rows)
+        self.assertEqual(bar[0],0)
+        self.assertEqual(bar[1],20*metrics.ui_scale)
+        self.assertEqual((bar[2],bar[3]),(metrics.bottom_padding,
+                         ctx.region.height-24*metrics.ui_scale))
+        channel_rows=self.ws._rows(ctx,self.ui._timeline,0,metrics)
         ctx.region=self.window_region
+        self.assertIsNone(self.ws._scrollbar(ctx,self.ui._timeline,self.ws._metrics(ctx)))
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),channel_rows)
+        ctx.region=self.channel_region
         event=lambda y,value='PRESS':NS(type='LEFTMOUSE',value=value,mouse_region_x=(bar[0]+bar[1])/2,
             mouse_region_y=y,mouse_y=y,shift=False,ctrl=False)
         op=self.ws.BLENDCAP_OT_vta_timeline_select()
         self.assertEqual(op.invoke(ctx,event(bar[2]+2)),{'RUNNING_MODAL'})
         self.assertEqual(op.modal(ctx,event(bar[2]+2,'RELEASE')),{'FINISHED'})
         self.assertGreater(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
-        window_rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
-        ctx.region=self.channel_region
-        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),window_rows)
+        channel_rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
         ctx.region=self.window_region
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),channel_rows)
+        ctx.region=self.channel_region
         op=self.ws.BLENDCAP_OT_vta_timeline_select()
         self.assertEqual(op.invoke(ctx,event(bar[3]-2)),{'RUNNING_MODAL'})
         self.assertEqual(op.modal(ctx,event(bar[3]-2,'RELEASE')),{'FINISHED'})
         self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
 
-    def test_wheel_in_either_region_scrolls_character_names_and_keys_together(self):
+    def test_wheel_over_names_scrolls_both_regions_and_canvas_wheel_passes_to_blender(self):
         self.refresh(self.a);self.painted_names()
         members=self.membership.stored(self.a)
         for i in range(8):
@@ -79,23 +209,20 @@ class ViewportRootCauseTests(HostFixture):
         self.membership._write(self.a,members)
         self.revision+=1;self.bridge._refresh();self.drain()
         ctx=self.context;ctx.area=self.timeline
-        ctx.region=self.window_region
+        ctx.region=self.channel_region
         self.ws._set_row_scroll(ctx,self.ui._timeline,self.ws._metrics(ctx),0)
-        for region in (self.window_region,self.channel_region):
-            ctx.region=region
-            self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
-                NS(),ctx,NS(type='WHEELDOWNMOUSE',mouse_region_y=100)),{'FINISHED'})
-            window_rows=None
-            for drawing_region in (self.window_region,self.channel_region):
-                ctx.region=drawing_region
-                rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
-                if window_rows is None:window_rows=rows
-                else:self.assertEqual(rows,window_rows)
-        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],2)
-        for region in (self.channel_region,self.window_region):
-            ctx.region=region
-            self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
-                NS(),ctx,NS(type='WHEELUPMOUSE',mouse_region_y=100)),{'FINISHED'})
+        self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+            NS(),ctx,NS(type='WHEELDOWNMOUSE',mouse_region_y=100)),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],1)
+        channel_rows=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
+        ctx.region=self.window_region
+        self.assertEqual(self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx)),channel_rows)
+        self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+            NS(),ctx,NS(type='WHEELDOWNMOUSE',mouse_region_y=100)),{'PASS_THROUGH'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],1)
+        ctx.region=self.channel_region
+        self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+            NS(),ctx,NS(type='WHEELUPMOUSE',mouse_region_y=100)),{'FINISHED'})
         self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
 
 

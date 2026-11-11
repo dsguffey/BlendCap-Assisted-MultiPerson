@@ -98,23 +98,24 @@ def _set_row_scroll(context, view, metrics, start):
 
 
 def _scrollbar(context, view, metrics):
-    if context.region.type != 'WINDOW':
+    if context.region.type != 'CHANNELS':
         return None
     items,visible,maximum=_scroll_range(context,view,metrics)
     if not maximum:return None
     scale=metrics.ui_scale
     bottom=metrics.bottom_padding
-    top=context.region.height-metrics.top_padding+metrics.row_height
-    span=max(1,top-bottom)
+    # The Character heading and fixed marker/horizontal-scroll band do not
+    # scroll. Use all the canvas height between them for the MoCap track.
+    top=context.region.height-24*scale
+    if top <= bottom:return None
+    span=top-bottom
     thumb=max(18*scale,span*visible/len(items))
     thumb=min(span,thumb)
     shown=_rows(context,view,0,metrics)
     start=items.index((shown[0].character_id,shown[0].kind)) if shown else 0
     y=top-thumb-(top-bottom-thumb)*start/maximum
-    # The MoCap rows occupy both regions, but the only visible vertical control
-    # belongs at the Dope Sheet's right edge. Leave horizontal scrolling below.
-    return (context.region.width-22*scale,context.region.width-2*scale,
-            bottom,top,y,thumb,maximum)
+    # Keep MoCap row navigation distinct from Blender's native right scroller.
+    return (0,min(context.region.width,20*scale),bottom,top,y,thumb,maximum)
 
 
 def _row_at(context, view, first, metrics, y):
@@ -128,7 +129,7 @@ def _depth_interaction(context, view, first, metrics, point, event):
     if row is None:
         return None
     if (context.region.type == 'CHANNELS' and row.kind == 'character'
-            and event.type == 'LEFTMOUSE' and 6*metrics.ui_scale <= point[0] <= 26*metrics.ui_scale):
+            and event.type == 'LEFTMOUSE' and 26*metrics.ui_scale <= point[0] <= 46*metrics.ui_scale):
         key = _expansion_key(context)
         if key is not None:
             collapsed = _collapsed_depth.setdefault(key, set())
@@ -531,6 +532,8 @@ class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
 
     def invoke(self, context, event):
         metrics = _metrics(context)
+        if event.type in {'WHEELUPMOUSE','WHEELDOWNMOUSE'} and context.region.type == 'WINDOW':
+            return {'PASS_THROUGH'}  # Native Dope Sheet wheel navigation.
         if (context.region.type=='WINDOW' and event.mouse_region_y<metrics.bottom_padding) or _box_gesture is not None:
             return {'PASS_THROUGH'}
         view, _, _, _, first, _ = _state(context)
@@ -555,6 +558,65 @@ class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
             delta = 1 if event.type == 'WHEELDOWNMOUSE' else -1
         _set_row_scroll(context,view,metrics,start+delta)
         return {'FINISHED'}
+
+
+class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
+    bl_idname = 'blendcap.vta_timeline_pan'
+    bl_label = 'Pan MoCap Timeline'
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return _scope(context)
+
+    def invoke(self, context, event):
+        metrics = _metrics(context)
+        if (_box_gesture is not None or _scroll_drag is not None or
+                not metrics.bottom_padding <= event.mouse_region_y <
+                    context.region.height-24*metrics.ui_scale):
+            return {'PASS_THROUGH'}
+        view, _, _, _, first, _ = _state(context)
+        items, _, maximum = _scroll_range(context, view, metrics)
+        shown = _rows(context, view, first, metrics)
+        if not items or not shown:
+            return {'PASS_THROUGH'}
+        self._area=context.area
+        self._region=context.region
+        self._view=view
+        self._metrics=metrics
+        self._first=items.index((shown[0].character_id,shown[0].kind))
+        self._maximum=maximum
+        self._start_y=event.mouse_y
+        self._last_x=event.mouse_x
+        _row_pan.pop(_expansion_key(context), None)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if (not _scope(context) or context.area != self._area or
+                context.region != self._region):
+            return {'CANCELLED'}
+        if event.type in {'ESC','WINDOW_DEACTIVATE'}:
+            return {'CANCELLED'}
+        if event.type == 'MIDDLEMOUSE' and event.value == 'RELEASE':
+            return {'FINISHED'}
+        if event.type != 'MOUSEMOVE':
+            return {'RUNNING_MODAL'}
+        dx=event.mouse_x-self._last_x
+        self._last_x=event.mouse_x
+        if dx:
+            # Use Blender's own time-axis pan, never a second X coordinate.
+            target=(context.region if context.region.type=='WINDOW' else
+                    next((r for r in context.area.regions if r.type=='WINDOW'),None))
+            if target is not None:
+                if target == context.region:
+                    bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
+                else:
+                    with context.temp_override(region=target):
+                        bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
+        start=round(self._first-(event.mouse_y-self._start_y)/self._metrics.row_height)
+        _set_row_scroll(context,self._view,self._metrics,min(max(0,start),self._maximum))
+        return {'RUNNING_MODAL'}
 
 
 def _timeline_text_size_changed(_self, _context):
@@ -624,8 +686,8 @@ def _draw_channels():
             character_id, y = channel.character_id, channel.y
             if channel.kind == 'depth':
                 _fill(shader, batch_for_shader, 0, y-half_row, region.width, y+half_row, (.12,.12,.12,1))
-                _line(shader, batch_for_shader, ((20*scale,y+half_row),(20*scale,y),(32*scale,y)),(.4,.4,.4,1))
-                blf.position(0, 40*scale, y-metrics.font_size*.35, 0)
+                _line(shader, batch_for_shader, ((40*scale,y+half_row),(40*scale,y),(52*scale,y)),(.4,.4,.4,1))
+                blf.position(0, 60*scale, y-metrics.font_size*.35, 0)
                 blf.size(0,metrics.font_size);blf.color(0,.8,.8,.8,1);blf.draw(0,'Depth')
                 continue
             background, text, border = _row_style(context, character_id, current)
@@ -635,17 +697,22 @@ def _draw_channels():
                 _fill(shader, batch_for_shader, 0, y - half_row, 4 * scale, y + half_row,
                       border)
             # Blender-style disclosure, independent of row/Character selection.
-            points = (((12*scale,y+3*scale),(20*scale,y+3*scale),(16*scale,y-3*scale))
+            points = (((32*scale,y+3*scale),(40*scale,y+3*scale),(36*scale,y-3*scale))
                       if character_id in expanded else
-                      ((13*scale,y+4*scale),(19*scale,y),(13*scale,y-4*scale)))
+                      ((33*scale,y+4*scale),(39*scale,y),(33*scale,y-4*scale)))
             shader.bind();shader.uniform_float('color',text)
             batch_for_shader(shader,'TRIS',{'pos':points}).draw(shader)
-            blf.position(0, 30 * scale, y - metrics.font_size * .35, 0)
+            blf.position(0, 50 * scale, y - metrics.font_size * .35, 0)
             blf.size(0, metrics.font_size)
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
+        scrollbar=_scrollbar(context,view,metrics)
+        if scrollbar:
+            x0,x1,bottom,top,y,thumb,_=scrollbar
+            _fill(shader,batch_for_shader,x0,bottom,x1,top,(.18,.18,.18,1))
+            _fill(shader,batch_for_shader,x0,y,x1,y+thumb,(.52,.52,.52,1))
     except Exception:
         # A presentation callback must never break stock Blender drawing.
         return
@@ -806,11 +873,6 @@ def _draw_window():
         draw(context,scale,shader,batch_for_shader,_fill,_line)
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
-        scrollbar=_scrollbar(context,view,metrics)
-        if scrollbar:
-            x0,x1,bottom,top,y,thumb,_=scrollbar
-            _fill(shader,batch_for_shader,x0,bottom,x1,top,(.18,.18,.18,1))
-            _fill(shader,batch_for_shader,x0,y,x1,y+thumb,(.52,.52,.52,1))
     except Exception:
         return
 
@@ -1138,13 +1200,14 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         if view is None:
             return {'PASS_THROUGH'}
         point = (event.mouse_region_x, event.mouse_region_y)
-        if context.region.type=='WINDOW' and event.type=='LEFTMOUSE':
+        if context.region.type=='CHANNELS' and event.type=='LEFTMOUSE':
             bar=_scrollbar(context,view,metrics)
             if bar and bar[0]<=point[0]<=bar[1] and bar[2]<=point[1]<=bar[3]:
                 _scroll_drag=(context.area,context.region)
                 self._scroll_view=view
                 self._scroll_metrics=metrics
                 self._scroll_bar=bar
+                _row_pan.pop(_expansion_key(context), None)
                 self._move_scroll(context,event)
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
@@ -1437,7 +1500,9 @@ def register():
             if name!='Animation Channels':
                 items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_select.bl_idname,'LEFTMOUSE','DOUBLE_CLICK'))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
-            for button in ('WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN'):
+            items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_pan.bl_idname,'MIDDLEMOUSE','PRESS'))
+            for button in (('WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN')
+                           if name=='Animation Channels' else ('TRACKPADPAN',)):
                 items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname, button, 'ANY'))
             for button,action,mods in (('B','BOX',{}),('A','ALL',{}),('A','NONE',{'alt':True})):
                 item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS',**mods)
@@ -1449,6 +1514,14 @@ def register():
                 for button,action in (('M','ADD'),('F2','RENAME'),('G','MOVE')):
                     item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS')
                     item.properties.action=action;items.append(item)
+        # Blender adds this generic handler to both Dope Sheet regions. It is a
+        # cheap fallback for wheel events over names if the Channels map misses
+        # them; WINDOW wheel events pass through to Blender's own navigation.
+        keymap=config.keymaps.new(name='Dopesheet Generic',space_type='DOPESHEET_EDITOR',region_type='WINDOW')
+        items=[keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_pan.bl_idname,'MIDDLEMOUSE','PRESS')]
+        items.extend(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname,button,'ANY')
+                     for button in ('WHEELUPMOUSE','WHEELDOWNMOUSE'))
+        _keymaps.append((keymap,items))
 
 
 def unregister():
