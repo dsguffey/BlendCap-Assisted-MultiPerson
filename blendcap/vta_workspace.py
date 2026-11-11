@@ -1399,8 +1399,6 @@ def register():
     global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _camera_header_registered, _blank_handler
     if _clear_channel_presentation not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_clear_channel_presentation)
-    from . import vta_native_scroller
-    vta_native_scroller.register()
     if _blank_handler is None:
         _blank_handler = bpy.types.SpaceView3D.draw_handler_add(_draw_blank_animation, (), 'WINDOW', 'POST_PIXEL')
     if _window_handler is None:
@@ -1456,8 +1454,6 @@ def register():
 def unregister():
     global _window_handler, _channel_handler, _header_registered, _preview_header_registered, _box_gesture, _camera_header_registered, _blank_handler, _hover
     _clear_channel_presentation()
-    from . import vta_native_scroller
-    vta_native_scroller.unregister()
     if _clear_channel_presentation in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_clear_channel_presentation)
     _hover = None

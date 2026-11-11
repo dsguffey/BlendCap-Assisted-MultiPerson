@@ -45,8 +45,6 @@ class HostFixture(unittest.TestCase):
         self.channel_region=Pointer(type='CHANNELS',height=194,width=200)
         self.timeline=Pointer(type='DOPESHEET_EDITOR',ui_type='DOPESHEET',
             regions=[self.window_region,self.channel_region],tag_redraw=mock.Mock())
-        self.timeline.spaces=NS(active=NS(dopesheet=NS(filter_text='',show_summary=True,
-                                                      use_filter_invert=False)))
         self.sidebar=Pointer(type='VIEW_3D',ui_type='VIEW_3D',tag_redraw=mock.Mock())
         self.screen=Container();self.screen.areas=[self.timeline,self.sidebar]
         self.workspace.screens=[self.screen]
@@ -62,9 +60,9 @@ class HostFixture(unittest.TestCase):
         self.bpy=NS(types=NS(Scene=Scene,Operator=object,Panel=object,Menu=object),
             props=NS(EnumProperty=lambda **kw:None,StringProperty=lambda **kw:None,
                      IntProperty=lambda **kw:None,BoolProperty=lambda **kw:None),
-            app=NS(background=False,handlers=NS(persistent=lambda f:f,load_post=[],save_pre=[],save_post=[]),
+            app=NS(background=False,handlers=NS(persistent=lambda f:f),
                 timers=NS(is_registered=lambda f:f in self.timers,register=lambda f,**kw:self.timers.append(f))),
-            data=NS(filepath='synthetic.blend',scenes=[self.a,self.b],workspaces=[self.workspace]),context=self.context)
+            data=NS(filepath='synthetic.blend',scenes=[self.a,self.b]),context=self.context)
         patch=mock.patch.dict(sys.modules,{'bpy':self.bpy});patch.start();self.addCleanup(patch.stop)
         child=self.package+'.blendcap'
         session=sys.modules[child+'.vta_scene_session'];session.main_scene=lambda c:c.window.scene
