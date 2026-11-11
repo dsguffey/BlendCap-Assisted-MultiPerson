@@ -55,8 +55,8 @@ class GeometryTests(unittest.TestCase):
                         rows = channel_rows(view, height, metrics=m, expanded=expanded)
                         seen.update((r.character_id, r.kind) for r in rows)
                         for r in rows:
-                            self.assertGreaterEqual(r.y - m.row_height/2, m.bottom_padding)
-                            self.assertLessEqual(r.y + m.row_height/2, height-m.top_padding)
+                            self.assertGreater(r.y + m.row_height/2, m.bottom_padding)
+                            self.assertLess(r.y - m.row_height/2, height-m.top_padding)
                         for a,b in zip(rows, rows[1:]):
                             self.assertAlmostEqual(a.y-b.y, m.row_height)
                     self.assertEqual(seen, set(channel_items(view, expanded)))
@@ -65,11 +65,13 @@ class GeometryTests(unittest.TestCase):
         view=model();expanded=[c.character_id for c in view.characters]
         projection=NS(view_to_region=lambda f,y,clip=False:(f*2,0))
         selection=ReviewKeySelection()
-        for offset in (1, 8, 27, 53):
+        for offset in (1.25, 8.5, 27.25, 53.4):
             metrics=TimelineMetrics(scroll_rows=offset)
             rows=channel_rows(view,240,metrics=metrics,expanded=expanded)
             expected=[]
             for row in rows:
+                if not metrics.bottom_padding <= row.y <= 240-metrics.top_padding:
+                    continue  # A clipped edge row has no selectable center.
                 if row.kind=='depth':
                     self.assertIsNone(hit_character(view,240,row.y,metrics=metrics,expanded=expanded))
                     continue
@@ -83,8 +85,22 @@ class GeometryTests(unittest.TestCase):
                                    metrics=metrics,expanded=expanded)
             self.assertEqual(set(ids),set(expected))
             self.assertEqual(set(characters_in_box(view,240,(0,42),(1999,239),metrics=metrics,expanded=expanded)),
-                             {r.character_id for r in rows if r.kind=='character'})
+                             {r.character_id for r in rows if r.kind=='character'
+                              and metrics.bottom_padding <= r.y <= 240-metrics.top_padding})
         self.assertTrue(selection.keyframe_ids)
+
+    def test_fractional_scroll_moves_rows_continuously_and_clips_edge_hits(self):
+        view=model(8)
+        metrics=TimelineMetrics(scroll_rows=1.0)
+        shifted=replace(metrics,scroll_rows=1.25)
+        before=channel_rows(view,240,metrics=metrics)
+        after=channel_rows(view,240,metrics=shifted)
+        centers={r.character_id:r.y for r in before}
+        moved={r.character_id:r.y for r in after}
+        self.assertAlmostEqual(moved['1']-centers['1'],.25*metrics.row_height)
+        self.assertAlmostEqual(moved['2']-centers['2'],.25*metrics.row_height)
+        self.assertIsNone(hit_character(view,240,shifted.bottom_padding-1,metrics=shifted))
+        self.assertIsNone(hit_character(view,240,240-shifted.top_padding+1,metrics=shifted))
 
 
 class DispatchTests(unittest.TestCase):
@@ -115,7 +131,7 @@ class DispatchTests(unittest.TestCase):
 
     def test_wheel_scroll_stays_on_screen_across_redraw_selection_and_scene_roundtrip(self):
         self.ctx.region.type='CHANNELS'
-        for _ in range(11):self.assertEqual(self.scroll(self.event('WHEELDOWNMOUSE')),{'FINISHED'})
+        for _ in range(22):self.assertEqual(self.scroll(self.event('WHEELDOWNMOUSE')),{'FINISHED'})
         before=self.env['_rows'](self.ctx,self.view,0,self.env['_metrics'](self.ctx))
         self.assertEqual(before[0].character_id,'5')
         for _ in range(20):
@@ -128,11 +144,11 @@ class DispatchTests(unittest.TestCase):
 
     def test_rename_create_delete_preserve_anchor_and_delete_anchor_clamps(self):
         self.ctx.region.type='CHANNELS'
-        for _ in range(10):self.scroll(self.event('WHEELDOWNMOUSE'))
+        for _ in range(20):self.scroll(self.event('WHEELDOWNMOUSE'))
         anchor=self.env['_row_scroll']['A'][:2]
         self.ui._timeline=replace(self.view,characters=tuple(reversed(self.view.characters)))
         index=self.env['_metrics'](self.ctx).scroll_rows
-        self.assertEqual(channel_items(self.ui._timeline,[c.character_id for c in self.view.characters])[index],anchor)
+        self.assertEqual(channel_items(self.ui._timeline,[c.character_id for c in self.view.characters])[int(index)],anchor)
         self.ui._timeline=replace(self.view,characters=(TimelineCharacter('new','AAA'),)+self.view.characters)
         self.assertEqual(self.env['_metrics'](self.ctx).scroll_rows,12)
         self.ui._timeline=replace(self.view,characters=tuple(c for c in self.view.characters if c.character_id!='0'))
@@ -148,12 +164,12 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(self.scroll(self.event('WHEELDOWNMOUSE',y=10)),{'PASS_THROUGH'})
         self.assertEqual(state,self.env['_row_scroll'])
 
-    def test_trackpad_small_deltas_accumulate_instead_of_skipping_rows(self):
+    def test_trackpad_small_deltas_move_rows_fractionally(self):
         event=self.event('TRACKPADPAN',mouse_x=0,mouse_prev_x=0,mouse_y=5,mouse_prev_y=0)
         for _ in range(5):self.assertEqual(self.scroll(event),{'FINISHED'})
-        self.assertEqual(self.env['_row_scroll'],{})
+        self.assertAlmostEqual(self.env['_row_scroll']['A'][2],25/26)
         self.scroll(event)
-        self.assertEqual(self.env['_row_scroll']['A'][2],1)
+        self.assertAlmostEqual(self.env['_row_scroll']['A'][2],30/26)
 
     def test_scrollbar_band_b_a_alt_a_delete_do_not_edit_underlying_keys(self):
         for scale in (1,2,3):

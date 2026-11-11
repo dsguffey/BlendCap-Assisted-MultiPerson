@@ -38,8 +38,7 @@ _blank_handler = None
 _hover = None
 _collapsed_depth = {}
 _depth_focus = set()  # Editor/domain focus only; actual key selection lives in FCurves.
-_row_scroll = {}  # Scene/source/editor local: stable first row plus fallback index.
-_row_pan = {}  # Fractional trackpad motion, in region pixels.
+_row_scroll = {}  # Scene/source/editor local: stable row ID plus fractional position.
 _row_models = {}  # Last presented ID/name projection plus pending reveal; UI only.
 _scroll_drag = None
 
@@ -71,7 +70,6 @@ def _clear_channel_presentation(*_args):
     _collapsed_depth.clear()
     _depth_focus.clear()
     _row_scroll.clear()
-    _row_pan.clear()
     _row_models.clear()
     _scroll_drag = None
     from .vta_timeline_markers import clear
@@ -85,15 +83,15 @@ def _rows(context, view, first, metrics):
 
 def _scroll_range(context, view, metrics):
     items=channel_items(view,expanded_characters(context,view))
-    visible=max(0,int((context.region.height-metrics.top_padding-metrics.bottom_padding)//metrics.row_height))
-    return items,visible,max(0,len(items)-visible)
+    visible=max(0.0,(context.region.height-metrics.top_padding-metrics.bottom_padding)/metrics.row_height)
+    return items,visible,max(0.0,len(items)-visible)
 
 
 def _set_row_scroll(context, view, metrics, start):
     items,_,maximum=_scroll_range(context,view,metrics)
     if not items:return
-    start=min(max(0,int(start)),maximum)
-    _row_scroll[_expansion_key(context)]=(*items[start],start)
+    start=min(max(0.0,float(start)),maximum)
+    _row_scroll[_expansion_key(context)]=(*items[min(int(start),len(items)-1)],start)
     vta_invalidation.request_redraw()
 
 
@@ -112,13 +110,17 @@ def _scrollbar(context, view, metrics):
     thumb=max(18*scale,span*visible/len(items))
     thumb=min(span,thumb)
     shown=_rows(context,view,0,metrics)
-    start=items.index((shown[0].character_id,shown[0].kind)) if shown else 0
+    if not shown:return None
+    start=(metrics.scroll_rows if metrics.scroll_rows is not None else
+           items.index((shown[0].character_id,shown[0].kind)))
     y=top-thumb-(top-bottom-thumb)*start/maximum
     # Keep MoCap row navigation distinct from Blender's native right scroller.
     return (0,min(context.region.width,20*scale),bottom,top,y,thumb,maximum)
 
 
 def _row_at(context, view, first, metrics, y):
+    if not metrics.bottom_padding <= y <= context.region.height-metrics.top_padding:
+        return None
     return next((row for row in _rows(context, view, first, metrics)
                  if abs(row.y-y) < metrics.row_height/2), None)
 
@@ -467,8 +469,10 @@ def _metrics(context):
     if anchor is not None:
         view = _ui()._timeline
         rows = channel_items(view, expanded_characters(context, view))
-        index = next((i for i, row in enumerate(rows) if row == anchor[:2]), anchor[2])
-        metrics = replace(metrics, scroll_rows=index)
+        index = next((i for i, row in enumerate(rows) if row == anchor[:2]), int(anchor[2]))
+        position=(anchor[2] if index==math.floor(anchor[2]) else
+                  index+(anchor[2]-math.floor(anchor[2])))
+        metrics = replace(metrics, scroll_rows=position)
     if (key := _expansion_key(context)) is not None and getattr(getattr(context,'area',None),'type',None)=='DOPESHEET_EDITOR':
         ui=_ui()
         view,_,_,_,first=ui.timeline_state(context)
@@ -497,19 +501,25 @@ def _reconcile_row_viewport(context,view,first,metrics,key):
     items=channel_items(view,expanded)
     shown=channel_rows(view,context.region.height,first,metrics=metrics,expanded=expanded)
     if pending is not None and shown:
-        if not any(r.character_id==pending and r.kind=='character' for r in shown):
+        if not any(r.character_id==pending and r.kind=='character' and
+                   metrics.bottom_padding <= r.y <= context.region.height-metrics.top_padding
+                   for r in shown):
             index=items.index((pending,'character'))
-            start=min(index,max(0,len(items)-len(shown)))
-            _row_scroll[key]=(*items[start],start)
+            capacity=max(0.0,(context.region.height-metrics.top_padding-metrics.bottom_padding)/metrics.row_height)
+            start=min(float(index),max(0.0,len(items)-capacity))
+            _row_scroll[key]=(*items[int(start)],start)
             metrics=replace(metrics,scroll_rows=start)
             shown=channel_rows(view,context.region.height,first,metrics=metrics,expanded=expanded)
         pending=None
     # Rebase deleted anchors to the actual nearest valid painted row. An old
     # numeric fallback must not cause a later create/reorder to jump again.
     if key in _row_scroll and shown:
-        start=items.index((shown[0].character_id,shown[0].kind))
-        _row_scroll[key]=(*items[start],start)
-        metrics=replace(metrics,scroll_rows=start)
+        capacity=max(0.0,(context.region.height-metrics.top_padding-metrics.bottom_padding)/metrics.row_height)
+        position=(metrics.scroll_rows if metrics.scroll_rows is not None else
+                  float(items.index((shown[0].character_id,shown[0].kind))))
+        position=min(max(0.0,position),max(0.0,len(items)-capacity))
+        _row_scroll[key]=(*items[int(position)],position)
+        metrics=replace(metrics,scroll_rows=position)
     if not items:_row_scroll.pop(key,None)
     _row_models[key]=(names,pending)
     return metrics
@@ -541,21 +551,16 @@ class BLENDCAP_OT_vta_timeline_scroll(bpy.types.Operator):
         shown = _rows(context, view, first, metrics)
         if not rows or not shown:
             return {'PASS_THROUGH'}
-        start = rows.index((shown[0].character_id, shown[0].kind))
-        key = _expansion_key(context)
+        start = (metrics.scroll_rows if metrics.scroll_rows is not None else
+                 rows.index((shown[0].character_id, shown[0].kind)))
         if event.type == 'TRACKPADPAN':
             dx = event.mouse_x - event.mouse_prev_x
             dy = event.mouse_y - event.mouse_prev_y
             if abs(dx) >= abs(dy):
                 return {'PASS_THROUGH'}  # Keep horizontal navigation native.
-            distance = _row_pan.get(key, 0) + dy
-            delta = int(distance / metrics.row_height)
-            _row_pan[key] = distance - delta * metrics.row_height
-            if not delta:
-                return {'FINISHED'}
+            delta = dy / metrics.row_height
         else:
-            _row_pan.pop(key, None)
-            delta = 1 if event.type == 'WHEELDOWNMOUSE' else -1
+            delta = .5 if event.type == 'WHEELDOWNMOUSE' else -.5
         _set_row_scroll(context,view,metrics,start+delta)
         return {'FINISHED'}
 
@@ -586,11 +591,11 @@ class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
         self._scene=context.scene
         self._view=view
         self._metrics=metrics
-        self._first=items.index((shown[0].character_id,shown[0].kind))
+        self._first=(metrics.scroll_rows if metrics.scroll_rows is not None else
+                     items.index((shown[0].character_id,shown[0].kind)))
         self._maximum=maximum
         self._start_y=event.mouse_y
         self._last_x=event.mouse_x
-        _row_pan.pop(_expansion_key(context), None)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -620,7 +625,7 @@ class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
                     else:
                         with context.temp_override(region=target):
                             bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
-            start=round(self._first-(event.mouse_y-self._start_y)/self._metrics.row_height)
+            start=self._first-(event.mouse_y-self._start_y)/self._metrics.row_height
             _set_row_scroll(context,self._view,self._metrics,min(max(0,start),self._maximum))
         return {'RUNNING_MODAL'}
 
@@ -661,7 +666,20 @@ def depth_key_markers(context, lanes, scale):
                  for frame in frames)
 
 
+def _clip_rows(gpu, region, metrics):
+    """Restrict partially visible rows to the shared scrollable lane."""
+    saved = gpu.state.scissor_get()
+    x, y, width, height = saved
+    # The Dope Sheet is drawn into a region-local offscreen buffer. Its scissor
+    # origin comes from that buffer, not the region's window-space y coordinate.
+    bottom = max(y, y + math.floor(metrics.bottom_padding))
+    top = min(y + height, y + math.ceil(region.height - metrics.top_padding))
+    gpu.state.scissor_set(x, bottom, width, max(0, top-bottom))
+    return saved
+
+
 def _draw_channels():
+    clipped = None
     try:
         import blf, gpu
         from gpu_extras.batch import batch_for_shader
@@ -683,11 +701,12 @@ def _draw_channels():
             blf.draw(0, 'Review unavailable')
             return
         names = {item.character_id: item.display_name for item in view.characters}
-        blf.position(0, 10 * scale, region.height - metrics.font_size - 6 * scale, 0)
+        blf.position(0, 30 * scale, region.height - metrics.font_size - 6 * scale, 0)
         blf.size(0, metrics.font_size)
         blf.color(0, .75, .75, .75, 1)
         blf.draw(0, 'Characters')
         expanded = expanded_characters(context, view)
+        clipped = _clip_rows(gpu, region, metrics)
         for channel in _rows(context, view, first, metrics):
             character_id, y = channel.character_id, channel.y
             if channel.kind == 'depth':
@@ -712,6 +731,8 @@ def _draw_channels():
             blf.size(0, metrics.font_size)
             blf.color(0, *text)
             blf.draw(0, names[character_id][:36])
+        gpu.state.scissor_set(*clipped)
+        clipped = None
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
         scrollbar=_scrollbar(context,view,metrics)
@@ -722,9 +743,13 @@ def _draw_channels():
     except Exception:
         # A presentation callback must never break stock Blender drawing.
         return
+    finally:
+        if clipped is not None:
+            gpu.state.scissor_set(*clipped)
 
 
 def _draw_window():
+    clipped = None
     try:
         import gpu
         from gpu_extras.batch import batch_for_shader
@@ -769,6 +794,7 @@ def _draw_window():
             blf.size(0, metrics.font_size)
             blf.color(0, .72, .72, .72, 1)
             blf.draw(0, str(frame))
+        clipped = _clip_rows(gpu, region, metrics)
         for character_id, y in lanes.items():
             background, _text, _border = _row_style(context, character_id, current)
             _fill(shader, batch_for_shader, 0, y - half_row, region.width, y + half_row,
@@ -807,9 +833,12 @@ def _draw_window():
                       ((x0 + inset, y0 + inset), (x0 + inset, y1 - inset),
                        (x1 - inset, y1 - inset), (x1 - inset, y0 + inset),
                        (x0 + inset, y0 + inset)), highlight)
+        gpu.state.scissor_set(*clipped)
+        clipped = None
         if 0 <= playhead < region.width:
             _line(shader, batch_for_shader,
                   ((playhead, 0), (playhead, region.height)), (.38, .63, .95, 1))
+        clipped = _clip_rows(gpu, region, metrics)
         for mark in view.derived:
             y = lanes.get(mark.character_id)
             if y is None:
@@ -875,12 +904,17 @@ def _draw_window():
                           (x + radius, y + radius)), color)
                     _line(shader, batch_for_shader, ((x - radius, y + radius),
                           (x + radius, y - radius)), color)
+        gpu.state.scissor_set(*clipped)
+        clipped = None
         from .vta_timeline_markers import draw
         draw(context,scale,shader,batch_for_shader,_fill,_line)
         _draw_gesture(context, shader, batch_for_shader)
         _draw_hover(context)
     except Exception:
         return
+    finally:
+        if clipped is not None:
+            gpu.state.scissor_set(*clipped)
 
 
 def get_vta_workspace(context):
@@ -1222,7 +1256,6 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                 self._scroll_view=view
                 self._scroll_metrics=metrics
                 self._scroll_bar=bar
-                _row_pan.pop(_expansion_key(context), None)
                 self._move_scroll(context,event)
                 context.window_manager.modal_handler_add(self)
                 return {'RUNNING_MODAL'}
@@ -1248,7 +1281,8 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
                                 context.region.height, point, offset, first, metrics=metrics, expanded=expanded)
                   )
         if key_id is None:
-            markers = tracking_hint_markers(context,view,first,metrics)
+            markers = (tracking_hint_markers(context,view,first,metrics)
+                       if metrics.bottom_padding <= point[1] <= context.region.height-metrics.top_padding else ())
             hint = hit_marker(markers,point,metrics.hit_radius) if markers else None
             if hint is not None and event.type in {'LEFTMOUSE','RIGHTMOUSE'} and _box_gesture is None:
                 return bpy.ops.blendcap.vta_goto_tracking_hint(character_id=hint.character_id,
@@ -1303,7 +1337,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
         pointer_y=(event.mouse_y-getattr(region,'y',0) if hasattr(event,'mouse_y')
                    else event.mouse_region_y)
         span=max(1,top-bottom-thumb)
-        start=round(max(0,min(1,(top-thumb/2-pointer_y)/span))*maximum)
+        start=max(0,min(1,(top-thumb/2-pointer_y)/span))*maximum
         _set_row_scroll(context,self._scroll_view,self._scroll_metrics,start)
 
     def modal(self, context, event):

@@ -32,7 +32,7 @@ class TimelineMetrics:
 
     ui_scale: float = 1.0
     text_size: float = 13.0
-    scroll_rows: int | None = None
+    scroll_rows: float | None = None
 
     @property
     def bottom_padding(self):
@@ -100,12 +100,17 @@ def channel_rows(view, height, first=0, *, metrics=TimelineMetrics(), expanded=(
     rows = channel_items(view, expanded)
     if not rows:
         return ()
-    visible = max(0, int((height - metrics.top_padding - metrics.bottom_padding) // metrics.row_height))
-    if not visible:return ()
+    capacity = max(0.0, (height - metrics.top_padding - metrics.bottom_padding) / metrics.row_height)
+    if capacity <= 0:return ()
     if metrics.scroll_rows is not None:
-        start = min(max(0, metrics.scroll_rows), max(0, len(rows)-visible))
-        return tuple(ChannelRow(cid, kind, height-metrics.top_padding-metrics.row_height*(i+.5))
-                     for i, (cid, kind) in enumerate(rows[start:start+visible]))
+        position = min(max(0.0, metrics.scroll_rows), max(0.0, len(rows)-capacity))
+        start = int(math.floor(position))
+        stop = min(len(rows), int(math.ceil(position + capacity)))
+        return tuple(ChannelRow(rows[i][0], rows[i][1],
+                                height-metrics.top_padding-metrics.row_height*(i-position+.5))
+                     for i in range(start, stop))
+    visible = int(capacity)
+    if not visible:return ()
     first = min(max(0, first), len(view.characters)-1)
     cid = view.characters[first].character_id
     start = next(i for i, (identity, kind) in enumerate(rows) if identity == cid and kind == 'character')
@@ -125,6 +130,8 @@ def character_lanes(view, height, first=0, *, metrics=TimelineMetrics(), expande
 
 
 def hit_character(view, height, y, first=0, *, metrics=TimelineMetrics(), expanded=()):
+    if not metrics.bottom_padding <= y <= height-metrics.top_padding:
+        return None
     return next((character_id for character_id, center in
                  character_lanes(view, height, first, metrics=metrics, expanded=expanded)
                  if abs(center - y) <= metrics.row_height / 2), None)
@@ -134,7 +141,7 @@ def characters_in_box(view, height, start, end, first=0, *, metrics=TimelineMetr
     """Channel-region marquee selects displayed row centers, never timeline keys."""
     low, high = sorted((start[1], end[1]))
     return tuple(cid for cid, center in character_lanes(view, height, first, metrics=metrics, expanded=expanded)
-                 if low <= center <= high)
+                 if low <= center <= high and metrics.bottom_padding <= center <= height-metrics.top_padding)
 
 
 def derived_mark_color(state):
@@ -179,6 +186,8 @@ def motion_interval_rects(view, view2d, width, height, offset=0, first=0,
 
 def hit_motion_interval(view, view2d, width, height, point, offset=0, first=0,
                         *, metrics=TimelineMetrics(), expanded=()):
+    if not metrics.bottom_padding <= point[1] <= height-metrics.top_padding:
+        return None
     # Keys take precedence at their local symbol hit area, even inside a repair range.
     if hit_review_key(view, view2d, height, point, offset, first, metrics=metrics, expanded=expanded) is not None:
         return None
@@ -189,7 +198,7 @@ def hit_motion_interval(view, view2d, width, height, point, offset=0, first=0,
 
 def hit_review_key(view, view2d, height, point, offset=0, first=0,
                    *, metrics=TimelineMetrics(), expanded=()):
-    if view is None:
+    if view is None or not metrics.bottom_padding <= point[1] <= height-metrics.top_padding:
         return None
     return hit_test_keys(
         view, character_lanes(view, height, first, metrics=metrics, expanded=expanded),
@@ -212,6 +221,7 @@ def review_keys_in_box(view, view2d, width, height, start, end, offset=0, first=
         y = lanes.get(key.character_id)
         x = view2d.view_to_region(key.source_frame + offset, 0, clip=False)[0]
         if (y is not None and 8 * metrics.ui_scale <= x <= width - 8 * metrics.ui_scale
-                and x0 <= x <= x1 and y0 <= y <= y1):
+                and x0 <= x <= x1 and y0 <= y <= y1
+                and metrics.bottom_padding <= y <= height-metrics.top_padding):
             selected.append(key.keyframe_id)
     return tuple(sorted(selected))

@@ -147,7 +147,9 @@ class HostFixture(unittest.TestCase):
         font=NS(position=lambda *a:None,size=lambda *a:None,color=lambda *a:None,
                 draw=lambda f,s:text.append(s))
         shader=NS(bind=lambda:None,uniform_float=lambda *a:None)
-        gpu=NS(shader=NS(from_builtin=lambda *a:shader))
+        gpu=NS(shader=NS(from_builtin=lambda *a:shader),
+               state=NS(scissor_get=lambda:(0,0,self.channel_region.width,self.channel_region.height),
+                        scissor_set=mock.Mock()))
         batch=NS(batch_for_shader=lambda *a:NS(draw=lambda *a:None))
         try:
             with mock.patch.dict(sys.modules,{'blf':font,'gpu':gpu,'gpu_extras.batch':batch}):
@@ -176,8 +178,7 @@ class HostTests(HostFixture):
         self.context.region=self.window_region
         rows=self.ws._rows(self.context,self.ui._timeline,0,self.ws._metrics(self.context))
         self.assertIn(('spare','depth'),[(r.character_id,r.kind) for r in rows])
-        self.assertEqual((rows[-1].character_id,rows[-1].kind),('new-owner-a','character'))
-        y=rows[-1].y
+        y=next(r.y for r in rows if (r.character_id,r.kind)==('new-owner-a','character'))
         def event(kind,x,y,value='PRESS',shift=False):
             return NS(type=kind,value=value,mouse_region_x=x,mouse_region_y=y,mouse_x=x,mouse_y=y,ctrl=False,shift=shift)
         for expected in (('new-key',),()):
@@ -287,13 +288,17 @@ class MarkerTests(HostFixture):
         font=NS(position=lambda *a:None,size=lambda *a:None,color=lambda *a:None,
                 draw=lambda f,s:labels.append(s))
         shader=NS(bind=lambda:None,uniform_float=lambda *a:None)
-        gpu=NS(shader=NS(from_builtin=lambda *a:shader))
+        gpu=NS(shader=NS(from_builtin=lambda *a:shader),
+               state=NS(scissor_get=lambda:(0,0,self.window_region.width,self.window_region.height),
+                        scissor_set=mock.Mock()))
         batch=NS(batch_for_shader=lambda *a:NS(draw=lambda *a:None))
         with mock.patch.dict(sys.modules,{'blf':font,'gpu':gpu,'gpu_extras.batch':batch}), \
                 mock.patch.object(self.ws,'_fill',wraps=self.ws._fill) as fill:
             self.ws._draw_window()
         self.assertEqual(fill.call_args_list[0].args[2:6],(0,0,1000,194))
         self.assertFalse(any(call.args[2:6]==(0,16,1000,44) for call in fill.call_args_list))
+        gpu.state.scissor_set.assert_any_call(0,44,1000,88)
+        gpu.state.scissor_set.assert_called_with(0,0,1000,194)
         self.assertIn('Shared native marker',labels,'Also detect swallowed errors before the marker draw')
 
     def test_external_edits_are_read_on_every_draw_and_names_and_positions_hit(self):
