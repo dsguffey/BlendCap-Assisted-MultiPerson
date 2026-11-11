@@ -195,7 +195,9 @@ class DispatchTests(unittest.TestCase):
         def add(identifier,button,value,**mods):
             item=NS(idname=identifier,type=button,properties=NS(),**mods)
             bindings.append(item);return item
-        keymap=NS(keymap_items=NS(new=add))
+        def keymap(**kw):
+            return NS(keymap_items=NS(new=lambda identifier,button,value,**mods:
+                      add(identifier,button,value,keymap_name=kw['name'],**mods)))
         class Scene:pass
         self.env.update(_window_handler=object(),_channel_handler=object(),_blank_handler=object(),
             _header_registered=True,_preview_header_registered=True,_camera_header_registered=True,
@@ -205,7 +207,7 @@ class DispatchTests(unittest.TestCase):
             BLENDCAP_OT_vta_timeline_pan=NS(bl_idname='blendcap.vta_timeline_pan'),
             bpy=NS(types=NS(Scene=Scene),props=NS(IntProperty=lambda **kw:None),
                 app=NS(handlers=NS(load_post=[])),context=NS(window_manager=NS(
-                    keyconfigs=NS(addon=NS(keymaps=NS(new=lambda **kw:keymap)))))))
+                    keyconfigs=NS(addon=NS(keymaps=NS(new=keymap)))))))
         callbacks('blendcap/vta_workspace.py',('register',),self.env)
         self.env['register']()
         self.assertTrue({'M','F2','G'} <= {b.type for b in bindings})
@@ -213,6 +215,13 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual({b.type for b in bindings if b.idname=='blendcap.vta_timeline_scroll'},
                          {'WHEELUPMOUSE','WHEELDOWNMOUSE','TRACKPADPAN'})
         self.assertIn('MIDDLEMOUSE',{b.type for b in bindings if b.idname=='blendcap.vta_timeline_pan'})
+        navigation={b.type:b for b in bindings if b.keymap_name=='View2D'}
+        self.assertEqual(set(navigation),{'LEFTMOUSE','MIDDLEMOUSE','WHEELUPMOUSE',
+                                          'WHEELDOWNMOUSE','TRACKPADPAN'})
+        self.assertTrue(all(b.head for b in navigation.values()))
+        self.assertTrue(navigation['LEFTMOUSE'].properties.scrollbar_only)
+        self.assertFalse(any(b.idname in {'blendcap.vta_timeline_pan','blendcap.vta_timeline_scroll'}
+                             and b.keymap_name!='View2D' for b in bindings))
         self.assertFalse(any(getattr(b,'shift',False) or getattr(b,'ctrl',False)
                              for b in bindings if b.idname=='blendcap.vta_timeline_scroll'))
 

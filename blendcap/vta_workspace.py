@@ -582,6 +582,8 @@ class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
             return {'PASS_THROUGH'}
         self._area=context.area
         self._region=context.region
+        self._window=context.window
+        self._scene=context.scene
         self._view=view
         self._metrics=metrics
         self._first=items.index((shown[0].character_id,shown[0].kind))
@@ -593,8 +595,7 @@ class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if (not _scope(context) or context.area != self._area or
-                context.region != self._region):
+        if context.window != self._window or context.scene != self._scene:
             return {'CANCELLED'}
         if event.type in {'ESC','WINDOW_DEACTIVATE'}:
             return {'CANCELLED'}
@@ -602,20 +603,25 @@ class BLENDCAP_OT_vta_timeline_pan(bpy.types.Operator):
             return {'FINISHED'}
         if event.type != 'MOUSEMOVE':
             return {'RUNNING_MODAL'}
-        dx=event.mouse_x-self._last_x
-        self._last_x=event.mouse_x
-        if dx:
-            # Use Blender's own time-axis pan, never a second X coordinate.
-            target=(context.region if context.region.type=='WINDOW' else
-                    next((r for r in context.area.regions if r.type=='WINDOW'),None))
-            if target is not None:
-                if target == context.region:
-                    bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
-                else:
-                    with context.temp_override(region=target):
+        # Keep the region where the gesture began even if the pointer crosses
+        # from Character names to keys while Blender delivers modal events.
+        with context.temp_override(area=self._area, region=self._region):
+            if not _scope(context):
+                return {'CANCELLED'}
+            dx=event.mouse_x-self._last_x
+            self._last_x=event.mouse_x
+            if dx:
+                # Use Blender's own time-axis pan, never a second X coordinate.
+                target=(context.region if context.region.type=='WINDOW' else
+                        next((r for r in context.area.regions if r.type=='WINDOW'),None))
+                if target is not None:
+                    if target == context.region:
                         bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
-        start=round(self._first-(event.mouse_y-self._start_y)/self._metrics.row_height)
-        _set_row_scroll(context,self._view,self._metrics,min(max(0,start),self._maximum))
+                    else:
+                        with context.temp_override(region=target):
+                            bpy.ops.view2d.pan('EXEC_DEFAULT',deltax=-dx,deltay=0)
+            start=round(self._first-(event.mouse_y-self._start_y)/self._metrics.row_height)
+            _set_row_scroll(context,self._view,self._metrics,min(max(0,start),self._maximum))
         return {'RUNNING_MODAL'}
 
 
@@ -1171,6 +1177,7 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
     bl_label = 'Select MoCap Timeline Item'
     bl_description = 'Select Character rows or review keys; drag within their own region to box-select'
     bl_options = {'INTERNAL'}
+    scrollbar_only: bpy.props.BoolProperty(default=False, options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -1179,6 +1186,14 @@ class BLENDCAP_OT_vta_timeline_select(bpy.types.Operator):
     def invoke(self, context, event):
         global _box_gesture, _scroll_drag
         metrics = _metrics(context)
+        if getattr(self, 'scrollbar_only', False):
+            if context.region.type != 'CHANNELS' or event.type != 'LEFTMOUSE':
+                return {'PASS_THROUGH'}
+            view, _, _, _, _, _ = _state(context)
+            bar = _scrollbar(context, view, metrics) if view is not None else None
+            if not bar or not (bar[0] <= event.mouse_region_x <= bar[1] and
+                               bar[2] <= event.mouse_region_y <= bar[3]):
+                return {'PASS_THROUGH'}
         from . import vta_timeline_markers as markers
         if markers.contains(context,event,metrics.ui_scale):
             markers.focus(context)
@@ -1500,10 +1515,6 @@ def register():
             if name!='Animation Channels':
                 items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_select.bl_idname,'LEFTMOUSE','DOUBLE_CLICK'))
             items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_hover.bl_idname, 'MOUSEMOVE', 'ANY'))
-            items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_pan.bl_idname,'MIDDLEMOUSE','PRESS'))
-            for button in (('WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN')
-                           if name=='Animation Channels' else ('TRACKPADPAN',)):
-                items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname, button, 'ANY'))
             for button,action,mods in (('B','BOX',{}),('A','ALL',{}),('A','NONE',{'alt':True})):
                 item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS',**mods)
                 item.properties.action=action;items.append(item)
@@ -1514,13 +1525,21 @@ def register():
                 for button,action in (('M','ADD'),('F2','RENAME'),('G','MOVE')):
                     item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_keys.bl_idname,button,'PRESS')
                     item.properties.action=action;items.append(item)
-        # Blender adds this generic handler to both Dope Sheet regions. It is a
-        # cheap fallback for wheel events over names if the Channels map misses
-        # them; WINDOW wheel events pass through to Blender's own navigation.
-        keymap=config.keymaps.new(name='Dopesheet Generic',space_type='DOPESHEET_EDITOR',region_type='WINDOW')
-        items=[keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_pan.bl_idname,'MIDDLEMOUSE','PRESS')]
-        items.extend(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname,button,'ANY')
-                     for button in ('WHEELUPMOUSE','WHEELDOWNMOUSE'))
+        # View2D handles MMB and wheel before the Dope Sheet/Animation Channels
+        # maps. Put only these navigation claims at its head, scoped by poll to
+        # the MoCap area. Everything outside our canvas passes through natively.
+        keymap=config.keymaps.new(name='View2D',space_type='EMPTY',region_type='WINDOW')
+        items=[]
+        item=keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_select.bl_idname,
+                                    'LEFTMOUSE','PRESS',head=True)
+        item.properties.scrollbar_only=True
+        items.append(item)
+        items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_pan.bl_idname,
+                                            'MIDDLEMOUSE','PRESS',head=True))
+        for button,value in (('WHEELUPMOUSE','PRESS'),('WHEELDOWNMOUSE','PRESS'),
+                             ('TRACKPADPAN','ANY')):
+            items.append(keymap.keymap_items.new(BLENDCAP_OT_vta_timeline_scroll.bl_idname,
+                                                button,value,head=True))
         _keymaps.append((keymap,items))
 
 

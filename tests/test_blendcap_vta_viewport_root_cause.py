@@ -22,6 +22,14 @@ class ViewportRootCauseTests(HostFixture):
         self.membership._write(self.a,members)
         self.revision+=1;self.bridge._refresh();self.drain()
         self.context.area=self.timeline;self.context.region=self.channel_region
+        @contextmanager
+        def override(**kw):
+            old_area,old_region=self.context.area,self.context.region
+            self.context.area=kw.get('area',old_area)
+            self.context.region=kw.get('region',old_region)
+            try:yield
+            finally:self.context.area,self.context.region=old_area,old_region
+        self.context.temp_override=override
         self.painted_names()  # Consume one-shot create/reveal before navigation.
         self.ws._set_row_scroll(self.context,self.ui._timeline,self.ws._metrics(self.context),0)
 
@@ -54,6 +62,7 @@ class ViewportRootCauseTests(HostFixture):
                                                mouse_x=x,mouse_y=y)
         op=self.ws.BLENDCAP_OT_vta_timeline_pan()
         self.assertEqual(op.invoke(ctx,event('MIDDLEMOUSE',100,100)),{'RUNNING_MODAL'})
+        ctx.region=self.window_region  # Pointer crosses from names into keys.
         self.assertEqual(op.modal(ctx,event('MOUSEMOVE',100,-1000)),{'RUNNING_MODAL'})
         maximum=self.ws._scroll_range(ctx,self.ui._timeline,self.ws._metrics(ctx))[2]
         self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],maximum)
@@ -65,6 +74,7 @@ class ViewportRootCauseTests(HostFixture):
         self.assertEqual(self.ui._timeline.keys[0].keyframe_id,'review')
         self.assertEqual(len(self.ui._timeline.characters),12)
         # Parent/Depth ordering and WINDOW/CHANNELS geometry share one offset.
+        ctx.region=self.channel_region
         self.ws._set_row_scroll(ctx,self.ui._timeline,self.ws._metrics(ctx),2)
         names=self.ws._rows(ctx,self.ui._timeline,0,self.ws._metrics(ctx))
         ctx.region=self.window_region
@@ -187,7 +197,15 @@ class ViewportRootCauseTests(HostFixture):
         ctx.region=self.channel_region
         event=lambda y,value='PRESS':NS(type='LEFTMOUSE',value=value,mouse_region_x=(bar[0]+bar[1])/2,
             mouse_region_y=y,mouse_y=y,shift=False,ctrl=False)
+        self.ws._set_row_scroll(ctx,self.ui._timeline,self.ws._metrics(ctx),0)
+        self.assertEqual(self.ws.BLENDCAP_OT_vta_timeline_scroll.invoke(
+            NS(),ctx,NS(type='WHEELDOWNMOUSE',mouse_region_y=100)),{'FINISHED'})
+        self.assertEqual(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],1)
         op=self.ws.BLENDCAP_OT_vta_timeline_select()
+        op.scrollbar_only=True
+        outside=NS(type='LEFTMOUSE',value='PRESS',mouse_region_x=40,
+                   mouse_region_y=bar[2]+2,mouse_y=bar[2]+2,shift=False,ctrl=False)
+        self.assertEqual(op.invoke(ctx,outside),{'PASS_THROUGH'})
         self.assertEqual(op.invoke(ctx,event(bar[2]+2)),{'RUNNING_MODAL'})
         self.assertEqual(op.modal(ctx,event(bar[2]+2,'RELEASE')),{'FINISHED'})
         self.assertGreater(self.ws._row_scroll[self.ws._expansion_key(ctx)][2],0)
