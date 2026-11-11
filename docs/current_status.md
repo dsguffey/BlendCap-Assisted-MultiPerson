@@ -133,9 +133,15 @@ The remaining broad sequence is:
    hardening and explicit compatibility/authenticity checks.
 7. **Licensing/compliance/provenance final pass**: exact third-party provenance,
    notices and source delivery. Visible Credits do not replace legal notices.
-8. **Final regression and clean-machine release QA**, including recovery,
+8. **Code Documentation / Maintainability Pass** after core lifecycle and UI
+   behavior stabilizes. Document architectural intent, lifecycle assumptions,
+   invariants, authoritative versus derived state, Scene/Character ownership,
+   custom Dope Sheet viewport and scrolling, marker ownership, public/private
+   boundaries, recovery/reconciliation assumptions, and non-obvious edge cases.
+   Explain why behavior exists and what must remain true; avoid blanket comments.
+9. **Final regression and clean-machine release QA**, including recovery,
    export/retarget and difficult multi-person cases.
-9. **Release documentation/support**: installation, first run, limitations,
+10. **Release documentation/support**: installation, first run, limitations,
    troubleshooting/log collection, version and support information.
 
 The [approved release strategy](vta_release_strategy.md) consolidates licensing
