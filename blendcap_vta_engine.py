@@ -34,6 +34,7 @@ class EngineEndpoint:
     python: Path
     launcher: Path
     review_python: Path | None = None
+    compiled: bool = False
 
 
 def resolve_engine(configured_root='', *, python=None):
@@ -74,10 +75,12 @@ class EngineClient:
         simple=(request['operation'] in REVIEW_OPS and (request['operation']!='review-batch' or request['payload']['action'] in ('assign','suppress')))
         python=(endpoint.review_python if endpoint.review_python is not None and (simple or request['operation']=='review-observation') else endpoint.python)
         self.last_python=python
-        if not python.is_file() or not endpoint.launcher.is_file():
+        if not endpoint.launcher.is_file() or (not endpoint.compiled and not python.is_file()):
             raise EngineError('ENGINE_UNAVAILABLE','Engine executable/launcher is missing.')
+        command=([str(endpoint.launcher)] if endpoint.compiled else
+            [str(python),'-I','-B',str(endpoint.launcher)])
         try:
-            process=subprocess.Popen([str(python),'-I','-B',str(endpoint.launcher)],
+            process=subprocess.Popen(command,
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),shell=False)
         except OSError as exc:raise EngineError('ENGINE_UNAVAILABLE','Engine process could not start.') from exc
