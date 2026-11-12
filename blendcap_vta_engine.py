@@ -45,6 +45,10 @@ def resolve_engine(configured_root='', *, python=None):
             runtime=load_runtime();roots=(runtime['engine_root'],)
             if configured_root and wire.path_form(str(configured_root)).resolve()!=runtime['engine_root']:
                 raise ValueError('Core location differs from the trusted runtime configuration.')
+            if runtime['execution_mode']=='compiled':
+                executable=(runtime['engine_root']/'vta_engine.exe').resolve()
+                if not executable.is_file():raise EngineError('ENGINE_UNAVAILABLE','Compiled MoCap engine is unavailable.')
+                return EngineEndpoint(executable,executable,compiled=True)
             python=runtime['control_python'];review_python=runtime.get('review_python')
         else:
             roots=(wire.path_form(str(configured_root)),) if configured_root else (load_runtime()['engine_root'],)

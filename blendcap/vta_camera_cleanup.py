@@ -570,10 +570,12 @@ class BLENDCAP_OT_vta_camera_cleanup(bpy.types.Operator):
             from ..blendcap_vta_runtime import load_runtime
             runtime=load_runtime()
             if runtime['engine_root']!=backend.endpoint.launcher.parent:raise ValueError('Configured engine/runtime roots differ; run setup/repair.')
-            command=[str(runtime['body_python']),'-I','-B','-X','faulthandler',str(runtime['engine_root']/'vta_camera_job.py'),str(directory/'request.json')]
+            command=([str(backend.endpoint.launcher),'--camera',str(directory/'request.json')]
+                if backend.endpoint.compiled else
+                [str(runtime['body_python']),'-I','-B','-X','faulthandler',str(runtime['engine_root']/'vta_camera_job.py'),str(directory/'request.json')])
             with open(filesystem_path(log),'x',encoding='utf-8') as stream:
                 process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=stream,stderr=stream,
-                    env={**os.environ,'VTA_CAMERA_RUNTIME':json.dumps({k:str(runtime[k]) for k in ('public_root','body_python')}),'VTA_PROVIDER_PARENT':str(os.getpid()),'PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'},shell=False,
+                    env={**os.environ,'VTA_CAMERA_RUNTIME':json.dumps({k:str(runtime[k]) for k in ('public_root','body_python',*(('analysis_python',) if backend.endpoint.compiled else ()))}),'VTA_PROVIDER_PARENT':str(os.getpid()),'PYTHONNOUSERSITE':'1','PYTHONDONTWRITEBYTECODE':'1'},shell=False,
                     creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             _job = dict(process=process,directory=directory,log=log,objects=objects,selected=selected,scene=context.scene,
                 snapshots=tuple((obj,obj.animation_data.action,action_signature(obj.animation_data.action)) for obj in objects),

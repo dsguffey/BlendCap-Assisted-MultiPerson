@@ -37,8 +37,9 @@ def resolve(value, *, check_files=True):
     require(value['schema']=='vta-runtime' and type(value['version']) is int and value['version']==LAYOUT_VERSION,'Unsupported runtime layout. Run matching setup/repair.','VERSION_MISMATCH')
     require(value['product_version']==PRODUCT_VERSION and value['protocol']==[PROTOCOL_MIN,PROTOCOL_MAX],
         'VTA adapter/engine/runtime versions differ. Install the matching package.','VERSION_MISMATCH')
-    require(value['mode'] in ('source','installed','test'),'Unknown execution mode.')
+    require(value['mode'] in ('source','installed','test','compiled'),'Unknown execution mode.')
     fast=type(value['roots']) is dict and 'review_control' in value['roots']
+    require(value['mode']!='compiled' or not fast,'Compiled releases use the compiled review path.')
     require(type(value['roots']) is dict and set(value['roots'])==set(ROOTS)|({'review_control'} if fast else set()),'Missing explicit component root.')
     roots={}
     for key,name in value['roots'].items():
@@ -50,14 +51,18 @@ def resolve(value, *, check_files=True):
     routes={**ROUTES,**({'review_python':'review_control'} if fast else {})}
     require(type(value['routes']) is dict and set(value['routes'])==set(routes),'Invalid runtime routes.')
     result={key:contained(roots[owner],value['routes'][key]) for key,owner in routes.items()}
-    result.update(public_root=roots['adapter'],engine_root=roots['engine'])
+    result.update(public_root=roots['adapter'],engine_root=roots['engine'],execution_mode=value['mode'])
     if check_files:
         for key in ('control_python','body_python','analysis_python','sam3_checkpoint',*(('review_python',) if fast else ())):
             require(result[key].is_file(),'VTA runtime/model file is missing: '+key+'. Run repair.','MODEL_MISSING' if key=='sam3_checkpoint' else 'RUNTIME_MISSING')
         for key in ('control_python','body_python','analysis_python',*(('review_python',) if fast else ())):
             require(result[key].name.lower() in ('python.exe','python','python3'),'Only the setup-owned Python runtime is supported.')
-        for key,name in (('public_root','blendcap_vta_provider_worker.py'),('engine_root','vta_engine.py'),('kinesia_root','src/sam_3d_pose_estimation/stream_detector.py'),('body_root','save_mhr_data.py')):
+        engine_file='vta_engine.exe' if value['mode']=='compiled' else 'vta_engine.py'
+        for key,name in (('public_root','blendcap_vta_provider_worker.py'),('engine_root',engine_file),('kinesia_root','src/sam_3d_pose_estimation/stream_detector.py'),('body_root','save_mhr_data.py')):
             require(contained(result[key],name).is_file(),'VTA program component is incomplete: '+key+'. Run repair.','RUNTIME_MISSING')
+        if value['mode']=='compiled':
+            require(contained(result['engine_root'],'release.json').is_file(),
+                'Compiled release identity is missing. Run repair.','RUNTIME_MISSING')
         for name in BODY_MODELS:
             require(contained(result['body_root'],name).is_file(),'VTA body/calibration model is missing: '+name+'. Run repair.','MODEL_MISSING')
     return result

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest import mock
 from vta_protocol import runtime as contract
 from blendcap_vta_runtime import load_runtime,configuration_path
+from blendcap_vta_engine import resolve_engine
 import vta_package as package
 
 P=Path(__file__).resolve().parents[1]
@@ -29,6 +30,19 @@ class RuntimeRootTests(unittest.TestCase):
             self.value['mode']=mode;result=contract.resolve(self.value)
             self.assertEqual(result['engine_root'],self.root/'engine')
             self.assertEqual(result['body_python'],self.root/'body/venv/Scripts/python.exe')
+    def test_compiled_release_uses_only_explicit_executable_route(self):
+        self.value['mode']='compiled'
+        engine=self.root/'engine';(engine/'vta_engine.py').unlink()
+        executable=engine/'vta_engine.exe';executable.write_bytes(b'fixture')
+        (engine/'release.json').write_text('{}')
+        resolved=contract.resolve(self.value)
+        self.assertEqual(resolved['execution_mode'],'compiled')
+        with mock.patch('blendcap_vta_engine.load_runtime',return_value=resolved):
+            endpoint=resolve_engine()
+        self.assertTrue(endpoint.compiled)
+        self.assertEqual(endpoint.launcher,executable)
+        executable.unlink()
+        with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(self.value)
     def test_missing_invalid_and_wrong_version_fail_actionably(self):
         cases=[dict(self.value,version=99),dict(self.value,product_version='old'),dict(self.value,protocol=[1,5]),dict(self.value,mode='guess')]
         for value in cases:
