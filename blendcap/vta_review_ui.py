@@ -3457,6 +3457,10 @@ class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
         version = section(layout, 'resource_version', 'Version Information')
         if version is not None:
             for line in version_lines(): version.label(text=line)
+        licensing = section(layout, 'resource_licensing', 'Licensing')
+        if licensing is not None:
+            from . import vta_license_ui
+            vta_license_ui.draw(licensing)
         runtime = section(layout, 'resource_runtime', 'Core / Runtime Information')
         if runtime is not None:
             prefs = addon_prefs(context)

@@ -10,15 +10,16 @@ import hashlib
 from pathlib import Path
 
 PROTOCOL = 'vta-engine'
-VERSION = 7
-OPERATIONS = ('review-batch','source-stage','source-publish','camera-prepare','source-coverage','character-state','character-rename',
+VERSION = 8
+OPERATIONS = ('license-status','license-activate','license-revalidate','review-batch','source-stage','source-publish','camera-prepare','source-coverage','character-state','character-rename',
               'project-state','mutation-status','review-assign','review-reassign','review-hard-state','review-observation','character-create','review-management','candidate-suppress','tracking-plan','tracking-update','repair-edit','review-restore-last','generation-prepare','analysis-prepare','job-cleanup','job-start','job-status','job-cancel','job-decision','job-result','job-application','analysis-register','generation-accept','generation-validate','retarget-bindings','retarget-export')
 MAX_BYTES = 16384
 MAX_FRAME = 2**31-1
 CODES = frozenset(('INVALID_REQUEST','VERSION_MISMATCH','UNKNOWN_OPERATION','INVALID_PATH',
     'PROJECT_UNAVAILABLE','SOURCE_UNAVAILABLE','SOURCE_MISMATCH','FRAME_OUT_OF_RANGE',
     'INPUT_CHANGED','RESOURCE_LIMIT','INTERNAL_ERROR','CONFLICT','INVALID_NAME',
-    'RUNTIME_UNAVAILABLE','CHARACTER_UNAVAILABLE','PROJECT_BUSY','RECOVERY_REQUIRED','IDEMPOTENCY_CONFLICT','JOB_NOT_FOUND'))
+    'RUNTIME_UNAVAILABLE','CHARACTER_UNAVAILABLE','PROJECT_BUSY','RECOVERY_REQUIRED','IDEMPOTENCY_CONFLICT','JOB_NOT_FOUND',
+    'LICENSE_REQUIRED','LICENSE_INVALID','LICENSE_UNAVAILABLE'))
 
 
 def digest(value):
@@ -164,6 +165,13 @@ def validate_request(value):
     require(type(value['operation']) is str and value['operation'] in OPERATIONS,
             'Unknown operation.', 'UNKNOWN_OPERATION')
     payload=value['payload'];operation=value['operation']
+    if operation in ('license-status','license-revalidate','license-activate'):
+        fields(payload,('license_key',) if operation=='license-activate' else ())
+        if operation=='license-activate':
+            key=payload['license_key']
+            require(type(key) is str and 8<=len(key)<=256 and all(32<=ord(c)<127 for c in key),
+                'Invalid license key format.')
+        return value
     if validate_bootstrap_request(operation,payload):return value
     if validate_job_request(operation,payload):return value
     names={'source-coverage':('source_path','source_frame'),
@@ -232,6 +240,18 @@ def validate_response(value, request_id, operation):
         item=value['error'];fields(item,('code','message'))
         require(type(item['code']) is str and item['code'] in CODES,'Unknown error code.')
         require(type(item['message']) is str and 0<len(item['message'])<=1024,'Invalid error message.')
+    elif operation in ('license-status','license-activate','license-revalidate'):
+        item=value['result']
+        fields(item,('state','message','last_validated_at','offline_until','uses','quantity','is_multiseat_license'))
+        require(item['state'] in ('activation_required','not_configured','activated','activated_offline','revalidation_needed',
+            'invalid','refunded','chargebacked','disputed','ended','unavailable'), 'Invalid license state.')
+        require(type(item['message']) is str and len(item['message'])<=200,'Invalid license message.')
+        for field in ('last_validated_at','offline_until'):
+            require(item[field] is None or (type(item[field]) in (int,float) and math.isfinite(item[field]) and item[field]>=0),
+                'Invalid license timestamp.')
+        for field in ('uses','quantity'):
+            require(item[field] is None or (type(item[field]) is int and item[field]>=0),'Invalid license count.')
+        require(item['is_multiseat_license'] is None or type(item['is_multiseat_license']) is bool,'Invalid seat metadata.')
     elif operation in BOOTSTRAP_OPS:validate_bootstrap_response(operation,value['result'])
     elif operation=='source-coverage':
         fields(value['result'],('source_range',))

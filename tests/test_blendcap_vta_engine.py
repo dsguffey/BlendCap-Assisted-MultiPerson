@@ -100,6 +100,13 @@ class ProcessTests(unittest.TestCase):
         self.root=Path(self.temp.name);self.video=fixture(self.root)
         self.client=EngineClient(EngineEndpoint(PY,ENTRY))
 
+    def test_license_status_activation_and_retry_are_unlicensed_source_operations(self):
+        key='TEST-PRIVATE-KEY-1234'
+        self.assertEqual(self.client.call('license-status',{})['state'],'not_configured')
+        self.assertEqual(self.client.call('license-activate',dict(license_key=key))['state'],'not_configured')
+        self.assertNotIn(key,self.client.last_diagnostics)
+        self.assertEqual(self.client.call('license-revalidate',{})['state'],'not_configured')
+
     def test_real_current_loader_parity_boundaries_no_writes_and_timings(self):
         before={p.name:p.read_bytes() for p in self.root.iterdir()}
         for frame in (0,162):

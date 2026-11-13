@@ -1,8 +1,8 @@
 # StudioFree MoCap — licensing, protection, updates and rollback
 
-Approved product/release direction, **2026-11-09**. This document records Public
-1.0 requirements, not implemented licensing/updater features, vendor verification
-or release readiness. See [roadmap](current_status.md) and
+Approved product/release direction, **2026-11-09**. The Windows licensing
+prototype was added on 2026-11-12; live Gumroad activation, owner UI QA,
+installer/updater, and release assurance remain pending. See [roadmap](current_status.md) and
 [runtime/package foundation](vta_runtime_installation.md).
 
 ## Lightweight licensing
@@ -22,22 +22,22 @@ capability if it remains suitable when implementation begins:
 - Discourage casual copying while minimizing support burden. Do not add invasive
   DRM or telemetry merely to enforce licensing.
 
-Before choosing the integration, verify Gumroad's **then-current** license-key
+The prototype checked Gumroad's official license-key documentation on 2026-11-12
+and uses its fixed HTTPS verify endpoint. Before release, recheck its current
 API, activation/verification behavior, refund/revocation behavior, usage/activation
 counting, offline/cache implications, terms and pricing. These are required future
-checks, not statements that current vendor behavior has been verified. Do not
+release checks. Do not
 hard-code Gumroad dependencies into unrelated core systems before that validation.
 
 ## Private-engine protection
 
-Keep public/GPL Blender-side code appropriately source-visible. Ideally ship the
-proprietary engine compiled rather than as plain private Python source; the exact
-compilation technology remains undecided. Licensing enforcement should preferably
-live at or inside that protected/compiled private-runtime boundary rather than
+Keep public/GPL Blender-side code appropriately source-visible. The private
+Nuitka standalone prototype now enforces entitlement before protected
+compiled operations. Licensing enforcement belongs in that boundary rather than
 in trivially removable Blender-side Python. Compilation and licensing complement
 each other as deterrents to casual redistribution. Native compilation is not
 absolute protection against reverse engineering, and perfect DRM is not the goal.
-No compiler is selected or implemented by this documentation pass.
+The prototype is not the final installed release.
 
 ## Required update and rollback mechanism
 
@@ -103,9 +103,10 @@ Gumroad-oriented licensing prototype; installer/package/update/repair/uninstall;
 security/ARAP T2; licensing/compliance/provenance; final regression/clean-machine
 QA; release documentation/support. Do not move licensing ahead of fresh-clip QA.
 
-Still open: final storefront/distribution provider, exact compilation technology,
-activation limits, offline grace/revalidation policy, whether updates are free
+Still open: final storefront/distribution provider, activation limits, whether updates are free
 forever/version-limited/tied to paid upgrades, signing infrastructure, exact
 retention/rollback policy and final installer/updater UX. Tentative product-name
-clearance and other existing release decisions remain open too. This document
-authorizes no licensing, updater, installer or runtime implementation/deployment.
+clearance and other existing release decisions remain open too. The later
+licensing prototype has a seven-day revalidation interval and 30-day offline
+grace; those values remain adjustable before release. This strategy document
+does not authorize installer or updater deployment.

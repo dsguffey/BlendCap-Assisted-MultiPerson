@@ -137,6 +137,8 @@ from .vta_workspace import (
 from .vta_camera_depth import BLENDCAP_OT_vta_camera_depth
 from .vta_timeline_markers import BLENDCAP_OT_vta_marker_edit, BLENDCAP_OT_vta_marker_drag
 from .vta_camera_cleanup import BLENDCAP_OT_vta_camera_cleanup
+from .vta_license_ui import (BLENDCAP_OT_vta_license_status,
+    BLENDCAP_OT_vta_license_activate, BLENDCAP_OT_vta_license_revalidate)
 from . import retarget
 
 
@@ -243,6 +245,9 @@ classes = (
     BLENDCAP_OT_vta_snap_source_camera,
     BLENDCAP_OT_vta_camera_depth,
     BLENDCAP_OT_vta_camera_cleanup,
+    BLENDCAP_OT_vta_license_status,
+    BLENDCAP_OT_vta_license_activate,
+    BLENDCAP_OT_vta_license_revalidate,
     BLENDCAP_OT_vta_new_scene,
     BLENDCAP_OT_vta_choose_clip,
     BLENDCAP_OT_vta_clear_source,

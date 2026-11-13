@@ -4,8 +4,8 @@ import os
 
 PRODUCT_VERSION='1.0.0-dev.m5'
 LAYOUT_VERSION=1
-PROTOCOL_MIN=7
-PROTOCOL_MAX=7
+PROTOCOL_MIN=8
+PROTOCOL_MAX=8
 ROOTS=('adapter','engine','control','body','analysis','analysis_source','models')
 ROUTES={'control_python':'control','body_python':'body','analysis_python':'analysis',
         'body_root':'body','kinesia_root':'analysis_source','sam3_checkpoint':'models'}
