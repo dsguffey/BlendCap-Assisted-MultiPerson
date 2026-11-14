@@ -244,7 +244,7 @@ def validate_response(value, request_id, operation):
         item=value['result']
         fields(item,('state','message','last_validated_at','offline_until','uses','quantity','is_multiseat_license'))
         require(item['state'] in ('activation_required','not_configured','activated','activated_offline','revalidation_needed',
-            'invalid','refunded','chargebacked','disputed','ended','unavailable'), 'Invalid license state.')
+            'invalid','refunded','chargebacked','disputed','ended','unavailable','seats_exhausted'), 'Invalid license state.')
         require(type(item['message']) is str and len(item['message'])<=200,'Invalid license message.')
         for field in ('last_validated_at','offline_until'):
             require(item[field] is None or (type(item[field]) in (int,float) and math.isfinite(item[field]) and item[field]>=0),
