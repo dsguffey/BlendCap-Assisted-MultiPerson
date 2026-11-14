@@ -39,8 +39,10 @@ class RuntimeRootTests(unittest.TestCase):
         self.assertEqual(resolved['execution_mode'],'compiled')
         with mock.patch('blendcap_vta_engine.load_runtime',return_value=resolved):
             endpoint=resolve_engine()
+            stale_preference=resolve_engine(self.root/'older-release')
         self.assertTrue(endpoint.compiled)
         self.assertEqual(endpoint.launcher,executable)
+        self.assertEqual(stale_preference,endpoint)
         executable.unlink()
         with self.assertRaises(contract.RuntimeConfigurationError):contract.resolve(self.value)
     def test_missing_invalid_and_wrong_version_fail_actionably(self):

@@ -43,7 +43,9 @@ def resolve_engine(configured_root='', *, python=None):
     try:
         if python is None:
             runtime=load_runtime();roots=(runtime['engine_root'],)
-            if configured_root and wire.path_form(str(configured_root)).resolve()!=runtime['engine_root']:
+            # The saved pre-compiled Core preference may name an older release.
+            # A compiled release is chosen solely by the trusted runtime config.
+            if runtime['execution_mode']!='compiled' and configured_root and wire.path_form(str(configured_root)).resolve()!=runtime['engine_root']:
                 raise ValueError('Core location differs from the trusted runtime configuration.')
             if runtime['execution_mode']=='compiled':
                 executable=(runtime['engine_root']/'vta_engine.exe').resolve()

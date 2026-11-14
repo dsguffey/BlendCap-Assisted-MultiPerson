@@ -3466,7 +3466,7 @@ class VIEW3D_PT_blendcap_vta_advanced(_VtaReviewSubpanel, bpy.types.Panel):
             prefs = addon_prefs(context)
             if prefs is not None:
                 column = runtime.column(); column.enabled = False
-                column.prop(prefs, 'vta_core_location', text='Core')
+                column.label(text='Core: managed by StudioFree setup (see Deployment above)')
                 column.prop(prefs, 'vta_kinesia_root', text='Analysis source')
                 column.prop(prefs, 'vta_sam3_checkpoint', text='SAM3 weights')
         credits = section(layout, 'resource_credits', 'Credits')
