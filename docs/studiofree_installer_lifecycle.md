@@ -112,7 +112,9 @@ a new release ID. It smoke-tests compiled `license-status` with disposable
 writes the managed runtime and current-release records. A same-version installer
 rerun is Repair. Repair restores only corrupt/missing manifest-owned files from
 the verified installer payload, reinstalls the extension and reselects runtime.
-Update installs a new full release beside the previous one. Rollback swaps back
+Inno clears its own payload directory before copying a full replacement, so
+A-only files cannot contaminate B's strict package manifest. Update installs
+a new full release beside the previous one. Rollback swaps back
 to the retained previous release. Uninstall removes owned files and the
 extension while preserving entitlement and projects. Support events go to
 `%LOCALAPPDATA%/VTA/logs/maintenance.jsonl` without keys or environment dumps.

@@ -41,6 +41,10 @@ SignedUninstaller=yes
 [Files]
 Source: "{#Stage}\*"; DestDir: "{app}\payload"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+[InstallDelete]
+; A full replacement must remove A-only files before copying payload B.
+Type: filesandordirs; Name: "{app}\payload"
+
 [Registry]
 Root: HKA; Subkey: "Software\StudioFree\MoCap"; ValueType: string; ValueName: "BlenderPython"; ValueData: "{code:GetBlenderPython}"; Flags: uninsdeletevalue
 
