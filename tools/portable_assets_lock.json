@@ -11,89 +11,9 @@
       "sha256": "5e7cdfaf0005f762ecb827480190f18d34bd4dfcb7ff1df91310db7635807006"
     },
     {
-      "bytes": 40264,
-      "path": "analysis_source/src/sam_3d_pose_estimation/analytics.py",
-      "sha256": "0c85c8d7c4816ee949a9cd6e9229a8ebca47f680f0582f12955aec71ff38d0b5"
-    },
-    {
-      "bytes": 7197,
-      "path": "analysis_source/src/sam_3d_pose_estimation/artifacts.py",
-      "sha256": "dada4e652267a063e20bc087f8ed858a3cba5cec80780ed9ce184d4cdc078c0c"
-    },
-    {
-      "bytes": 36696,
-      "path": "analysis_source/src/sam_3d_pose_estimation/cli.py",
-      "sha256": "84fe0a9d147dd6ebfe39bd9051f92003c5e00112a0f178b140689e426cd9a6bf"
-    },
-    {
-      "bytes": 50916,
-      "path": "analysis_source/src/sam_3d_pose_estimation/detect_stream.py",
-      "sha256": "1a7a5c9bf83a24fedc8e20bad85ff6cc7f333a9703645e95c7da7be88380354b"
-    },
-    {
-      "bytes": 3397,
-      "path": "analysis_source/src/sam_3d_pose_estimation/doctor.py",
-      "sha256": "64673a0ec12d4ca1fbec6b181280684f0ab0323b46568832ed57ad3ba2efcfa3"
-    },
-    {
-      "bytes": 14812,
-      "path": "analysis_source/src/sam_3d_pose_estimation/dynamic_objects.py",
-      "sha256": "1fb4432c4502116854f857b56cbb4dee5af625ecdeadf824c1e3c9df4067b13a"
-    },
-    {
-      "bytes": 24618,
-      "path": "analysis_source/src/sam_3d_pose_estimation/gait.py",
-      "sha256": "fbd3161217be2b209b394c412463485939c06357fb1a0a367a165f864f0d687c"
-    },
-    {
-      "bytes": 14064,
-      "path": "analysis_source/src/sam_3d_pose_estimation/object_masks.py",
-      "sha256": "955598d108e03f6e78ce09c9d1cb20fb35a07ad50c3dca1160f31ec22bce11dc"
-    },
-    {
-      "bytes": 13693,
-      "path": "analysis_source/src/sam_3d_pose_estimation/object_shapes.py",
-      "sha256": "7927f49158d8b26ee85af89738595d070994d4a882d082a9aef466c4dbbb187f"
-    },
-    {
-      "bytes": 215359,
-      "path": "analysis_source/src/sam_3d_pose_estimation/pipeline.py",
-      "sha256": "7fee09c63bde1f816d51e6777e08c72f1848c2a340cd8a04c8a2de0567fc6aa4"
-    },
-    {
-      "bytes": 6240,
-      "path": "analysis_source/src/sam_3d_pose_estimation/render_tracking_video.py",
-      "sha256": "01eaf01b330ae7c5f6033219ae3253e61bfa83dcbbe2c966399730079de26fe0"
-    },
-    {
-      "bytes": 27673,
-      "path": "analysis_source/src/sam_3d_pose_estimation/sam3d_runtime.py",
-      "sha256": "6857e338468486311fdd27bae0da5d74f41a62b4c87d91eafacccf69ee31d916"
-    },
-    {
-      "bytes": 83029,
-      "path": "analysis_source/src/sam_3d_pose_estimation/scene_objects.py",
-      "sha256": "f6fda50c2b44899cd7c5bb3b700af0603c6fd5bf157cf1730f53817bb9411824"
-    },
-    {
       "bytes": 12440,
       "path": "analysis_source/src/sam_3d_pose_estimation/stream_detector.py",
       "sha256": "217b24598208a9afd6442a93412e72d4e30f32173e0faf38f30e0c831d59ab56"
-    },
-    {
-      "bytes": 16665,
-      "path": "analysis_source/src/sam_3d_pose_estimation/subject_preview.py",
-      "sha256": "bc85967ed967582aab32d776361ef091ea9e4bd405fad999042a3c651b6ada2f"
-    },
-    {
-      "bytes": 1938,
-      "path": "analysis_source/src/sam_3d_pose_estimation/video_io.py",
-      "sha256": "a08e5a532d2c5e67d62f8bdb16259d348e2c7c9d44683751a46a62b6f1ee8b22"
-    },
-    {
-      "bytes": 3382,
-      "path": "analysis_source/src/sam_3d_pose_estimation/workspace.py",
-      "sha256": "c3ac499127ddde3287e2840493bdc0f94c715828fe9bf1a14dc6142f717349a5"
     },
     {
       "bytes": 7414,

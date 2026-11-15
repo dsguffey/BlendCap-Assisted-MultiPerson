@@ -35,22 +35,28 @@ The build requires explicit local `--site` inputs and does not alter them.
 
 `tools/build_portable_ai_assets.py` selects production body code and the
 SAM3 source subset, verifies the five model/configuration hashes, and pins all
-361 copied source/weight files with `tools/portable_assets_lock.json`. The
-internal build read body weights from the installed extension and SAM3 from
-the Kinesia evaluation directory. The Kinesia source checkout at `4cbc2b6`
-has an essential untracked `stream_detector.py`; its exact bytes are locked,
-but a clean release builder still needs an archived or committed authoritative
-source input. No Kinesia checkout files were changed.
+345 copied source/weight files with `tools/portable_assets_lock.json`. The
+earlier internal build read body weights from the installed extension and SAM3
+from the Kinesia evaluation directory. The required Kinesia adapter was an
+untracked 12,440-byte file with SHA-256
+`217b24598208a9afd6442a93412e72d4e30f32173e0faf38f30e0c831d59ab56`.
+It and the required SAM3 vendor subset now have byte-for-byte source authority
+under the private engine repository's `vendor/` directory, with separate CC0
+and SAM license/provenance records. The current Kinesia remote no longer
+contains the pinned vendor tree or serves the local `4cbc2b6` commit, so the
+build no longer depends on that checkout. No Kinesia checkout files were
+changed. The `--analysis-source-only` mode builds this component from the two
+StudioFree repositories without development environments or model paths.
 
 | Component | Files | Bytes |
 |---|---:|---:|
 | `control` | 841 | 37,248,766 |
 | `body` including code and weights | 18,395 | 9,159,444,949 |
 | `analysis` | 16,158 | 3,111,256,544 |
-| `analysis_source` | 113 | 4,047,397 |
+| `analysis_source` (current pinned source) | 97 | 3,487,454 |
 | `models` SAM3 | 1 | 3,450,062,241 |
 
-The internal full stage, including the compiled engine and extension archive,
+The earlier internal full stage, including the compiled engine and extension archive,
 contains **35,565 files / 15,831,461,100 bytes uncompressed**. Its
 `package.json` is 6,676,511 bytes, so maintenance's package-manifest size
 limit was raised to 32 MB while retaining the per-file hash and count checks.
@@ -78,10 +84,17 @@ both GPU inference checks passed again using only paths inside the relocated
 stage. Hugging Face/Transformers offline flags were set. These are technical
 pipeline probes, not a clean-machine or full production-job test.
 
-The internal 35,565-file stage passed file-hash verification and the offline
+The earlier 35,565-file stage passed file-hash verification and the offline
 control/body/analysis import probe. The probe now invokes packaged Python
 with `-B`, so it leaves the immutable stage's file list unchanged. Focused
 release/packaging tests passed (34 tests, two skipped).
+
+The source-authority follow-up built the revised 97-file `analysis_source`
+from pinned repository files, relocated it, and imported both the Kinesia
+adapter and SAM3 model builder through the packaged analysis interpreter.
+Source drift in either copied adapter or vendor files fails the lock check
+before output creation. The revised component did not change the evaluated
+model or inference code bytes, so GPU benchmarks were not repeated.
 
 ## Remaining release inputs
 
@@ -90,8 +103,6 @@ release/packaging tests passed (34 tests, two skipped).
    the actual PyTorch/CUDA/cuDNN and OpenCV/FFmpeg binary list. The prior
    redistribution matrix is the starting point; the internal manifests identify
    the precise bytes for review.
-2. Preserve the untracked Kinesia `stream_detector.py` as an authoritative,
-   reproducible source artifact before a customer build.
-3. Rebuild the compiled engine and extension from the release commits, then
+2. Rebuild the compiled engine and extension from the release commits, then
    validate the complete Inno EXE plus sidecar ZIP and installer lifecycle in
    a disposable target. This pass did not run Blender or publish a ZIP.

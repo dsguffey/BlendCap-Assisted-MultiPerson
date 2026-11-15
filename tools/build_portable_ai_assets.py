@@ -28,7 +28,7 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def candidates(public: Path, analysis: Path, installed_body: Path, sam3: Path):
+def candidates(public: Path, private: Path, installed_body: Path, sam3: Path):
     for name in ("save_mhr_data.py", "npz_to_bvh.py"):
         yield public / name, "body/" + name
     for file in sorted((public / "pipeline").rglob("*")):
@@ -45,12 +45,12 @@ def candidates(public: Path, analysis: Path, installed_body: Path, sam3: Path):
                 rel.parts[0] in {"dinov3", "hubconf.py", "LICENSE.md"} and
                 not any(part in {"train", "run", "tests", "test", "__pycache__"} for part in rel.parts)):
             yield file, "body/" + file.relative_to(public).as_posix()
-    for name in ("LICENSE",):
-        yield analysis / name, "analysis_source/" + name
-    for file in sorted((analysis / "src" / "sam_3d_pose_estimation").rglob("*")):
-        if file.is_file() and file.suffix.lower() in SOURCE_EXTENSIONS and "__pycache__" not in file.parts:
-            yield file, "analysis_source/" + file.relative_to(analysis).as_posix()
-    vendor = analysis / "vendor" / "sam3-main"
+    adapter = private / "vendor" / "kinesia_stream_detector"
+    yield adapter / "LICENSE", "analysis_source/LICENSE"
+    for name in ("__init__.py", "stream_detector.py"):
+        yield adapter / "src" / "sam_3d_pose_estimation" / name, (
+            "analysis_source/src/sam_3d_pose_estimation/" + name)
+    vendor = private / "vendor" / "sam3-main"
     yield vendor / "LICENSE", "analysis_source/vendor/sam3-main/LICENSE"
     sam = vendor / "sam3"
     for file in sorted(sam.rglob("*")):
@@ -59,7 +59,7 @@ def candidates(public: Path, analysis: Path, installed_body: Path, sam3: Path):
                 rel.parts[0] in {"__init__.py", "logger.py", "model_builder.py", "model", "sam", "assets", "train", "perflib"} and
                 (rel.parts[0] != "train" or file.suffix.lower() == ".py") and
                 not any(part in {"__pycache__", "tests", "test"} for part in rel.parts)):
-            yield file, "analysis_source/" + file.relative_to(analysis).as_posix()
+            yield file, "analysis_source/vendor/sam3-main/" + file.relative_to(vendor).as_posix()
     for name in sorted(WEIGHTS):
         if name.startswith("body/"):
             yield installed_body / name.removeprefix("body/"), name
@@ -67,22 +67,33 @@ def candidates(public: Path, analysis: Path, installed_body: Path, sam3: Path):
             yield sam3, name
 
 
-def build(public: Path, analysis: Path, installed_body: Path, sam3: Path,
-          output: Path, lock: Path | None) -> dict:
-    public, analysis, installed_body, sam3 = (p.resolve(strict=True) for p in
-                                                (public, analysis, installed_body, sam3))
+def build(public: Path, private: Path, installed_body: Path | None, sam3: Path | None,
+          output: Path, lock: Path | None, *, analysis_source_only: bool = False) -> dict:
+    public, private = (p.resolve(strict=True) for p in (public, private))
+    if analysis_source_only:
+        installed_body = Path() if installed_body is None else installed_body
+        sam3 = Path() if sam3 is None else sam3
+    else:
+        if installed_body is None or sam3 is None:
+            raise ValueError("Full asset builds require body and SAM3 model inputs")
+        installed_body, sam3 = installed_body.resolve(strict=True), sam3.resolve(strict=True)
     output = output.resolve()
-    if not output.is_dir() or not (output / "body" / "Scripts" / "python.exe").is_file():
+    if analysis_source_only:
+        if output.exists():
+            raise FileExistsError("Clean analysis-source output must be a new directory")
+    elif not output.is_dir() or not (output / "body" / "Scripts" / "python.exe").is_file():
         raise ValueError("Existing portable body runtime is required")
     expected = json.loads(lock.read_text(encoding="utf-8")) if lock else None
     if expected and (expected.get("schema") != "studiofree-portable-assets-lock" or
                      expected.get("version") != 1):
         raise ValueError("Invalid AI asset lock")
     files = []
-    selected = list(candidates(public, analysis, installed_body, sam3))
+    selected = [(source, name) for source, name in
+                candidates(public, private, installed_body, sam3)
+                if not analysis_source_only or name.startswith("analysis_source/")]
     for source, name in selected:
         if (not source.is_file() or source.is_symlink() or
-                not any(source.is_relative_to(root) for root in (public, analysis, installed_body, sam3.parent))):
+                not any(source.is_relative_to(root) for root in (public, private, installed_body, sam3.parent))):
             raise ValueError(f"Missing, linked, or escaping asset: {source}")
         actual = sha256(source)
         if name in WEIGHTS and actual != WEIGHTS[name]:
@@ -91,8 +102,12 @@ def build(public: Path, analysis: Path, installed_body: Path, sam3: Path,
         files.append(item)
         if expected and item not in expected["files"]:
             raise ValueError(f"Source asset differs from pinned lock: {name}")
-    if expected and sorted(files, key=lambda x: x["path"]) != sorted(expected["files"], key=lambda x: x["path"]):
+    expected_files = ([item for item in expected["files"] if item["path"].startswith("analysis_source/")]
+                      if expected and analysis_source_only else expected["files"] if expected else None)
+    if expected and sorted(files, key=lambda x: x["path"]) != sorted(expected_files, key=lambda x: x["path"]):
         raise ValueError("Asset lock file set differs from production closure")
+    if analysis_source_only:
+        output.mkdir(parents=True)
     for (source, name), item in zip(selected, files, strict=True):
         target = output / name
         if target.exists():
@@ -104,23 +119,28 @@ def build(public: Path, analysis: Path, installed_body: Path, sam3: Path,
         if sha256(target) != item["sha256"]:
             raise RuntimeError(f"Asset copy failed integrity check: {name}")
     return {"schema": "studiofree-portable-assets-build", "files": files,
-            "source_roots": {"public": str(public), "analysis": str(analysis),
-                             "installed_body": str(installed_body), "sam3": str(sam3)},
+            "source_roots": {"public": str(public), "private": str(private),
+                             "installed_body": None if analysis_source_only else str(installed_body),
+                             "sam3": None if analysis_source_only else str(sam3)},
             "bytes": sum(item["bytes"] for item in files)}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--analysis-source", type=Path, required=True)
-    parser.add_argument("--installed-body", type=Path, required=True)
-    parser.add_argument("--sam3-checkpoint", type=Path, required=True)
+    parser.add_argument("--private", type=Path,
+                        default=Path(__file__).resolve().parents[2] / "Video-to-Animation")
+    parser.add_argument("--installed-body", type=Path)
+    parser.add_argument("--sam3-checkpoint", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lock", type=Path)
+    parser.add_argument("--analysis-source-only", action="store_true",
+                        help="Build just the clean analysis_source component")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
-    result = build(args.public, args.analysis_source, args.installed_body,
-                   args.sam3_checkpoint, args.output, args.lock)
+    result = build(args.public, args.private, args.installed_body,
+                   args.sam3_checkpoint, args.output, args.lock,
+                   analysis_source_only=args.analysis_source_only)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"files": len(result["files"]), "bytes": result["bytes"]}))
