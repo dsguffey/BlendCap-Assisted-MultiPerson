@@ -81,13 +81,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Release staging failed.' }
     & $python tools\studiofree_release.py --verify (Join-Path $stage 'payload')
     if ($LASTEXITCODE -ne 0) { throw 'Staged package validation failed.' }
+    & $python tools\probe_offline_components.py (Join-Path $stage 'payload')
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged Python import closure failed.' }
     if ($SkipInstaller) {
         Write-Output "Verified release stage: $stage"
     } elseif (Test-Path -LiteralPath $Iscc) {
         $compiler = (Resolve-Path -LiteralPath $Iscc).Path
         $output = New-Item -ItemType Directory -Force -Path (Join-Path $stage 'installer')
-        $innoArgs = @('/DStage=' + (Join-Path $stage 'payload'),
-            '/DProductVersion=' + $productVersion, '/O' + $output.FullName)
+        $innoArgs = @('/DProductVersion=' + $productVersion, '/O' + $output.FullName)
         if ($SignToolName) {
             $innoArgs += '/DSignToolName=' + $SignToolName
             $innoArgs += '/S' + $SignToolName + '=' + $SignToolCommand
@@ -97,16 +98,20 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
         $installer = Get-ChildItem -LiteralPath $output.FullName -Filter '*.exe' -File |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        $distribution = Join-Path $stage ('StudioFreeMoCap-' + $productVersion + '-' + $BuildId + '.zip')
+        & $python tools\package_distribution.py --installer $installer.FullName --payload (Join-Path $stage 'payload') --output $distribution
+        if ($LASTEXITCODE -ne 0) { throw 'Offline distribution ZIP failed.' }
         $info = [ordered]@{
             schema = 'studiofree-installer-build'; version = 1
             product_version = $productVersion; build_id = $BuildId
             inno_version = (Get-Item -LiteralPath $compiler).VersionInfo.ProductVersion
             installer_sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            distribution_sha256 = (Get-FileHash -LiteralPath $distribution -Algorithm SHA256).Hash.ToLowerInvariant()
             signed = [bool]$SignToolName
         }
         $info | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'installer-build-info.json') -Encoding utf8
         $signLabel = if ($SignToolName) { 'signed' } else { 'unsigned test' }
-        Write-Output "Installer output ($signLabel): $($output.FullName)"
+        Write-Output "Offline distribution ($signLabel): $distribution"
     } else {
         Write-Warning 'Inno Setup 7 compiler was not found. Verified stage is ready; installer compilation remains pending.'
     }

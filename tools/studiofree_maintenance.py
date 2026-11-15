@@ -23,6 +23,7 @@ if (Path(__file__).resolve().parents[1] / "vta_protocol").is_dir():
 from vta_protocol import VERSION as PROTOCOL  # noqa: E402
 from vta_protocol.runtime import PRODUCT_VERSION as PRODUCT  # noqa: E402
 COMPONENTS = ("engine", "control", "body", "analysis", "analysis_source", "models")
+REUSE_MIN_BYTES = 64 * 1024 * 1024
 ROUTE_OWNER = {"control_python": "control", "body_python": "body",
                "analysis_python": "analysis", "body_root": "body",
                "kinesia_root": "analysis_source", "sam3_checkpoint": "models"}
@@ -180,9 +181,48 @@ def remove_owned(root: Path, manifest: dict) -> None:
         pass
 
 
+def copy_release(payload: Path, staging: Path, manifest: dict, previous: Path | None) -> int:
+    """Reuse identical large immutable model bytes without retaining prior paths.
+
+    NTFS hardlinks are ref-counted, so uninstalling either release cannot remove
+    the other's file. A failed link falls back to a copy. Final verification
+    hashes every staged file before the release can become active.
+    """
+    prior = {}
+    if previous is not None and previous.is_dir():
+        try:
+            previous_manifest = verify_payload(previous, allow_extra=True)
+        except (OSError, ValueError, KeyError, TypeError):
+            # An update must still be able to replace a damaged old release.
+            # Never reuse bytes from a release that did not verify in full.
+            previous = None
+        else:
+            prior = {row["path"]: row for row in previous_manifest["files"]}
+    reused = 0
+    staging.mkdir(parents=True)
+    for row in manifest["files"]:
+        rel = safe_member(row["path"])
+        target = safe_destination(staging, rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old_row = prior.get(row["path"])
+        if (previous is not None and rel.parts[0] in {"body", "models"}
+                and row["bytes"] >= REUSE_MIN_BYTES and old_row is not None
+                and old_row["bytes"] == row["bytes"] and old_row["sha256"] == row["sha256"]):
+            source = safe_destination(previous, rel)
+            try:
+                os.link(source, target)
+                reused += 1
+                continue
+            except OSError:
+                pass
+        shutil.copyfile(payload / rel, target)
+    shutil.copyfile(payload / "package.json", staging / "package.json")
+    return reused
+
+
 class BlenderCLI:
-    def __init__(self, exe: Path, *, env: dict | None = None):
-        self.exe = exe.resolve(strict=True)
+    def __init__(self, exe: Path, *, env: dict | None = None, allow_missing: bool = False):
+        self.exe = exe.resolve(strict=not allow_missing)
         self.env = dict(os.environ if env is None else env)
 
     def command(self, *arguments: str) -> str:
@@ -215,9 +255,12 @@ class BlenderCLI:
             raise RuntimeError("Blender did not install the StudioFree extension")
         return target
 
-    def remove(self) -> None:
+    def remove(self) -> bool:
+        if not self.exe.is_file():
+            return False
         if (self.repository() / "blendcap").exists():
             self.command("remove", "blendcap")
+        return True
 
 
 class Lifecycle:
@@ -297,7 +340,8 @@ class Lifecycle:
             staging = self.program / "staging" / uuid4().hex
             staging.parent.mkdir(parents=True, exist_ok=True)
             try:
-                shutil.copytree(payload, staging)
+                prior_root = self.release(old["active"]) if old else None
+                copy_release(payload, staging, manifest, prior_root)
                 verify_payload(staging)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(staging, destination)
@@ -411,7 +455,9 @@ class Lifecycle:
         current = self.current()
         record = self.record()
         if current:
-            self.blender.remove()
+            if not self.blender.remove():
+                log_event(self.data, "uninstall", "extension-removal-deferred",
+                          "Blender is unavailable; application files will be removed")
             # Only remove config if its engine root belongs to our recorded release.
             if self.runtime_path.is_file():
                 value = read_json(self.runtime_path, 32768)
@@ -445,7 +491,7 @@ def main() -> None:
             parser.error("--blender is required without an existing installation")
         if current_path.is_file():
             args.blender = Path(read_json(current_path, 4096)["blender"])
-    cli = BlenderCLI(args.blender) if args.blender else None
+    cli = BlenderCLI(args.blender, allow_missing=args.operation == "uninstall") if args.blender else None
     lifecycle = Lifecycle(args.program_root, args.data_root, cli)
     try:
         log_event(args.data_root, args.operation, "started")

@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ import zipfile
 
 from tools import studiofree_maintenance as maintenance
 from tools import studiofree_release as release
+from tools import package_distribution
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +82,7 @@ class FakeBlender:
     def remove(self):
         (self.root / "blendcap" / "blender_manifest.toml").unlink(missing_ok=True)
         self.installed = None
+        return True
 
 
 class ReleaseLifecycleTests(unittest.TestCase):
@@ -120,6 +123,79 @@ class ReleaseLifecycleTests(unittest.TestCase):
                 patch.object(cli, "command") as command:
             cli.remove()
             command.assert_not_called()
+
+    def test_uninstall_preserves_data_when_blender_was_removed_first(self):
+        entitlement = self.data / "license" / "entitlement.dpapi"
+        write(entitlement, b"sealed")
+        self.lifecycle.install(self.a)
+        self.lifecycle.blender = maintenance.BlenderCLI(
+            self.root / "removed-blender.exe", allow_missing=True)
+        self.lifecycle.uninstall()
+        self.assertFalse(self.lifecycle.release("A").exists())
+        self.assertFalse(self.lifecycle.runtime_path.exists())
+        self.assertEqual(entitlement.read_bytes(), b"sealed")
+        self.assertIn("extension-removal-deferred",
+                      (self.data / "logs" / "maintenance.jsonl").read_text())
+
+    def test_large_identical_model_is_reused_by_hash(self):
+        probe = self.root / "link-probe"
+        probe.write_bytes(b"probe")
+        try:
+            os.link(probe, self.root / "link-target")
+        except OSError:
+            self.skipTest("Hardlinks unavailable in this filesystem sandbox")
+        with patch.object(maintenance, "REUSE_MIN_BYTES", 1):
+            self.lifecycle.install(self.a)
+            self.lifecycle.install(self.b)
+        first = self.lifecycle.release("A") / "models" / "sam3.pt"
+        second = self.lifecycle.release("B") / "models" / "sam3.pt"
+        self.assertTrue(os.path.samefile(first, second))
+        first.unlink()
+        self.assertEqual(second.read_bytes(), b"fixture")
+
+    def test_different_model_hash_is_not_reused(self):
+        target = self.b / "models" / "sam3.pt"
+        target.write_bytes(b"different")
+        manifest_path = self.b / "package.json"
+        manifest = json.loads(manifest_path.read_text())
+        row = next(item for item in manifest["files"] if item["path"] == "models/sam3.pt")
+        row["bytes"] = target.stat().st_size
+        row["sha256"] = release.sha256(target)
+        manifest_path.write_text(json.dumps(manifest))
+        with patch.object(maintenance, "REUSE_MIN_BYTES", 1):
+            self.lifecycle.install(self.a)
+            self.lifecycle.install(self.b)
+        first = self.lifecycle.release("A") / "models" / "sam3.pt"
+        second = self.lifecycle.release("B") / "models" / "sam3.pt"
+        self.assertFalse(os.path.samefile(first, second))
+
+    def test_damaged_previous_release_does_not_block_verified_update(self):
+        self.lifecycle.install(self.a)
+        (self.lifecycle.release("A") / "models" / "sam3.pt").write_bytes(b"damaged")
+        self.assertEqual(self.lifecycle.install(self.b), "B")
+        self.assertEqual(self.lifecycle.current()["active"], "B")
+        self.assertEqual((self.lifecycle.release("B") / "models" / "sam3.pt").read_bytes(), b"fixture")
+
+    def test_distribution_contains_exact_verified_payload(self):
+        installer = self.root / "installer" / "StudioFreeMoCap.exe"
+        write(installer, b"synthetic installer")
+        output = self.root / "StudioFreeMoCap.zip"
+        incomplete = fixture(self.root, "Core")
+        (incomplete / "control" / "python.exe").unlink()
+        manifest_path = incomplete / "package.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["files"] = [row for row in manifest["files"] if row["component"] != "control"]
+        manifest_path.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "Required component missing"):
+            package_distribution.package(installer, incomplete, output)
+        receipt = package_distribution.package(installer, self.a, output, test_fixture=True)
+        self.assertFalse(output.is_relative_to(self.a))
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(archive.read("payload/package.json"), (self.a / "package.json").read_bytes())
+            self.assertEqual(archive.read(installer.name), installer.read_bytes())
+            self.assertEqual(json.loads(archive.read("distribution.json")), receipt)
+            self.assertEqual(len(archive.namelist()), receipt["payload_files"] + 3)
+        self.assertTrue(receipt["test_fixture"])
 
     def test_missing_dependency_and_private_source_fail_closed(self):
         (self.b / "models" / "sam3.pt").unlink()

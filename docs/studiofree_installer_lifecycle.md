@@ -19,7 +19,13 @@ source, protocol drift and a compiled engine from another private commit.
 Normal development still runs the private source, source tests and development
 adapter without an installer. The release path is: commit source → source tests
 → Nuitka compile → compiled probes → extension build → approved component stage
-→ hash manifest → Inno Setup compile. `build_release.ps1` is the entry point.
+→ hash manifest → Inno Setup compile → one offline ZIP. `build_release.ps1` is
+the entry point.
+Before installer compilation it runs `tools/probe_offline_components.py` against
+all three packaged Python executables in isolated mode. The probe rejects a
+base interpreter or import path outside the staged component and imports the
+active body and analysis library entry points with offline model settings.
+It checks dependency closure, not GPU inference or a clean-machine install.
 Its `-ProbePython` argument selects a developer test interpreter with OpenCV
 and NumPy for the disposable compiled worker-flow probe; the customer installer
 does not use that interpreter. The build fails early if those probe packages
@@ -29,7 +35,7 @@ application logic remains in one private source tree.
 
 ## Technology and supported host
 
-Inno Setup **7.1.1 x64** was selected for a single EXE, conventional Installed
+Inno Setup **7.1.1 x64** was selected for a small EXE, conventional Installed
 Apps uninstall, non-admin per-user installation and integrated signing hooks.
 WiX/MSIX add packaging complexity without a present enterprise/MSIX requirement.
 Official Inno Setup documentation requests a paid commercial license for
@@ -37,6 +43,9 @@ commercial use; the owner must obtain it before commercial release. A signed
 official compiler was installed **portably under ignored `.build/tools`** for
 syntax validation; no machine-wide installer-tool installation is required on
 this development machine. The compiler is not included in Git.
+The customer receives one ZIP containing the installer EXE and its `payload/`
+directory. The EXE copies from that extracted sidecar; it never downloads
+models or runtimes. This avoids Inno's large single-EXE limit.
 
 The customer target is **Windows x64 and Blender 5.2.x**. The extension manifest
 now declares 5.2.0 as its minimum. The legacy 4.2 wording in older BlendCap
@@ -53,7 +62,7 @@ user_default -e` and `extension remove` commands.
 | `%LOCALAPPDATA%/Programs/VTA/releases/<build>` | StudioFree setup | New immutable release beside old; exact-file repair | Owned files removed |
 | `%LOCALAPPDATA%/Programs/VTA/install-record.json` | StudioFree setup | Updated with release IDs | Removed |
 | `%LOCALAPPDATA%/VTA/config/runtime.json`, `current.json` | StudioFree setup | Switches compatible engine/adapter; previous retained | Removed only when pointing to owned release |
-| Blender 5.2 `user_default/blendcap` | StudioFree setup | Reinstalled through Blender CLI | Removed through Blender CLI |
+| Blender 5.2 `user_default/blendcap` | StudioFree setup | Reinstalled through Blender CLI | Removed through Blender CLI when Blender exists; otherwise deferred |
 | `%LOCALAPPDATA%/VTA/license/entitlement.dpapi` | User entitlement | Preserved; no new use on repair/update | Preserved |
 | `%LOCALAPPDATA%/VTA/logs` and ambiguous settings/caches | User support data | Preserved | Preserved |
 | User `.blend`, adjacent `_vta`, exports and animation | User project | Never scanned or changed | Preserved |
@@ -65,11 +74,10 @@ it never kills Blender or saves a project. On an update, the previous release
 is retained; rollback reselects its runtime and extension ZIP. All deletion
 uses a manifest file list and removes only empty directories. Unknown files are
 left in place. The entitlement is neither deleted nor deactivated on uninstall.
-The uninstaller runs managed cleanup before Inno removes its payload and stops
-if cleanup fails. Blender 5.2's bundled Python must still be present when
-uninstalling; if Blender was removed first, restore Blender 5.2 or rerun the
-StudioFree installer before uninstalling. This dependency should be removed
-before a broadly distributed customer release.
+The uninstaller uses packaged `control/python.exe` to run managed cleanup before
+Inno removes its payload. Blender's Python is not required. If Blender itself
+has been removed, application cleanup proceeds, an extension-removal deferral
+is logged, and no unrelated extension directory is deleted.
 
 ## Release package and model/runtime boundary
 
@@ -84,17 +92,17 @@ developer `pyvenv.cfg`, `.pth`, runtime config, DPAPI state, `.blend` projects,
 logs and private implementation source. The generated `package.json` records
 relative path, size, SHA-256 and component for every installer-owned file.
 
-Current local measurements: the compiled engine distribution is about **65 MiB**;
-the generated public extension ZIP is about **1.5 MiB**. The development
-analysis environment is about **3.25 GiB**, the model directory about **9.01
-GiB**, and the installed development addon tree about **9.64 GiB** including
-local environments/assets. These development paths are **not** a portable or
-redistribution-approved customer payload. A monolithic offline installer would
-therefore be very large. The simpler 1.0 direction is a small core installer
-plus separately versioned, hash-pinned model/runtime components, using only
-sources cleared for redistribution or an approved authenticated provisioning
-flow. The stage format supports either bundled components or later verified
-provisioning; it does not yet download anything. A package cannot be marked
+Current local measurements: the compiled engine is about **65 MiB** and the
+public extension ZIP about **1.5 MiB**. The development body environment is
+**6.83 GiB**, analysis environment **3.25 GiB**, required local body weights
+about **2.79 GiB**, and SAM3 weights **3.21 GiB**. These are installed
+development trees, not a portable, curated or redistribution-approved package.
+An official SHA-256-pinned CPython 3.12.10 archive produced a relocated,
+37.25 MB disposable `control` runtime that passed the standard-library import
+probe. The body and analysis closures remain unassembled.
+The approved distribution direction is **one offline ZIP** containing an
+installer and all separately versioned, hash-pinned runtimes and model assets.
+The build does not download customer components. A package cannot be marked
 complete by pointing at an arbitrary copied development virtual environment.
 
 Windows x64, a supported NVIDIA driver/GPU for the tested inference path, and
@@ -114,8 +122,14 @@ rerun is Repair. Repair restores only corrupt/missing manifest-owned files from
 the verified installer payload, reinstalls the extension and reselects runtime.
 Inno clears its own payload directory before copying a full replacement, so
 A-only files cannot contaminate B's strict package manifest. Update installs
-a new full release beside the previous one. Rollback swaps back
-to the retained previous release. Uninstall removes owned files and the
+a new full release beside the previous one. Identical large `body`/`models`
+files are reused by SHA-256-checked NTFS hardlink when available; an ordinary
+copy is the safe fallback. Removing one release does not remove another
+hardlink. The 1.0 ZIP is still a full offline download; binary patching is
+out of scope. If a previous release fails verification, the update copies all
+new files from the verified payload and does not reuse its damaged bytes.
+Rollback swaps back to the retained previous release when it verifies.
+Uninstall removes owned files and, when Blender remains available, the
 extension while preserving entitlement and projects. Support events go to
 `%LOCALAPPDATA%/VTA/logs/maintenance.jsonl` without keys or environment dumps.
 

@@ -193,6 +193,8 @@ def add_approved_components(spec_path: Path, destination: Path) -> None:
     from vta_protocol.runtime import ROUTES
     if set(spec["routes"]) != set(ROUTES):
         raise ValueError("Runtime route inventory is incomplete")
+    if spec["routes"]["control_python"] != "python.exe":
+        raise ValueError("The offline installer requires control/python.exe")
     for name, route in spec["routes"].items():
         if not isinstance(route, str):
             raise ValueError(f"Invalid route: {name}")
@@ -221,10 +223,10 @@ def add_approved_components(spec_path: Path, destination: Path) -> None:
             target = destination / component / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
-    from vta_protocol.runtime import BODY_MODELS
+    from vta_protocol.runtime import BODY_MODELS, BODY_REQUIRED_CODE
     required = [destination / "body" / "save_mhr_data.py",
                 destination / "analysis_source" / "src/sam_3d_pose_estimation/stream_detector.py",
-                *[destination / "body" / safe_relative(name) for name in BODY_MODELS]]
+                *[destination / "body" / safe_relative(name) for name in BODY_MODELS + BODY_REQUIRED_CODE]]
     for path in required:
         if not path.is_file():
             raise ValueError(f"Required runtime/model component missing: {path.relative_to(destination)}")
