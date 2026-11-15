@@ -1,0 +1,426 @@
+{
+  "cpython_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d",
+  "roles": {
+    "analysis": [
+      {
+        "name": "anyio",
+        "record_sha256": "5d19a4761ae4d4a40d0297e51bc7833cc5539b279107bb7e7f29bd4b40157c19",
+        "version": "4.13.0"
+      },
+      {
+        "name": "certifi",
+        "record_sha256": "e1a60a1fad94c4d8be94cd14ade2554991d96b969c56cf479d09cb270e84bcf0",
+        "version": "2026.4.22"
+      },
+      {
+        "name": "click",
+        "record_sha256": "82d722059abda728c389e4a535ff870ca3c414d6d91be7db61cad9310cac398f",
+        "version": "8.3.3"
+      },
+      {
+        "name": "colorama",
+        "record_sha256": "88413e126edc8a81419b409279ef89424081f27bccd4aeec0140d6f03f1ade7f",
+        "version": "0.4.6"
+      },
+      {
+        "name": "dill",
+        "record_sha256": "42082e49431334287422444435fee05a9a519ea0e6cb9986a94b67228c26c535",
+        "version": "0.4.1"
+      },
+      {
+        "name": "einops",
+        "record_sha256": "f5ab2503eead94b7dbb3c722415260439feee273c0b91019e1f0788f041400bc",
+        "version": "0.8.2"
+      },
+      {
+        "name": "filelock",
+        "record_sha256": "5d956d71e145eb7c04cd4b242c9a4aea7fe0bc9d12cc2112d79f324f7fa6e2e7",
+        "version": "3.29.0"
+      },
+      {
+        "name": "ftfy",
+        "record_sha256": "33d1956245a756c99ff7da89f54d054b29ba66ac8aabe10debac9b9e005f90cd",
+        "version": "6.1.1"
+      },
+      {
+        "name": "h11",
+        "record_sha256": "3779e13c17d8e21c769ed9ee8780af123cc3f8656185f5f8d3af258ff5639b3e",
+        "version": "0.16.0"
+      },
+      {
+        "name": "httpcore",
+        "record_sha256": "67cb4644d84fef1df8c5a0862c57c3380eff058a153bac7a4ba2722779982554",
+        "version": "1.0.9"
+      },
+      {
+        "name": "httpx",
+        "record_sha256": "8bd414909dcaeb0b246cc0e3591522e3f4aefd72500a2cde60e6a0f8090219fb",
+        "version": "0.28.1"
+      },
+      {
+        "name": "huggingface-hub",
+        "record_sha256": "d239e1182ab84577eff4ab965a411b9b26e154ec36b8034777e3025727365c92",
+        "version": "1.12.0"
+      },
+      {
+        "name": "idna",
+        "record_sha256": "69aed546f3597d1ae86721f76078cc52afb109b24255ee2941ac6e673d41b344",
+        "version": "3.13"
+      },
+      {
+        "name": "iopath",
+        "record_sha256": "2cd5d1d62c406d71e71d6bfa4c1b402329c95f02ff979b4607de2f6898dae758",
+        "version": "0.1.10"
+      },
+      {
+        "name": "mpmath",
+        "record_sha256": "09cbd04e87d0c5ab64aab08291b31883e4ea27e8d2c640710e0beb1995e86b9b",
+        "version": "1.3.0"
+      },
+      {
+        "name": "numpy",
+        "record_sha256": "0e46516ac50dd55ee738cdaf309aaea9a4326602cccb2be146d9c6db6949d20f",
+        "version": "1.26.4"
+      },
+      {
+        "name": "opencv-python",
+        "record_sha256": "cfbe7a5bc3df76dd9937e2c6e205ff5982353d480179107a743fa42b6d8768ca",
+        "version": "4.11.0.86"
+      },
+      {
+        "name": "packaging",
+        "record_sha256": "34a791dcc687723f1d7601aa68319f6d51aa00e44d85818995dd33a1b7c5a49c",
+        "version": "26.2"
+      },
+      {
+        "name": "pillow",
+        "record_sha256": "e224c54ad497100cfc56fc879d18bdfd38875cd45c42d7b9df6303d42493d334",
+        "version": "12.2.0"
+      },
+      {
+        "name": "portalocker",
+        "record_sha256": "c526c330102fad6ade8de9bf127a43f9e1d1d369b478304f9ed73651099a4ec7",
+        "version": "3.2.0"
+      },
+      {
+        "name": "psutil",
+        "record_sha256": "0d4c336a396000d4cae7c9225ae020e4ec471be9873d2e3b92fb516fc9d6fff4",
+        "version": "7.2.2"
+      },
+      {
+        "name": "pycocotools",
+        "record_sha256": "1e83bdc0019e0e4626504e735ffd0a3972b99e6f4171d67cfe1aa9ad85622576",
+        "version": "2.0.11"
+      },
+      {
+        "name": "pygments",
+        "record_sha256": "56f0397ba8839099e1c34f14b0837e3965533b2727a0c2225a84d2c4e8f3b3ee",
+        "version": "2.20.0"
+      },
+      {
+        "name": "pyyaml",
+        "record_sha256": "6fef717920e6590ce79f8f922755690f9d1f3199508e9d79baeb382ea4813c9c",
+        "version": "6.0.3"
+      },
+      {
+        "name": "regex",
+        "record_sha256": "a54c84e7ae2b9a7abc6313d361ee0c8314b579e5a6e58612ce46442471a5fb37",
+        "version": "2026.4.4"
+      },
+      {
+        "name": "rich",
+        "record_sha256": "1b725253b1bd316b53169a3a0b35d03d6c81bad9009ddae73d8645fb3cd3f292",
+        "version": "15.0.0"
+      },
+      {
+        "name": "safetensors",
+        "record_sha256": "b354117ab8c12e9a841d712fe90c8fd8b5dccad4de550c5d1982ba56316ce5bf",
+        "version": "0.7.0"
+      },
+      {
+        "name": "setuptools",
+        "record_sha256": "4e3509e7d32802228e4217bac52f22eb1b4b361c9eaba63f7ab04e110dda09b5",
+        "version": "81.0.0"
+      },
+      {
+        "name": "sympy",
+        "record_sha256": "e4ef5abcd2acd2f401234ac7188f047bfcd67c2a9b14e205cbbe87c70eeb17ad",
+        "version": "1.14.0"
+      },
+      {
+        "name": "timm",
+        "record_sha256": "386bb7ac16938c27a1f646ec8b20f6d0d315984ebd4ab6c07493a035b87825ba",
+        "version": "1.0.26"
+      },
+      {
+        "name": "torch",
+        "record_sha256": "d17ff9b439180d12f83a10dd89f3a49038eb2c3f8528f76c83cc995a7c24f20d",
+        "version": "2.11.0+cu130"
+      },
+      {
+        "name": "torchvision",
+        "record_sha256": "4f0a7dbf3c0fe84e5347f9e11dfb342eadded7b524d615344d463db1f2fef1a0",
+        "version": "0.26.0+cu130"
+      },
+      {
+        "name": "tqdm",
+        "record_sha256": "c404808e57fb61503fd7bde07126c5608c2b8f122045263d200964d0633ac955",
+        "version": "4.67.3"
+      },
+      {
+        "name": "typing-extensions",
+        "record_sha256": "c42db5851c3a20efb41dbe1a0d03c18db577a5449c7e685f6b139df34b98e62f",
+        "version": "4.15.0"
+      },
+      {
+        "name": "wcwidth",
+        "record_sha256": "f79efd3f553c2d6feac8c4110a69def3af750edd482c67cd7aa46b9a13652d75",
+        "version": "0.6.0"
+      }
+    ],
+    "body": [
+      {
+        "name": "antlr4-python3-runtime",
+        "record_sha256": "3f5db9574beda962cee8fae02864ff7ab7639d09b9dacd111a9476e22cb04557",
+        "version": "4.9.3"
+      },
+      {
+        "name": "attrs",
+        "record_sha256": "a5151f0461f45abf44fdc57c2ccdb73151bb54a0abfd22133f7ea7ad48f8dc23",
+        "version": "26.1.0"
+      },
+      {
+        "name": "braceexpand",
+        "record_sha256": "4c0f583317595256d8811569144896372942a26a01b7fe581ee8969096e141f8",
+        "version": "0.1.7"
+      },
+      {
+        "name": "brotli",
+        "record_sha256": "4b09e801fcd2cbf97b59d38f59860d3eb878170a384bda2fa944e33e21262d0a",
+        "version": "1.2.0"
+      },
+      {
+        "name": "certifi",
+        "record_sha256": "54fa8ebe7e5d1cd4a48064f94e706e5f7a6cdcccef364379692ed7657bfed982",
+        "version": "2026.7.22"
+      },
+      {
+        "name": "charset-normalizer",
+        "record_sha256": "681ac891bc1db2d12391869081f2c651b11863ac2eb6cf23b3423e09c8bb325b",
+        "version": "3.5.1"
+      },
+      {
+        "name": "click",
+        "record_sha256": "43d8bb1ce44dea5d9423b7eae1d6ba911974425b96acc170b036e1655a901e10",
+        "version": "8.5.0"
+      },
+      {
+        "name": "colorama",
+        "record_sha256": "24ecf55e9e177d90edaf7e688cc0d1944d32d35027e53f2c51d076cb9f4e103d",
+        "version": "0.4.6"
+      },
+      {
+        "name": "cycler",
+        "record_sha256": "0dd0246dcaff5aaa3e9bbb1d8fb35134b6d04659180f94e77491162f0e1f2ab3",
+        "version": "0.12.1"
+      },
+      {
+        "name": "einops",
+        "record_sha256": "8cb88dd6206e7c8a051ece61dc86ff76ce0f47b3ea20ed8db52d8c72062f76fb",
+        "version": "0.8.2"
+      },
+      {
+        "name": "filelock",
+        "record_sha256": "3fad802e025f120bd1b35d40d4e66beb61a2f4494a85b1ead6b479c01d263619",
+        "version": "3.32.4"
+      },
+      {
+        "name": "fonttools",
+        "record_sha256": "44fbccb1b198205714bc14973c87100dd48d8984d04323d2e6ca0d5310743e39",
+        "version": "4.63.0"
+      },
+      {
+        "name": "fsspec",
+        "record_sha256": "4801db90e1425026baa5d1164ce1ea97a882a7d71f27081a77e7e3154ab8d958",
+        "version": "2026.7.0"
+      },
+      {
+        "name": "h11",
+        "record_sha256": "ac020206998e31ee6a749a207c7746245805e64814bb88642302a572f557fb24",
+        "version": "0.16.0"
+      },
+      {
+        "name": "httpcore",
+        "record_sha256": "b2dabdfa67b814f4441d3ff8ccb37ffb2f6262970d605b49115641e382c9745f",
+        "version": "1.0.9"
+      },
+      {
+        "name": "httpx",
+        "record_sha256": "d6882b3fcc2cc224925aff1a081ea26b8f42b10d0aa21b0a2672680b0c34ef10",
+        "version": "0.28.1"
+      },
+      {
+        "name": "huggingface-hub",
+        "record_sha256": "9fa803794e4fea31f36ed677b445ff51f6737cc7a437d47104bf1f12e73a9914",
+        "version": "1.7.1"
+      },
+      {
+        "name": "idna",
+        "record_sha256": "a3d4ef28585afdac2acbc32f816dccce22b5947668466b94d6fc1a7efde17092",
+        "version": "3.19"
+      },
+      {
+        "name": "kiwisolver",
+        "record_sha256": "9b3e4dd524f43008c60b856abbfc2774cc06667e76a089ff425423fe078f1a93",
+        "version": "1.5.1"
+      },
+      {
+        "name": "lightning-utilities",
+        "record_sha256": "d082c38aee1d138113f37a061949721e32eca8635e336c252bb805c821c4d70b",
+        "version": "0.15.3"
+      },
+      {
+        "name": "matplotlib",
+        "record_sha256": "0416527e4589a9f6870dd04130285b04b5270301ceaba3f98f3f1e1d188df2cf",
+        "version": "3.11.1"
+      },
+      {
+        "name": "moge",
+        "record_sha256": "e43c159a07d49640b0b31ee6b954d7117be1d3e9bc1d17be8f06c420d520070d",
+        "version": "2.0.0"
+      },
+      {
+        "name": "mpmath",
+        "record_sha256": "89869bb99d259b6078aa20ebadb44d921aa20595ffa58ab929e3082d7f3f5529",
+        "version": "1.3.0"
+      },
+      {
+        "name": "networkx",
+        "record_sha256": "b9eec012d3da7de578ab44e1effc11626e933a07ecbd50e7d474b4b92648574c",
+        "version": "3.6.1"
+      },
+      {
+        "name": "numpy",
+        "record_sha256": "021ba045b3c2b88e47f67d47a4641c1896c2b4e3cf1ae8afd276a96cef7daa00",
+        "version": "2.4.3"
+      },
+      {
+        "name": "omegaconf",
+        "record_sha256": "bc39ace32c679a50affdff08a43f279be67bff308acdcb61f57e75937fcb0634",
+        "version": "2.3.0"
+      },
+      {
+        "name": "opencv-contrib-python",
+        "record_sha256": "97d975c6dd78fd449847a27d217aed9fc8b78888192975d766612b84a575189f",
+        "version": "5.0.0.93"
+      },
+      {
+        "name": "packaging",
+        "record_sha256": "a2cd431afc6ca596c9bf35faf2b902709cad9c48a55d264a71c71e70c6cb2e7a",
+        "version": "26.3"
+      },
+      {
+        "name": "pillow",
+        "record_sha256": "541a3487a26b0b07fa1c1f0bfe90490676b0d76bb4a2687e9f794854b288705f",
+        "version": "12.3.0"
+      },
+      {
+        "name": "pygments",
+        "record_sha256": "8c9eb81979e7fc83282389ef19456fd1171d59fac2b5917ac7762726c8bc52dc",
+        "version": "2.21.0"
+      },
+      {
+        "name": "pyparsing",
+        "record_sha256": "c94381d6b03c2a93ba2f635256bcaf29efbd2dfda4d1c4bc78c23c521dec4676",
+        "version": "3.3.2"
+      },
+      {
+        "name": "python-dateutil",
+        "record_sha256": "0c26b4b1542dbd1ebd8d2babdd501aed583d6ada9595517f936f00fe4ff9d254",
+        "version": "2.9.0.post0"
+      },
+      {
+        "name": "pytorch-lightning",
+        "record_sha256": "9fa041091599217dc0231ac92ab3bd1a797ce41856f34197779d2009db6626f0",
+        "version": "2.6.1"
+      },
+      {
+        "name": "pyyaml",
+        "record_sha256": "ff25f9939487eaabf6e6da28b74a1e419aff9587664e2d17997cf3c207531b41",
+        "version": "6.0.3"
+      },
+      {
+        "name": "rich",
+        "record_sha256": "ee3acd23cbe4ef74867591cee90c13a5f90a59535d839b1cd66d1dd3e6ee50e2",
+        "version": "15.0.0"
+      },
+      {
+        "name": "roma",
+        "record_sha256": "14bf90919ad7cd90356e72e7b7fc31a9459f707e5c500997b9a1a3d2c40ee937",
+        "version": "1.5.6"
+      },
+      {
+        "name": "scipy",
+        "record_sha256": "a4588355c1ecf772a22ead16dace1597dc24996192388c4eff106c0618704540",
+        "version": "1.17.1"
+      },
+      {
+        "name": "setuptools",
+        "record_sha256": "b236c7a32c86e59de7a293a435085617f920e6b5fffa4edbb7ac69c0bdcf9ca5",
+        "version": "84.0.0"
+      },
+      {
+        "name": "six",
+        "record_sha256": "d834e846ba51c0e7371968d0b5a0cdebdaa2f9ea2f0447a40b594fa96ca5d89f",
+        "version": "1.17.0"
+      },
+      {
+        "name": "sympy",
+        "record_sha256": "4e7cf1e265fb2228988fc16f5e29b5824ff8accb803c22749840321d39c5b0c0",
+        "version": "1.14.0"
+      },
+      {
+        "name": "termcolor",
+        "record_sha256": "9908a77e2b6f170e67d70fa534c593a35abc843d705e04a2c3d571e226cdf1cf",
+        "version": "3.3.0"
+      },
+      {
+        "name": "torch",
+        "record_sha256": "d57f8cfa6656f61f35d8195debf863454392ff17e2d18a3fc892cd568da67b93",
+        "version": "2.7.1+cu128"
+      },
+      {
+        "name": "torchmetrics",
+        "record_sha256": "7ea04737b444403f613c56e2227c4f9ad22b979d27106df5a70e4addde9e7cc8",
+        "version": "1.9.0"
+      },
+      {
+        "name": "torchvision",
+        "record_sha256": "1312f4a59395d0fb0b9345b63a091a798199872866cd67b695e9e20f5fd38fe1",
+        "version": "0.22.1+cu128"
+      },
+      {
+        "name": "tqdm",
+        "record_sha256": "122c05630b616308edae2c27de90014be0b930e5e3dc1ef5b6abe8e47ed0f483",
+        "version": "4.70.0"
+      },
+      {
+        "name": "typing-extensions",
+        "record_sha256": "78f74ed46a377d6e1debed78b3e994ff9cfe02a529d393d7c8ab80989bd25079",
+        "version": "4.16.0"
+      },
+      {
+        "name": "utils3d",
+        "record_sha256": "032385f5531c21db11c85e20e953463d282008ccf841ef6f9ad925e59778a5a9",
+        "version": "1.3"
+      },
+      {
+        "name": "yacs",
+        "record_sha256": "7c0157208a35f45092b97104f9974134c10f5ca47694ef1eeea4e79fae7bcc6f",
+        "version": "0.1.8"
+      }
+    ]
+  },
+  "schema": "studiofree-portable-ai-lock",
+  "version": 1
+}
