@@ -1,0 +1,4 @@
+# Preserve the copied license and notice bytes recorded in manifest.json.
+payload/** -text
+blendcap-zip/** -text
+additional/** -text

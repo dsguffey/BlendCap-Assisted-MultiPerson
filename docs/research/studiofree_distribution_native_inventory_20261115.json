@@ -1,0 +1,2739 @@
+{
+  "files": [
+    {
+      "bytes": 74096,
+      "component": "analysis",
+      "path": "analysis/DLLs/_asyncio.pyd",
+      "sha256": "c77de90cad749087a0c5dc5e19d78d24f6ef44e7e5ac19b8420cfc0cea62395d"
+    },
+    {
+      "bytes": 86896,
+      "component": "analysis",
+      "path": "analysis/DLLs/_bz2.pyd",
+      "sha256": "65f610646d10d5babea080e060d244b546ec52c54012e5e937dc72dcc2e2e7bc"
+    },
+    {
+      "bytes": 127480,
+      "component": "analysis",
+      "path": "analysis/DLLs/_ctypes.pyd",
+      "sha256": "0e56107a891100535f2da79d85a5ae65ff1227b4765bd108f8593ac1a1110d81"
+    },
+    {
+      "bytes": 262000,
+      "component": "analysis",
+      "path": "analysis/DLLs/_decimal.pyd",
+      "sha256": "aeacfead2befcc0768063a037bb64bd32109ae09cb144e5f571b04dd7965db9d"
+    },
+    {
+      "bytes": 135160,
+      "component": "analysis",
+      "path": "analysis/DLLs/_elementtree.pyd",
+      "sha256": "5009a9a53c03ef8387443b5cf6ce08e5c3a79727466a0b931c5bbca915bf89ca"
+    },
+    {
+      "bytes": 68976,
+      "component": "analysis",
+      "path": "analysis/DLLs/_hashlib.pyd",
+      "sha256": "03d233dbace599168eaffec823de6ed7beec8c2a4ebfe9b8a3d8e042a59af3ba"
+    },
+    {
+      "bytes": 161136,
+      "component": "analysis",
+      "path": "analysis/DLLs/_lzma.pyd",
+      "sha256": "e3deecc1f59a3b811c608861decd84de1e8df8bafd5e2b39188861318c5a38cf"
+    },
+    {
+      "bytes": 46584,
+      "component": "analysis",
+      "path": "analysis/DLLs/_msi.pyd",
+      "sha256": "b49332bae154ebdd8c3d5e7ddfdde336d9c47f91ba028dc67bafb2420b3dbb5c"
+    },
+    {
+      "bytes": 37368,
+      "component": "analysis",
+      "path": "analysis/DLLs/_multiprocessing.pyd",
+      "sha256": "2c636df7059cb0dd7e978dd735c7c5c8ddb09cf94754cf9e232296b96c5c545a"
+    },
+    {
+      "bytes": 57336,
+      "component": "analysis",
+      "path": "analysis/DLLs/_overlapped.pyd",
+      "sha256": "662126ff80c3a1b4cedf74074029c12ae4743e6d3b37376e39ac70aacb7d4d3c"
+    },
+    {
+      "bytes": 33784,
+      "component": "analysis",
+      "path": "analysis/DLLs/_queue.pyd",
+      "sha256": "48e76e0ad63f6932b4a77b5819f41c1e7595636ca8d9e824f0943a14b8bb5035"
+    },
+    {
+      "bytes": 85496,
+      "component": "analysis",
+      "path": "analysis/DLLs/_socket.pyd",
+      "sha256": "3efa4636cf9e350856f6927d67a4c2564bf9bd2758a00bbf17d3aece5b60016d"
+    },
+    {
+      "bytes": 126184,
+      "component": "analysis",
+      "path": "analysis/DLLs/_sqlite3.pyd",
+      "sha256": "64b51df2805c58b023a875e8ae3be7ac7f61ef664f32ca6c90f6315da47ef0bc"
+    },
+    {
+      "bytes": 179432,
+      "component": "analysis",
+      "path": "analysis/DLLs/_ssl.pyd",
+      "sha256": "0bc527d2dbc50009f43b2ed5d5982c4f63f4b647647ffa9eda612dcda80f6040"
+    },
+    {
+      "bytes": 68600,
+      "component": "analysis",
+      "path": "analysis/DLLs/_tkinter.pyd",
+      "sha256": "ed2f7b2c9984032cfb046923b45bb745f6e819730c086e559777665b45e8390e"
+    },
+    {
+      "bytes": 27128,
+      "component": "analysis",
+      "path": "analysis/DLLs/_uuid.pyd",
+      "sha256": "acce4f281d7ffb2dec0997527faf25b1df62ad7bd3032c568ddcf65c90edc867"
+    },
+    {
+      "bytes": 40304,
+      "component": "analysis",
+      "path": "analysis/DLLs/_wmi.pyd",
+      "sha256": "a980f1e7a29842bd946863fc2693fbeb555a9dc0f9e1630dfed9a2fcdef3ece2"
+    },
+    {
+      "bytes": 49656,
+      "component": "analysis",
+      "path": "analysis/DLLs/_zoneinfo.pyd",
+      "sha256": "76f1439cda82ab6976df6ba505c4079444703f6d44d8b0259ce59c0ff4279fb4"
+    },
+    {
+      "bytes": 5231472,
+      "component": "analysis",
+      "path": "analysis/DLLs/libcrypto-3.dll",
+      "sha256": "ccfffddcd3defb8d899026298af9af43bc186130f8483d77e97c93233d5f27d7"
+    },
+    {
+      "bytes": 39696,
+      "component": "analysis",
+      "path": "analysis/DLLs/libffi-8.dll",
+      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a"
+    },
+    {
+      "bytes": 794992,
+      "component": "analysis",
+      "path": "analysis/DLLs/libssl-3.dll",
+      "sha256": "007142039f04d04e0ed607bda53de095e5bc6a8a10d26ecedde94ea7d2d7eefe"
+    },
+    {
+      "bytes": 205304,
+      "component": "analysis",
+      "path": "analysis/DLLs/pyexpat.pyd",
+      "sha256": "d615e193d1affcdbfe504e90d3621cbdcff94bf72b79d899126534507fd6d27a"
+    },
+    {
+      "bytes": 33136,
+      "component": "analysis",
+      "path": "analysis/DLLs/select.pyd",
+      "sha256": "d4d7181b11db0bd22a6cd5cda6f8583d1f5c77615fd0a6ca33350619d6e0438a"
+    },
+    {
+      "bytes": 1583608,
+      "component": "analysis",
+      "path": "analysis/DLLs/sqlite3.dll",
+      "sha256": "8daa45684bf6688fca28d956b2e8942f2fa98f656675ce68e6d61dd869848a7a"
+    },
+    {
+      "bytes": 1841896,
+      "component": "analysis",
+      "path": "analysis/DLLs/tcl86t.dll",
+      "sha256": "b894e0c9a7d2b56f9f202de5044221cfc0938cbd9ffaca6b6793bba486e28081"
+    },
+    {
+      "bytes": 1590776,
+      "component": "analysis",
+      "path": "analysis/DLLs/tk86t.dll",
+      "sha256": "3883976d6270c44cf43b0f4e3b925259a36c42f586680a93dfe6a3fdfb5b4939"
+    },
+    {
+      "bytes": 1140592,
+      "component": "analysis",
+      "path": "analysis/DLLs/unicodedata.pyd",
+      "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488"
+    },
+    {
+      "bytes": 31736,
+      "component": "analysis",
+      "path": "analysis/DLLs/winsound.pyd",
+      "sha256": "100e8d676777603c7258daf9b2f23ef001f09f1596d8708de359326fff72bddd"
+    },
+    {
+      "bytes": 148336,
+      "component": "analysis",
+      "path": "analysis/DLLs/zlib1.dll",
+      "sha256": "a3a9487dd7a27be0296731513a5c1d9005bd3acf5861ccbe0aabca3984f51c4f"
+    },
+    {
+      "bytes": 74938880,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/cv2/cv2.pyd",
+      "sha256": "d2e14633f0699469c37e43210ca9e167887ce4a162e01f1490be49fd8e45388f"
+    },
+    {
+      "bytes": 27954688,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/cv2/opencv_videoio_ffmpeg4110_64.dll",
+      "sha256": "f0460320ac08c074bdf6d5a19f5c13d204e585e85030fdd40e20a3c0b3adeb67"
+    },
+    {
+      "bytes": 66048,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_multiarray_tests.cp312-win_amd64.pyd",
+      "sha256": "d9017d99e0b6cad2f02462420793551fe9e6b836f3a800228caaeed144a32b75"
+    },
+    {
+      "bytes": 2842624,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_multiarray_umath.cp312-win_amd64.pyd",
+      "sha256": "5d4f44389d1b4e9aa62af63b716a0d4266dbb56fefa9bf27831f85b695994da5"
+    },
+    {
+      "bytes": 11264,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_operand_flag_tests.cp312-win_amd64.pyd",
+      "sha256": "6b2a6d51c423411bae8fecc5e739d2251abb7f82521125c68a1734e58c7ad92d"
+    },
+    {
+      "bytes": 40448,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_rational_tests.cp312-win_amd64.pyd",
+      "sha256": "2bb8e20ef34acdb42105daaf1fb4246493f46d49b84d614ab6fefbd4e4e428ad"
+    },
+    {
+      "bytes": 2236928,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_simd.cp312-win_amd64.pyd",
+      "sha256": "9d7bfef85379008c0c28469eea756ee3d1a52983801b76d35f80e91317cb5431"
+    },
+    {
+      "bytes": 13824,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_struct_ufunc_tests.cp312-win_amd64.pyd",
+      "sha256": "310d34efdd848e7e0e1165c8c67914c0d3f066a5dbae7c91a27cba41e05ca53a"
+    },
+    {
+      "bytes": 32768,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/core/_umath_tests.cp312-win_amd64.pyd",
+      "sha256": "8407002ff967c7e7e514388a6fc1cbd51b375586ef774030361094f8b357d216"
+    },
+    {
+      "bytes": 110080,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/fft/_pocketfft_internal.cp312-win_amd64.pyd",
+      "sha256": "f0a4df58721cb85ca35f5f3b8c47538c53d57bbcca4fc5c07a6c06ac4c5ef421"
+    },
+    {
+      "bytes": 106496,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/linalg/_umath_linalg.cp312-win_amd64.pyd",
+      "sha256": "7652e82c6c53249b911dde9822b71a7ecbecbc699c79475862e779a51d7f1d0f"
+    },
+    {
+      "bytes": 17920,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/linalg/lapack_lite.cp312-win_amd64.pyd",
+      "sha256": "4a4db19ed6cb68529fe3ed22cbbdbd90b30b6dc1ebb2817d19bba65759c173c0"
+    },
+    {
+      "bytes": 231936,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_bounded_integers.cp312-win_amd64.pyd",
+      "sha256": "0c19ec0b3129f12df51982aace8478f8274a5b0d6a2206be1d0e1ee0227c36a4"
+    },
+    {
+      "bytes": 166400,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_common.cp312-win_amd64.pyd",
+      "sha256": "774bf3e20e2b1ca9797deb1daccb88a776a70c8555a501454d8d900a14585134"
+    },
+    {
+      "bytes": 689152,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_generator.cp312-win_amd64.pyd",
+      "sha256": "8979528423faffa32d4d6edddc0b3591b8fd465c7549263267c4b249e2f1d03b"
+    },
+    {
+      "bytes": 75776,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_mt19937.cp312-win_amd64.pyd",
+      "sha256": "592238b7a62fb033724cfd745be6036700f584d6c4ee8baf83cb77788320aa49"
+    },
+    {
+      "bytes": 81920,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_pcg64.cp312-win_amd64.pyd",
+      "sha256": "d9a1618ba4515eb6c41dcac7b99400d07e22cd56ad4f3ba94cb84dd231cf73a8"
+    },
+    {
+      "bytes": 68608,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_philox.cp312-win_amd64.pyd",
+      "sha256": "34363add569504b32533fa65b6933feb2ba2bcf0fe10be47c55fbdad2e223df8"
+    },
+    {
+      "bytes": 50688,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/_sfc64.cp312-win_amd64.pyd",
+      "sha256": "a241dfd9d3abaeff3028ba98bd8c573d4f8c7d2990119634b4a280fc3fd33de9"
+    },
+    {
+      "bytes": 160768,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/bit_generator.cp312-win_amd64.pyd",
+      "sha256": "d335d1443e324a7a89582cc3e85bd850198eb3133c3dd38c7f55c6f609b0cfd8"
+    },
+    {
+      "bytes": 582656,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy/random/mtrand.cp312-win_amd64.pyd",
+      "sha256": "2df309f3cc66116966484fcc466cef200aff8d2a4c8ea482d3530b5cccb89394"
+    },
+    {
+      "bytes": 38168576,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/numpy.libs/libopenblas64__v0.3.23-293-gc2f4bdbb-gcc_10_3_0-2bde3a66a51006b2b53eb373ff767a3f.dll",
+      "sha256": "57b87772bf676b5c2d718c79dddc9f039d79ec3319fee1398cc305adff7b69e5"
+    },
+    {
+      "bytes": 7892480,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_avif.cp312-win_amd64.pyd",
+      "sha256": "38b5ca8582752f4f25b4a68dede6653573c37697d9c8100a82e52ecde282e573"
+    },
+    {
+      "bytes": 2589696,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imaging.cp312-win_amd64.pyd",
+      "sha256": "6dfd10a98bc81a1999e2b5ddb8be8c1cfb9a2c8e10258c56a52ee0d8930d3d7f"
+    },
+    {
+      "bytes": 269824,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imagingcms.cp312-win_amd64.pyd",
+      "sha256": "46c59cf197b74954dfa01036d97938291573fa9ec339cd34f90fc7c870001cac"
+    },
+    {
+      "bytes": 2166272,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imagingft.cp312-win_amd64.pyd",
+      "sha256": "fe615fedf586c7206a74bedecddbf58623ffdf57e90ca2f8bca062aebae138c0"
+    },
+    {
+      "bytes": 25600,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imagingmath.cp312-win_amd64.pyd",
+      "sha256": "e1b3e6bc361fd8735df2c920c9878238dabaf797fbc13041ffaa26f635888d3a"
+    },
+    {
+      "bytes": 13824,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imagingmorph.cp312-win_amd64.pyd",
+      "sha256": "4b4c11011504a690bc1f55c50adf048fd7fee4d3d0e2ff606bdb891feb3f2db1"
+    },
+    {
+      "bytes": 14848,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_imagingtk.cp312-win_amd64.pyd",
+      "sha256": "b7de0c367e22ada46a61a156023cc0d30187b45946f4154e077d630f161e2f0e"
+    },
+    {
+      "bytes": 409600,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/PIL/_webp.cp312-win_amd64.pyd",
+      "sha256": "6af926fd1a58f3912b6f5e290ef37768c26017988bdd2217c0daa8e1107d4f71"
+    },
+    {
+      "bytes": 70656,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/psutil/_psutil_windows.pyd",
+      "sha256": "0035450801bd7d938e9e146c5ec28e619cb5a5f4a18cdc53ac7e9734c7f94f78"
+    },
+    {
+      "bytes": 129024,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/pycocotools/_mask.pyd",
+      "sha256": "01783d2782ede36575a020b52b7410aa3e80cac857e54285dcb569f36e1e50c4"
+    },
+    {
+      "bytes": 726528,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/regex/_regex.cp312-win_amd64.pyd",
+      "sha256": "cb1c3f2edf7b926b4d92efc4a3a7668db0dd067f8886b38e530f26288084bb63"
+    },
+    {
+      "bytes": 738304,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/safetensors/_safetensors_rust.pyd",
+      "sha256": "f203cb23bd0e572173eb37bc53faa5487d500f9bc2540901d0da466c5abadaf0"
+    },
+    {
+      "bytes": 11776,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/cli-32.exe",
+      "sha256": "32acc1bc543116cbe2cff10cb867772df2f254ff2634c870aef0b46c4b696fdb"
+    },
+    {
+      "bytes": 14336,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/cli-64.exe",
+      "sha256": "bbb3de5707629e6a60a0c238cd477b28f07f0066982fda953fa6fcec39073a4a"
+    },
+    {
+      "bytes": 13824,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/cli-arm64.exe",
+      "sha256": "b9a7d08da880dfac8bcf548eba4b06fb59b6f09b17d33148a0f6618328926c61"
+    },
+    {
+      "bytes": 11776,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/cli.exe",
+      "sha256": "32acc1bc543116cbe2cff10cb867772df2f254ff2634c870aef0b46c4b696fdb"
+    },
+    {
+      "bytes": 11776,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/gui-32.exe",
+      "sha256": "85dae1e95d77845f2cb59bcac3d4afe74bbe4c91a9bcc5bf4a71cd43104dbe7c"
+    },
+    {
+      "bytes": 14336,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/gui-64.exe",
+      "sha256": "3471b6140eadc6412277dbbefe3fef8c345a0f1a59776086b80a3618c3a83e3b"
+    },
+    {
+      "bytes": 13824,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/gui-arm64.exe",
+      "sha256": "e694f4743405c8b5926ff457db6fe7f1a12dec7c16a9c3864784d3f4e07ae097"
+    },
+    {
+      "bytes": 11776,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/setuptools/gui.exe",
+      "sha256": "85dae1e95d77845f2cb59bcac3d4afe74bbe4c91a9bcc5bf4a71cd43104dbe7c"
+    },
+    {
+      "bytes": 10752,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/_C.cp312-win_amd64.pyd",
+      "sha256": "39a011753f8c8a03006bcec68a5ba6467d61baaa6433dcdbd080082f5fce5438"
+    },
+    {
+      "bytes": 2800640,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/bin/protoc.exe",
+      "sha256": "ffa43650f946bd3a947a07d43b9259fdb024e2643c8a042afb8adeb780b67f28"
+    },
+    {
+      "bytes": 1088000,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/c10.dll",
+      "sha256": "b431f26c423904104aab069df1a20fc1a514c71c3726c96c7bab552e497ccfa4"
+    },
+    {
+      "bytes": 422912,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/c10_cuda.dll",
+      "sha256": "0719777d04721fa5bb14acb1fa169c39189d1358dbe9f3596ef39f2d872515bf"
+    },
+    {
+      "bytes": 54272,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/caffe2_nvrtc.dll",
+      "sha256": "ddadf12ebcf04af9fd959c136832a073ecf27e70df64c51ccc107a9e0c891ccf"
+    },
+    {
+      "bytes": 50288240,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cublas64_13.dll",
+      "sha256": "5d083083cdd613577496791dd96d00fe3a78c955684b53ca46a8ffa3e0b1e170"
+    },
+    {
+      "bytes": 477896816,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cublasLt64_13.dll",
+      "sha256": "e1c26671801ecd435baf97c6e9cfe28196cf55005c2039356b48030b09ce5dd5"
+    },
+    {
+      "bytes": 470640,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudart64_13.dll",
+      "sha256": "58c509047f9dd1879cf82c6d5375a95c02c7bd295ae6c8362c745c936e2afc31"
+    },
+    {
+      "bytes": 273008,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn64_9.dll",
+      "sha256": "421a6e8b750f7698174ee97473e0fff4aa254eebea2f9b0fb38d8f0654eabae7"
+    },
+    {
+      "bytes": 107030128,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_adv64_9.dll",
+      "sha256": "e2f35c26d873db1b1484d0c21d1b840c36704979769ffcc39d79f39a2020dded"
+    },
+    {
+      "bytes": 1534064,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_cnn64_9.dll",
+      "sha256": "0b83ab1fe2b438e00d2e11122eac86817b9f8d8f9334ff7e846ddfd2fd9a3d44"
+    },
+    {
+      "bytes": 206127728,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_engines_precompiled64_9.dll",
+      "sha256": "595b9777216135f19b8612ba4226748a7710a3ce9936fda9731161264a155a07"
+    },
+    {
+      "bytes": 24877680,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_engines_runtime_compiled64_9.dll",
+      "sha256": "4e2fbedf79caf895bea020016c565c4ebe915070f1db549333db70792ac50dee"
+    },
+    {
+      "bytes": 2331760,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_graph64_9.dll",
+      "sha256": "069b5ef0692faa2dd0275bdfc71fac038e44a10866bf0cadc03a7d22d7fa4a45"
+    },
+    {
+      "bytes": 58915952,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_heuristic64_9.dll",
+      "sha256": "574302ffdbe3d54f4c63b1b47f8dc57c6afdef9e0aa31170ff86469338f64a93"
+    },
+    {
+      "bytes": 37130864,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cudnn_ops64_9.dll",
+      "sha256": "bb6eb184bff4d52a4411eeacc9784e191715e59725e73f7c7e3c93870fada0f8"
+    },
+    {
+      "bytes": 284331040,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cufft64_12.dll",
+      "sha256": "611ba7e40dfab64b9b5bd35f4ad3593e00a8e93785fbf53160d9398aacd5ac14"
+    },
+    {
+      "bytes": 201264,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cufftw64_12.dll",
+      "sha256": "59e3b4cfb3e82481ebd773f3a58bf4f64966d1657ccc6b8f72b33c42fcda6079"
+    },
+    {
+      "bytes": 2067488,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cupti64_2025.3.0.dll",
+      "sha256": "2015295ce64f2b6f36ee8a0b9c91cb365ded4bd7173c63da36f75caad1d464ee"
+    },
+    {
+      "bytes": 58863672,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/curand64_10.dll",
+      "sha256": "da51792dc1b4768ea8207a21f5a2e05226263ae399b310cfd9bc7efb481b5530"
+    },
+    {
+      "bytes": 126421024,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cusolver64_12.dll",
+      "sha256": "bf27332ad47b6e86e3c3c8b24d7a3005d823ffd1ee1cadbe6642f6c1ea48fd8f"
+    },
+    {
+      "bytes": 95365152,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cusolverMg64_12.dll",
+      "sha256": "a92dc614fdb5cf48272e26819092a5d012bb4b3d477f9e78bbaaf4290e343b14"
+    },
+    {
+      "bytes": 150326304,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/cusparse64_12.dll",
+      "sha256": "a155d5bfd5bff68305557be21486470b9949cf6a45a3acda80b27e1670e671e2"
+    },
+    {
+      "bytes": 1614184,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/libiomp5md.dll",
+      "sha256": "eb14cf741b10a6ca176acded284bff7b069e421f49927e28fef9685c6f62abf3"
+    },
+    {
+      "bytes": 43880,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/libiompstubs5md.dll",
+      "sha256": "3707fae5baa5c77da4a355d9977cf132251310db89923bf944b1da6dec702922"
+    },
+    {
+      "bytes": 88218656,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvJitLink_130_0.dll",
+      "sha256": "b6c247de22ee23ef60d0148bd3a3343164891cd9f2e9946bf23fc459d12c5222"
+    },
+    {
+      "bytes": 27764256,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvperf_host.dll",
+      "sha256": "8530cc52b673a0cee8e84ded28c041b16622ae566d4b9d15ffbc275bc8695afc"
+    },
+    {
+      "bytes": 4471328,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvrtc-builtins64_130.dll",
+      "sha256": "65813a86fbe8fe9ab6adff04275c7e9be9d4ca67fccdb868bb18a4f497155a6b"
+    },
+    {
+      "bytes": 91028512,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvrtc64_130_0.alt.dll",
+      "sha256": "f0e9688b032feac4f05fbf327493252dda0ad77a527ecb543af91e2b1b337d31"
+    },
+    {
+      "bytes": 90961440,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvrtc64_130_0.dll",
+      "sha256": "37d2195bcdc5db37a838a8eb4f286f502ea94d82319bb7de68751ad672f4ad6d"
+    },
+    {
+      "bytes": 48128,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/nvToolsExt64_1.dll",
+      "sha256": "0fe54f1b80ad3e44da2a3d9f0956e7c3903029d6319689ce1c4068f7a20932f3"
+    },
+    {
+      "bytes": 15360,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/shm.dll",
+      "sha256": "cf34aac6b17ba3a0854756488f2de543977cf13e8fd27d78a5df103d197ef9e2"
+    },
+    {
+      "bytes": 9728,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/torch.dll",
+      "sha256": "e29e23453d39d543ca19452afca34dcabbe5574f0b892ababf319860f2abae08"
+    },
+    {
+      "bytes": 265977344,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/torch_cpu.dll",
+      "sha256": "b9c5a19a889aad195d0b16240f75314a4451dc72ba32057b0916bd1c41980dc6"
+    },
+    {
+      "bytes": 408276480,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/torch_cuda.dll",
+      "sha256": "b37be18aa423d74db656fbc97f362000fab10eeab393a0299d78730c23f57e6c"
+    },
+    {
+      "bytes": 9728,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/torch_global_deps.dll",
+      "sha256": "ece872c9ac4277908d4f9d8107790e39fad7e1e750e8e6bb0503cdefb3d23b33"
+    },
+    {
+      "bytes": 19176448,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/torch_python.dll",
+      "sha256": "181cd675337332e2ab667e4ff406bac2dbc712709af97c0e13038bd37b2dcee7"
+    },
+    {
+      "bytes": 195072,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/uv.dll",
+      "sha256": "fa569e682fc5fb7a8eb94c6829af9f30a569748dbbc6bce39735d48bc960bcf8"
+    },
+    {
+      "bytes": 89088,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torch/lib/zlibwapi.dll",
+      "sha256": "1f047faec08d9a35c304fb4a7cf13853589359a8f7cbfdd48c5d5807712dcf05"
+    },
+    {
+      "bytes": 6975488,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/_C.pyd",
+      "sha256": "dba18f83ccb865e86664983c398b53e0d41fae024030098ab45b3528c7441140"
+    },
+    {
+      "bytes": 318464,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/image.pyd",
+      "sha256": "0264922baa6ad421b67e3abea9f19d3967b65766e05c9a0e48a0f1be475454d3"
+    },
+    {
+      "bytes": 552448,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/jpeg8.dll",
+      "sha256": "68cf8a8f6324add1c8d20920a477e1f3afe272e336e9788cbba8323067ae2a28"
+    },
+    {
+      "bytes": 285512,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/libjpeg.dll",
+      "sha256": "ab29f8c5d0142401afa44f1d83bf660c3b16b79e6c8fef60d061956fdcc08fa3"
+    },
+    {
+      "bytes": 209224,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/libpng16.dll",
+      "sha256": "2105fdedbb84962ded6f70bd6220c4c5f1e094638efc91b73f7a6c5a3534cef1"
+    },
+    {
+      "bytes": 37192,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/libsharpyuv.dll",
+      "sha256": "5b9781467bae1b30a5df0707ab745730c98ad96a1db2a825b8f135f3cd6cf946"
+    },
+    {
+      "bytes": 387912,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/libwebp.dll",
+      "sha256": "e9ebf8ca707ad2e964f8cdd9892c9e536517856696547c4671f62a7cd4d394f6"
+    },
+    {
+      "bytes": 4188704,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/nvjpeg64_13.dll",
+      "sha256": "e0db7becae523b729b115329e4fb00486a7a8c342f1a49796416aa869cfd463e"
+    },
+    {
+      "bytes": 7409480,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/python312.dll",
+      "sha256": "72c1bea78e0c49f746889a3af8c4973e044e50e319c1c976dd98059a403404da"
+    },
+    {
+      "bytes": 101192,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/torchvision/zlib.dll",
+      "sha256": "bb5e7e442c70bdfa2d3c45c9620835ecc5e98191bde2bc226b4d799a09ad30b3"
+    },
+    {
+      "bytes": 253952,
+      "component": "analysis",
+      "path": "analysis/Lib/site-packages/yaml/_yaml.cp312-win_amd64.pyd",
+      "sha256": "4fd0e84f50261ed0886cffcdd8008b055af3352546e649c3d741b50eae1f9b5f"
+    },
+    {
+      "bytes": 274424,
+      "component": "analysis",
+      "path": "analysis/Lib/venv/scripts/nt/python.exe",
+      "sha256": "0b471133e110cfb53a061cad528ce8e517d7b9ac41a0a396c39ad795a487fc14"
+    },
+    {
+      "bytes": 263400,
+      "component": "analysis",
+      "path": "analysis/Lib/venv/scripts/nt/pythonw.exe",
+      "sha256": "c946a75fdc676012b084f6dc056506bfca5098dad04c407419ce7605bd85108c"
+    },
+    {
+      "bytes": 104952,
+      "component": "analysis",
+      "path": "analysis/Scripts/python.exe",
+      "sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a"
+    },
+    {
+      "bytes": 70376,
+      "component": "analysis",
+      "path": "analysis/Scripts/python3.dll",
+      "sha256": "fb975a606e7fbf74f64260e3f60c3490b4f74a183c0926fd6ed1ac4c52ac7b1c"
+    },
+    {
+      "bytes": 6945272,
+      "component": "analysis",
+      "path": "analysis/Scripts/python312.dll",
+      "sha256": "9a0e3435aaa680d868150f87ab3e388ad2eebc22f87e036155c7b4eda8cd2120"
+    },
+    {
+      "bytes": 120400,
+      "component": "analysis",
+      "path": "analysis/Scripts/vcruntime140.dll",
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+    },
+    {
+      "bytes": 49776,
+      "component": "analysis",
+      "path": "analysis/Scripts/vcruntime140_1.dll",
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+    },
+    {
+      "bytes": 74096,
+      "component": "body",
+      "path": "body/DLLs/_asyncio.pyd",
+      "sha256": "c77de90cad749087a0c5dc5e19d78d24f6ef44e7e5ac19b8420cfc0cea62395d"
+    },
+    {
+      "bytes": 86896,
+      "component": "body",
+      "path": "body/DLLs/_bz2.pyd",
+      "sha256": "65f610646d10d5babea080e060d244b546ec52c54012e5e937dc72dcc2e2e7bc"
+    },
+    {
+      "bytes": 127480,
+      "component": "body",
+      "path": "body/DLLs/_ctypes.pyd",
+      "sha256": "0e56107a891100535f2da79d85a5ae65ff1227b4765bd108f8593ac1a1110d81"
+    },
+    {
+      "bytes": 262000,
+      "component": "body",
+      "path": "body/DLLs/_decimal.pyd",
+      "sha256": "aeacfead2befcc0768063a037bb64bd32109ae09cb144e5f571b04dd7965db9d"
+    },
+    {
+      "bytes": 135160,
+      "component": "body",
+      "path": "body/DLLs/_elementtree.pyd",
+      "sha256": "5009a9a53c03ef8387443b5cf6ce08e5c3a79727466a0b931c5bbca915bf89ca"
+    },
+    {
+      "bytes": 68976,
+      "component": "body",
+      "path": "body/DLLs/_hashlib.pyd",
+      "sha256": "03d233dbace599168eaffec823de6ed7beec8c2a4ebfe9b8a3d8e042a59af3ba"
+    },
+    {
+      "bytes": 161136,
+      "component": "body",
+      "path": "body/DLLs/_lzma.pyd",
+      "sha256": "e3deecc1f59a3b811c608861decd84de1e8df8bafd5e2b39188861318c5a38cf"
+    },
+    {
+      "bytes": 46584,
+      "component": "body",
+      "path": "body/DLLs/_msi.pyd",
+      "sha256": "b49332bae154ebdd8c3d5e7ddfdde336d9c47f91ba028dc67bafb2420b3dbb5c"
+    },
+    {
+      "bytes": 37368,
+      "component": "body",
+      "path": "body/DLLs/_multiprocessing.pyd",
+      "sha256": "2c636df7059cb0dd7e978dd735c7c5c8ddb09cf94754cf9e232296b96c5c545a"
+    },
+    {
+      "bytes": 57336,
+      "component": "body",
+      "path": "body/DLLs/_overlapped.pyd",
+      "sha256": "662126ff80c3a1b4cedf74074029c12ae4743e6d3b37376e39ac70aacb7d4d3c"
+    },
+    {
+      "bytes": 33784,
+      "component": "body",
+      "path": "body/DLLs/_queue.pyd",
+      "sha256": "48e76e0ad63f6932b4a77b5819f41c1e7595636ca8d9e824f0943a14b8bb5035"
+    },
+    {
+      "bytes": 85496,
+      "component": "body",
+      "path": "body/DLLs/_socket.pyd",
+      "sha256": "3efa4636cf9e350856f6927d67a4c2564bf9bd2758a00bbf17d3aece5b60016d"
+    },
+    {
+      "bytes": 126184,
+      "component": "body",
+      "path": "body/DLLs/_sqlite3.pyd",
+      "sha256": "64b51df2805c58b023a875e8ae3be7ac7f61ef664f32ca6c90f6315da47ef0bc"
+    },
+    {
+      "bytes": 179432,
+      "component": "body",
+      "path": "body/DLLs/_ssl.pyd",
+      "sha256": "0bc527d2dbc50009f43b2ed5d5982c4f63f4b647647ffa9eda612dcda80f6040"
+    },
+    {
+      "bytes": 68600,
+      "component": "body",
+      "path": "body/DLLs/_tkinter.pyd",
+      "sha256": "ed2f7b2c9984032cfb046923b45bb745f6e819730c086e559777665b45e8390e"
+    },
+    {
+      "bytes": 27128,
+      "component": "body",
+      "path": "body/DLLs/_uuid.pyd",
+      "sha256": "acce4f281d7ffb2dec0997527faf25b1df62ad7bd3032c568ddcf65c90edc867"
+    },
+    {
+      "bytes": 40304,
+      "component": "body",
+      "path": "body/DLLs/_wmi.pyd",
+      "sha256": "a980f1e7a29842bd946863fc2693fbeb555a9dc0f9e1630dfed9a2fcdef3ece2"
+    },
+    {
+      "bytes": 49656,
+      "component": "body",
+      "path": "body/DLLs/_zoneinfo.pyd",
+      "sha256": "76f1439cda82ab6976df6ba505c4079444703f6d44d8b0259ce59c0ff4279fb4"
+    },
+    {
+      "bytes": 5231472,
+      "component": "body",
+      "path": "body/DLLs/libcrypto-3.dll",
+      "sha256": "ccfffddcd3defb8d899026298af9af43bc186130f8483d77e97c93233d5f27d7"
+    },
+    {
+      "bytes": 39696,
+      "component": "body",
+      "path": "body/DLLs/libffi-8.dll",
+      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a"
+    },
+    {
+      "bytes": 794992,
+      "component": "body",
+      "path": "body/DLLs/libssl-3.dll",
+      "sha256": "007142039f04d04e0ed607bda53de095e5bc6a8a10d26ecedde94ea7d2d7eefe"
+    },
+    {
+      "bytes": 205304,
+      "component": "body",
+      "path": "body/DLLs/pyexpat.pyd",
+      "sha256": "d615e193d1affcdbfe504e90d3621cbdcff94bf72b79d899126534507fd6d27a"
+    },
+    {
+      "bytes": 33136,
+      "component": "body",
+      "path": "body/DLLs/select.pyd",
+      "sha256": "d4d7181b11db0bd22a6cd5cda6f8583d1f5c77615fd0a6ca33350619d6e0438a"
+    },
+    {
+      "bytes": 1583608,
+      "component": "body",
+      "path": "body/DLLs/sqlite3.dll",
+      "sha256": "8daa45684bf6688fca28d956b2e8942f2fa98f656675ce68e6d61dd869848a7a"
+    },
+    {
+      "bytes": 1841896,
+      "component": "body",
+      "path": "body/DLLs/tcl86t.dll",
+      "sha256": "b894e0c9a7d2b56f9f202de5044221cfc0938cbd9ffaca6b6793bba486e28081"
+    },
+    {
+      "bytes": 1590776,
+      "component": "body",
+      "path": "body/DLLs/tk86t.dll",
+      "sha256": "3883976d6270c44cf43b0f4e3b925259a36c42f586680a93dfe6a3fdfb5b4939"
+    },
+    {
+      "bytes": 1140592,
+      "component": "body",
+      "path": "body/DLLs/unicodedata.pyd",
+      "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488"
+    },
+    {
+      "bytes": 31736,
+      "component": "body",
+      "path": "body/DLLs/winsound.pyd",
+      "sha256": "100e8d676777603c7258daf9b2f23ef001f09f1596d8708de359326fff72bddd"
+    },
+    {
+      "bytes": 148336,
+      "component": "body",
+      "path": "body/DLLs/zlib1.dll",
+      "sha256": "a3a9487dd7a27be0296731513a5c1d9005bd3acf5861ccbe0aabca3984f51c4f"
+    },
+    {
+      "bytes": 856576,
+      "component": "body",
+      "path": "body/Lib/site-packages/_brotli.cp312-win_amd64.pyd",
+      "sha256": "1e4cf067342ee168410560db9bbba370a1b609abc028bff61a3dcc1274dfcd16"
+    },
+    {
+      "bytes": 117248,
+      "component": "body",
+      "path": "body/Lib/site-packages/charset_normalizer/cd.cp312-win_amd64.pyd",
+      "sha256": "71ffb046452b819770538cb59fd25694c0a8e9b08af4b8b71f26dac85dcff062"
+    },
+    {
+      "bytes": 193536,
+      "component": "body",
+      "path": "body/Lib/site-packages/charset_normalizer/md.cp312-win_amd64.pyd",
+      "sha256": "c53a0a481bbcef6a88492bd113b6293997900f4a17a1a5055776d76256d720f9"
+    },
+    {
+      "bytes": 112898048,
+      "component": "body",
+      "path": "body/Lib/site-packages/cv2/cv2.pyd",
+      "sha256": "ae833b9b5771f5932200bd3b8ad0f483f4fbec92cbdbd26d21d38fe524c60e66"
+    },
+    {
+      "bytes": 30876160,
+      "component": "body",
+      "path": "body/Lib/site-packages/cv2/opencv_videoio_ffmpeg500_64.dll",
+      "sha256": "7aabff029d1fa47cf56ede4dbbe05dc62da3208f07cd16471d4c966a33f9aa31"
+    },
+    {
+      "bytes": 99328,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/cu2qu/cu2qu.cp312-win_amd64.pyd",
+      "sha256": "3e0f35521892efb00f6c6276ba10daf62424de98d1f58b5b64a0d44bf3287dfb"
+    },
+    {
+      "bytes": 113152,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/feaLib/lexer.cp312-win_amd64.pyd",
+      "sha256": "2e339f45f5ecff9b6c8a201e88e1bd7d6937b2389338f6fd842259746836f474"
+    },
+    {
+      "bytes": 315904,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/misc/bezierTools.cp312-win_amd64.pyd",
+      "sha256": "d249a3b02e286d643bc41e4de041922c05ef68235af620d40433d2780590512b"
+    },
+    {
+      "bytes": 82432,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/pens/momentsPen.cp312-win_amd64.pyd",
+      "sha256": "d2b2a14eed6a5a2c21fc35e31e64790087d050facb3935aae69ebe8414915c17"
+    },
+    {
+      "bytes": 110592,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/qu2cu/qu2cu.cp312-win_amd64.pyd",
+      "sha256": "74b2cead5d7c608e0c87415feb6116d4d7ab53cf3a07ad33ff1fda1c6b8c2642"
+    },
+    {
+      "bytes": 130048,
+      "component": "body",
+      "path": "body/Lib/site-packages/fontTools/varLib/iup.cp312-win_amd64.pyd",
+      "sha256": "b91d96f979ab39ce1b600bc789cbebdb980944a56847555f8d8f9a843c60f978"
+    },
+    {
+      "bytes": 184320,
+      "component": "body",
+      "path": "body/Lib/site-packages/functorch/_C.cp312-win_amd64.pyd",
+      "sha256": "f7e42842236701782039af7c04ea11a976fac9218da9047694a6707cb6e76947"
+    },
+    {
+      "bytes": 151552,
+      "component": "body",
+      "path": "body/Lib/site-packages/kiwisolver/_cext.cp312-win_amd64.pyd",
+      "sha256": "54abfa3bb07e45fd2ce60600cd1f4cf308dc3c3dd3e88b4868727f4f761c9446"
+    },
+    {
+      "bytes": 179200,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/_c_internal_utils.cp312-win_amd64.pyd",
+      "sha256": "558095b2171409f848077bc96e3b8b3cb5142ec76ce6c825a816fdfba2aac966"
+    },
+    {
+      "bytes": 445952,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/_image.cp312-win_amd64.pyd",
+      "sha256": "98cbfcb4316bfd364aa40b2f146aa727022b364a33c80f02f833672677f723b7"
+    },
+    {
+      "bytes": 337408,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/_path.cp312-win_amd64.pyd",
+      "sha256": "907169fdf1f3fd061ae948cb3739918793976bdc15e962dd8105a4dbbe431b1e"
+    },
+    {
+      "bytes": 615936,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/_qhull.cp312-win_amd64.pyd",
+      "sha256": "c88307177b9b0f0154a9aecb88a80337a9f0c1248a5acfcae58631c9a3c402fb"
+    },
+    {
+      "bytes": 333312,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/_tri.cp312-win_amd64.pyd",
+      "sha256": "8bfc6e847945172dd9805fa99f53559ec1fd28f01c9e2dc214919efae44ef341"
+    },
+    {
+      "bytes": 482304,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/backends/_backend_agg.cp312-win_amd64.pyd",
+      "sha256": "4a18e96513fdd52d633cdbd1f320fc09a49050b5ca7615b53708af0174b95754"
+    },
+    {
+      "bytes": 198144,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/backends/_tkagg.cp312-win_amd64.pyd",
+      "sha256": "197a9fa85d7dd31110ffd14834a938ac1c9704d5b72db142001977259cab1e20"
+    },
+    {
+      "bytes": 2317312,
+      "component": "body",
+      "path": "body/Lib/site-packages/matplotlib/ft2font.cp312-win_amd64.pyd",
+      "sha256": "b65a839290a644136bfeac8226496cb1e325d9aa9cb8374d1e5b1e816f39d112"
+    },
+    {
+      "bytes": 65536,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_multiarray_tests.cp312-win_amd64.pyd",
+      "sha256": "b24238874652fff42d2d3708bed5090392a6cdec622f415cad468a0cddc881aa"
+    },
+    {
+      "bytes": 3714560,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_multiarray_umath.cp312-win_amd64.pyd",
+      "sha256": "55d9c3138fae0bc2196e37b0d77bf3d7bd8ab100d2bafcd1bff5a5b808349eac"
+    },
+    {
+      "bytes": 12288,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_operand_flag_tests.cp312-win_amd64.pyd",
+      "sha256": "bfd6798f79bd8ee38005208893c7f2e3758f9be0c870fdcea8bc488ca05ad976"
+    },
+    {
+      "bytes": 39936,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_rational_tests.cp312-win_amd64.pyd",
+      "sha256": "105aac95db4cc33744652b6218e20e5ed1f53877c5caa7aca0b9bea8d2ef864a"
+    },
+    {
+      "bytes": 832000,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_simd.cp312-win_amd64.pyd",
+      "sha256": "bfa4000e2b1e5766ac46eb9941136fb26a9560b0ccb4b9c943378edf3fc2ae66"
+    },
+    {
+      "bytes": 14336,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_struct_ufunc_tests.cp312-win_amd64.pyd",
+      "sha256": "9b2894ee1a81e39a676a0d9318aff1fa1eb8d993743dd81d818d74c4ef1dcd52"
+    },
+    {
+      "bytes": 33280,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/_core/_umath_tests.cp312-win_amd64.pyd",
+      "sha256": "8a510e9b0120be4ead18c2bd583106d3238f12c907ab7251037ffd3bba83c948"
+    },
+    {
+      "bytes": 276480,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/fft/_pocketfft_umath.cp312-win_amd64.pyd",
+      "sha256": "e1bc7410bd05c21b876445fb832ca2343088c8bc4b614d7d0b39f47509345700"
+    },
+    {
+      "bytes": 112128,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/linalg/_umath_linalg.cp312-win_amd64.pyd",
+      "sha256": "ac5f2e1b63d6240e2d6ab8644d0754eb1753c96a86e3d35d092e7bb14bed0eec"
+    },
+    {
+      "bytes": 18944,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/linalg/lapack_lite.cp312-win_amd64.pyd",
+      "sha256": "e30a5b2d8075b9ca4d62806d4bb5233c0a6294aeb90de6065a45e841ea65567e"
+    },
+    {
+      "bytes": 207360,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_bounded_integers.cp312-win_amd64.pyd",
+      "sha256": "53b0aa8362f22023b68a0336fafdd0885f76ffa704a7cbc506bf41e8d347be3b"
+    },
+    {
+      "bytes": 167424,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_common.cp312-win_amd64.pyd",
+      "sha256": "d03d369ead808dc84907c4100f871fdda7fdaae71562dadc1ed82e62e3fd3669"
+    },
+    {
+      "bytes": 585216,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_generator.cp312-win_amd64.pyd",
+      "sha256": "3699d5a36a6e7a505dc204dbbfb6a66e2ddbb5cf6e3a71ff380a9640339e4623"
+    },
+    {
+      "bytes": 83968,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_mt19937.cp312-win_amd64.pyd",
+      "sha256": "5cb697aca3f5af17bcfa21e5cbf34d62ed14c8b0c660e359334227e62ef07af3"
+    },
+    {
+      "bytes": 94720,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_pcg64.cp312-win_amd64.pyd",
+      "sha256": "49c2a3d14cab54597b5c1a1402cc9c2f8a3d9af3ff98b95cd55b5580c4003046"
+    },
+    {
+      "bytes": 78336,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_philox.cp312-win_amd64.pyd",
+      "sha256": "e3588aa01242e4a34f57225f189d478c87730cbddc557e3ddafd6876595a93d7"
+    },
+    {
+      "bytes": 59904,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/_sfc64.cp312-win_amd64.pyd",
+      "sha256": "656762a373a905a9d596c38573713ab19bf92bbdf8193a60b5f47611e1137162"
+    },
+    {
+      "bytes": 157696,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/bit_generator.cp312-win_amd64.pyd",
+      "sha256": "52339142c3a4028c3c8a1d5a26991aa80754e53bd23f0c644814c476f7b3d9f1"
+    },
+    {
+      "bytes": 488960,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy/random/mtrand.cp312-win_amd64.pyd",
+      "sha256": "2069796545586d3ce9c4b05576e31d4a8a028a004ce097569de4ca37b7b15e64"
+    },
+    {
+      "bytes": 20407296,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy.libs/libscipy_openblas64_-4bb64bb73b19ae7523581172b5c4a821.dll",
+      "sha256": "4bb64bb73b19ae7523581172b5c4a8216eb66d283c4297fcd9bd100c45e9110e"
+    },
+    {
+      "bytes": 575056,
+      "component": "body",
+      "path": "body/Lib/site-packages/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll",
+      "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
+    },
+    {
+      "bytes": 7893504,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_avif.cp312-win_amd64.pyd",
+      "sha256": "6731dce52baab0b96b0eeb3c664844b5b42c2168ea8668af2430e2fbdd2dfbd8"
+    },
+    {
+      "bytes": 2632704,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imaging.cp312-win_amd64.pyd",
+      "sha256": "c8c519ec72bf75b2945b4fc4afa854af2fca8b970a403134f9ddda3e164d85e9"
+    },
+    {
+      "bytes": 272384,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imagingcms.cp312-win_amd64.pyd",
+      "sha256": "c89c633ae1bf3f26a327d14ff688db66628e19c9866ab925479f27dcb60a2d6f"
+    },
+    {
+      "bytes": 2174976,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imagingft.cp312-win_amd64.pyd",
+      "sha256": "77c6d37de41733df40fb36d9af47644989ac17da036515e759303969edb22c48"
+    },
+    {
+      "bytes": 21504,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imagingmath.cp312-win_amd64.pyd",
+      "sha256": "82ac45c41a008854d05f67deda298b65a7bed850d0d79a3af861ed583f6e7d62"
+    },
+    {
+      "bytes": 12288,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imagingmorph.cp312-win_amd64.pyd",
+      "sha256": "b8523bbce8b322b4b931863c61b8107156b3f23fe1bbbfe0bc3fa318ea662fb0"
+    },
+    {
+      "bytes": 14848,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_imagingtk.cp312-win_amd64.pyd",
+      "sha256": "690cc1cae4a2dc8594a342b9241e691dcc89d81dad4cddcefdf285275365a2b1"
+    },
+    {
+      "bytes": 416256,
+      "component": "body",
+      "path": "body/Lib/site-packages/PIL/_webp.cp312-win_amd64.pyd",
+      "sha256": "9823cebb84f425af3ac1e7437259bc176e7ad7e25d7fa829b0e1a3e55c11be70"
+    },
+    {
+      "bytes": 186368,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_cyutility.cp312-win_amd64.pyd",
+      "sha256": "1990a1fbef9f2f75556db35b81d7180c903fc54db3f8fd08c14ac2cbc805c61b"
+    },
+    {
+      "bytes": 105472,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_ccallback_c.cp312-win_amd64.pyd",
+      "sha256": "509d2e681897f4253263c063ad8a2aa0c2459b85ce3d86754b401d42ab26dc9a"
+    },
+    {
+      "bytes": 15872,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_fpumode.cp312-win_amd64.pyd",
+      "sha256": "f00f7a238a65d40eb6939bac18ef8c407dd345cf26c7e83bb0a185ab03756814"
+    },
+    {
+      "bytes": 52224,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_test_ccallback.cp312-win_amd64.pyd",
+      "sha256": "57431ca6b0015ec5534f8f8419216cd76f06191a271ddbf5e750d595eaf82ff2"
+    },
+    {
+      "bytes": 33792,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_test_deprecation_call.cp312-win_amd64.pyd",
+      "sha256": "20f122cd55541a794a8c49308eb545a83a86a01d6a049a1ce9b66d2ba5e76286"
+    },
+    {
+      "bytes": 24576,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_test_deprecation_def.cp312-win_amd64.pyd",
+      "sha256": "118091bc00e030f12f820975ec605dbec71ee7a101cd594c6aec658d6d733487"
+    },
+    {
+      "bytes": 235008,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/_uarray/_uarray.cp312-win_amd64.pyd",
+      "sha256": "2fa9cd0fca336b35fca629e2ceedde50fdeed9d6d6ea3575a2bc4889222bc2d6"
+    },
+    {
+      "bytes": 60416,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/_lib/messagestream.cp312-win_amd64.pyd",
+      "sha256": "b4679bc7cc58c3dd7cb29689ae96ab295fff3412b1724baa7d2b7c6cf86f6c15"
+    },
+    {
+      "bytes": 245760,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/cluster/_hierarchy.cp312-win_amd64.pyd",
+      "sha256": "d0f3ecaf076a4dd76f565fea77a48902c52c0017f801ebcca9559bd8bbb41f13"
+    },
+    {
+      "bytes": 173056,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/cluster/_optimal_leaf_ordering.cp312-win_amd64.pyd",
+      "sha256": "b04f540816f40caf0516c1487cae2eca92cec792145f96a4bd38bbce5d2f597f"
+    },
+    {
+      "bytes": 110080,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/cluster/_vq.cp312-win_amd64.pyd",
+      "sha256": "3dfe9c54f9b339d73c884907616d8dc63bed2bea49256c443fb81f0d49769013"
+    },
+    {
+      "bytes": 1097216,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/fft/_pocketfft/pypocketfft.cp312-win_amd64.pyd",
+      "sha256": "dd089b853dd1382b4ce73a138076efa8dda9391efa6090ee31fe607e2bdee313"
+    },
+    {
+      "bytes": 124928,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/fftpack/convolve.cp312-win_amd64.pyd",
+      "sha256": "b3c2881a63d1676579f4f398ec68d08f30cc108fcb595a1b91feb41a75d2994c"
+    },
+    {
+      "bytes": 95232,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/integrate/_dop.cp312-win_amd64.pyd",
+      "sha256": "cf340c300760f60abf1f734e30869a4caf5e975d5355d177a009bfefc55fb156"
+    },
+    {
+      "bytes": 228352,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/integrate/_odepack.cp312-win_amd64.pyd",
+      "sha256": "b87d527753a64e761ea8de0ea98da5f9fb37d4749905e07841c75e7f355c8c96"
+    },
+    {
+      "bytes": 143360,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/integrate/_quadpack.cp312-win_amd64.pyd",
+      "sha256": "cb28ae63f88e3ecf211bf8f5f27323a9295f30aaa0ff1bfbeb7d62bf434329c2"
+    },
+    {
+      "bytes": 17920,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/integrate/_test_multivariate.cp312-win_amd64.pyd",
+      "sha256": "9f13805d7933823250c360616d9af4c3bd7732088373dcff43ae5e29009b4749"
+    },
+    {
+      "bytes": 278528,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/integrate/_vode.cp312-win_amd64.pyd",
+      "sha256": "9455a7ae1a8e85a8008a4fcd6e4460b583bea0cd0860253f6309e2806a020814"
+    },
+    {
+      "bytes": 675328,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_dfitpack.cp312-win_amd64.pyd",
+      "sha256": "351b13a45d45b01736350911ba9aa10ba4ea236a4b33875da70f01df89347288"
+    },
+    {
+      "bytes": 1016832,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_dierckx.cp312-win_amd64.pyd",
+      "sha256": "36e8ab8e5aa64f735c68e380e3d17b3f8fef9c7d871a658d3915f0b7cbe16a0a"
+    },
+    {
+      "bytes": 420864,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_fitpack.cp312-win_amd64.pyd",
+      "sha256": "e017d57aa95ac206befa452fbf1b8e35aff05f6a22205fcec96804e8911f1c95"
+    },
+    {
+      "bytes": 228864,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_interpnd.cp312-win_amd64.pyd",
+      "sha256": "d7a4ad815dfa5f533354b825783a26b320d2f167f1e142f36d15aa36137ba0bb"
+    },
+    {
+      "bytes": 231424,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_ppoly.cp312-win_amd64.pyd",
+      "sha256": "cdac95584e8dd9056ba64b38a13f50feacdacfb5c0a0a38c2e90175646092391"
+    },
+    {
+      "bytes": 1165312,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_rbfinterp_pythran.cp312-win_amd64.pyd",
+      "sha256": "bfefea84ca4f6adf1a5de7d113360d30e643e0a2b94a99beaa8ed0bf6e3536c5"
+    },
+    {
+      "bytes": 122880,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/interpolate/_rgi_cython.cp312-win_amd64.pyd",
+      "sha256": "c3e7e6243a3b7a64aedc4291852bad2e3fc64caa51e611ce866ce68e2991cb2f"
+    },
+    {
+      "bytes": 2846208,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/io/_fast_matrix_market/_fmm_core.cp312-win_amd64.pyd",
+      "sha256": "3918a898ade2c78d93ddd302f1447a4442e5bef7d63107b73655d4d64aa8e814"
+    },
+    {
+      "bytes": 178176,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/io/matlab/_mio5_utils.cp312-win_amd64.pyd",
+      "sha256": "ab0536b6d57881314284cc17a90479dbade9441434643b9fd649b6ddaedea637"
+    },
+    {
+      "bytes": 52736,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/io/matlab/_mio_utils.cp312-win_amd64.pyd",
+      "sha256": "0ec808b641fafaab37322e9835d067ee51a59c739d8836b4106fdc4d8a40469c"
+    },
+    {
+      "bytes": 105984,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/io/matlab/_streams.cp312-win_amd64.pyd",
+      "sha256": "9ff3b4b033ae5440170646ade943197f45ed07c6224f943419388e3e54b6bc4a"
+    },
+    {
+      "bytes": 1057792,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_batched_linalg.cp312-win_amd64.pyd",
+      "sha256": "c6df23588eba47a89edeed4474974d6ea816060d7749a2821a564a857d79a255"
+    },
+    {
+      "bytes": 312832,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_cythonized_array_utils.cp312-win_amd64.pyd",
+      "sha256": "5a88e80730755f2577ac1826ccc567b4a524fe2b30052f99c87311f755c8f74e"
+    },
+    {
+      "bytes": 749056,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_decomp_interpolative.cp312-win_amd64.pyd",
+      "sha256": "3600e8ec1622c6977125638fee701558609dc2d372dbc118a66becbee20c1db1"
+    },
+    {
+      "bytes": 120832,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_decomp_lu_cython.cp312-win_amd64.pyd",
+      "sha256": "3005373a7d19051fc61d451f140bf961e0caaf2f95ea0fb442908c57345bc1a0"
+    },
+    {
+      "bytes": 282624,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_decomp_update.cp312-win_amd64.pyd",
+      "sha256": "10b7ee93b4a18bef35182b844eb54457ceaad866ef9aa76d6fc1e4b9fc71b59d"
+    },
+    {
+      "bytes": 737792,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_fblas.cp312-win_amd64.pyd",
+      "sha256": "3c6e3904bdfb3849a94db9e21863b5ce98516d7df41764afb8c27bde7c387e34"
+    },
+    {
+      "bytes": 2273280,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_flapack.cp312-win_amd64.pyd",
+      "sha256": "0de0eb87b20daaeb54f26abf23d54a02215cbdc19c8245aadb3fa86e96804328"
+    },
+    {
+      "bytes": 1061888,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_linalg_pythran.cp312-win_amd64.pyd",
+      "sha256": "cdf6e618ef2ad73ae92e843600a70d4c87078561ebb4375f26402958b8f714e1"
+    },
+    {
+      "bytes": 229376,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_matfuncs_expm.cp312-win_amd64.pyd",
+      "sha256": "65e2c40301818e461f81d35b4cd7a282c9502d9beb0599d4b6a330826a3309bd"
+    },
+    {
+      "bytes": 211456,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_matfuncs_schur_sqrtm.cp312-win_amd64.pyd",
+      "sha256": "a30c2700d337cee784c08d4ea7fff536ab3b881b3f535c0b0b68babde2e5c4f0"
+    },
+    {
+      "bytes": 103424,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_matfuncs_sqrtm_triu.cp312-win_amd64.pyd",
+      "sha256": "539fd829f3f86f20f78838a3d2080c61292c6d0fbd748036751c04b8eb464478"
+    },
+    {
+      "bytes": 122880,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/_solve_toeplitz.cp312-win_amd64.pyd",
+      "sha256": "ab6049fe4ae0ae781e6562d78fee3e9c1715cf3dd4686428fedbaaf99c4dab4f"
+    },
+    {
+      "bytes": 119296,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/cython_blas.cp312-win_amd64.pyd",
+      "sha256": "7cb7d97da1cdcdbce9af4adb83638ee5185a857918c5e0b7e1696e527c3c0d81"
+    },
+    {
+      "bytes": 199168,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/linalg/cython_lapack.cp312-win_amd64.pyd",
+      "sha256": "84cc424fa42d3a2c1abaaf20107930c327f585599ca47fa4540d4f9a9f5d53a4"
+    },
+    {
+      "bytes": 16896,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/ndimage/_ctest.cp312-win_amd64.pyd",
+      "sha256": "5209e5ad9816fdf85c3cfba74d9cda7a51e27a3340484f2b5eaac47a61026833"
+    },
+    {
+      "bytes": 71168,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/ndimage/_cytest.cp312-win_amd64.pyd",
+      "sha256": "3cea1263ad1fb73157c4a8b6ad2dc91786e2014159d87bb4f522397f6d2fb674"
+    },
+    {
+      "bytes": 177664,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/ndimage/_nd_image.cp312-win_amd64.pyd",
+      "sha256": "7a5bfe894a43b761f2042f2a35c1e799aaa964b60e33b1acc55bf8062636f191"
+    },
+    {
+      "bytes": 205312,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/ndimage/_ni_label.cp312-win_amd64.pyd",
+      "sha256": "b7dd341165d5ca1960ff96b1d6600822cdd50614f1328537d9311e219ae38d12"
+    },
+    {
+      "bytes": 124416,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/ndimage/_rank_filter_1d.cp312-win_amd64.pyd",
+      "sha256": "eb419d67ee29fa9615f01d288b43b8c0288da67043aa494b481c93b24d92b9d9"
+    },
+    {
+      "bytes": 689152,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/odr/__odrpack.cp312-win_amd64.pyd",
+      "sha256": "9a83361de5e9a5c41958efba5fadd498ea797eba8bd7e958440fa5191ed01923"
+    },
+    {
+      "bytes": 173568,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_bglu_dense.cp312-win_amd64.pyd",
+      "sha256": "3168df9f9c5a3ba0ef428c1c5ca13a6fced1a164b4d31cc4d71aca1baf58f50f"
+    },
+    {
+      "bytes": 70656,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_direct.cp312-win_amd64.pyd",
+      "sha256": "6ea9f33c61aa3009eb557db94bc80c74b8b25947553a9950bf4ef1e4c4cc372e"
+    },
+    {
+      "bytes": 1033216,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_group_columns.cp312-win_amd64.pyd",
+      "sha256": "a3ee6c6801009f84b3aa8a980c83a0b1983d33fcf944144cda3cda691ecca43b"
+    },
+    {
+      "bytes": 6443520,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_highspy/_core.cp312-win_amd64.pyd",
+      "sha256": "99d5c437bca5ee91c8785721fe69b235b6b348cff9c27a7436501f4cc419baad"
+    },
+    {
+      "bytes": 1278464,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_highspy/_highs_options.cp312-win_amd64.pyd",
+      "sha256": "98acb3f762673688fc402e893d3313d267733135f0e1c07ef508cbcdb4b2ad8f"
+    },
+    {
+      "bytes": 171520,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_lbfgsb.cp312-win_amd64.pyd",
+      "sha256": "9d087101aadc47b4ac09332433edcc3be64de36a135acc7c728f079c3af9ebea"
+    },
+    {
+      "bytes": 177664,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_lsap.cp312-win_amd64.pyd",
+      "sha256": "f8ff7561bd1ea3027c809fc804c8b1316376e589d12aef3a1ebcb2a6d2c3d18d"
+    },
+    {
+      "bytes": 70656,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_lsq/givens_elimination.cp312-win_amd64.pyd",
+      "sha256": "22553b97f9e3c32f5fbbc1b8b9c5c4a4e0251f441366472844a824f01ae63021"
+    },
+    {
+      "bytes": 124928,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_minpack.cp312-win_amd64.pyd",
+      "sha256": "95b27adf583cb4c0d660141adba5d179b9df4a42474b2ff230d598673794fab4"
+    },
+    {
+      "bytes": 145920,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_moduleTNC.cp312-win_amd64.pyd",
+      "sha256": "0e57c01521068abf89c818e42693ffb20612ff9319d6942d490c4fd6a48873e2"
+    },
+    {
+      "bytes": 317952,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_pava_pybind.cp312-win_amd64.pyd",
+      "sha256": "03cfa01ef5ed5829057e629497cc052e83eb9729a95a244e6fdbea66eb8dadd0"
+    },
+    {
+      "bytes": 172544,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_slsqplib.cp312-win_amd64.pyd",
+      "sha256": "0174a3e1849cb4312b17fa6d6fe55de618a02c94ec9f7d9b12199270c6faac75"
+    },
+    {
+      "bytes": 206848,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_trlib/_trlib.cp312-win_amd64.pyd",
+      "sha256": "ec5edbbfa97f3dc4a1f2e155bcf350ca6b25ad238e486ba72da2fef46ea42ff1"
+    },
+    {
+      "bytes": 23040,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/_zeros.cp312-win_amd64.pyd",
+      "sha256": "001213b4192a7427197626c5a7ac86d9e2c1fd7512be56a495cb192a66bbd4ed"
+    },
+    {
+      "bytes": 78848,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/optimize/cython_optimize/_zeros.cp312-win_amd64.pyd",
+      "sha256": "40cc706e7eec0865e3892e0b669cd99728c4b886f31c46f43085d5d21143753a"
+    },
+    {
+      "bytes": 1006592,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_max_len_seq_inner.cp312-win_amd64.pyd",
+      "sha256": "687669b40d0da549bf08e6313ca075cab60a4467e0d7ad2cf72ce48d696e14a9"
+    },
+    {
+      "bytes": 148480,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_peak_finding_utils.cp312-win_amd64.pyd",
+      "sha256": "8a7a0344794f64468036af28767f601c9b42421c44dbea271e885bd752e92f97"
+    },
+    {
+      "bytes": 126976,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_sigtools.cp312-win_amd64.pyd",
+      "sha256": "6a28e8ab89bfbf6d1ad7a53aadad4f21407b82553f1cc46adc1994f51a84afcd"
+    },
+    {
+      "bytes": 106496,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_sosfilt.cp312-win_amd64.pyd",
+      "sha256": "e83c7db9488406099a1e6727de2f85eeb4aea67ab00e1a9a998513a5ad067c55"
+    },
+    {
+      "bytes": 63488,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_spline.cp312-win_amd64.pyd",
+      "sha256": "ed3e2c3b7dcaf74539455d432c0200d2f72698d6190671301c83e8e067d716e6"
+    },
+    {
+      "bytes": 199680,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/signal/_upfirdn_apply.cp312-win_amd64.pyd",
+      "sha256": "6e630a041fe96ede5c855705b1d56f1a0aa4e35fbc717bca9d19c003fb3ade39"
+    },
+    {
+      "bytes": 483840,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/_csparsetools.cp312-win_amd64.pyd",
+      "sha256": "356e21967b04d9d9c97fdd602be3e6b94f208511d6b86fe2caf5464ea87bddd8"
+    },
+    {
+      "bytes": 4114944,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/_sparsetools.cp312-win_amd64.pyd",
+      "sha256": "1d507be93679e2a8dc12c2b64a3a59a074c140460ab5ba8d40a7b5bdf36202fb"
+    },
+    {
+      "bytes": 168960,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_flow.cp312-win_amd64.pyd",
+      "sha256": "e512929f71f152921590077ea3f6cb2598fbe68a0d5cea0f328da738d1cac7ce"
+    },
+    {
+      "bytes": 175104,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_matching.cp312-win_amd64.pyd",
+      "sha256": "d6c4fd5d1c7c31efaea8fdf5f72e887de90beb8f6b33b2f1afec79abe60436ef"
+    },
+    {
+      "bytes": 104448,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_min_spanning_tree.cp312-win_amd64.pyd",
+      "sha256": "5e116133bf8cebf1de481cb2dcad3e1c4eaa1483b2c09e8ebf061cd30e988fe9"
+    },
+    {
+      "bytes": 150528,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_reordering.cp312-win_amd64.pyd",
+      "sha256": "4e3333df00b90c717c37b1a3ebe14d8c99bce8826b2b8b3c98f53b2dd8240b79"
+    },
+    {
+      "bytes": 544256,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_shortest_path.cp312-win_amd64.pyd",
+      "sha256": "d2d2817f778f160420ab56ff9f727321795bb8dcce2276fe9af43dcd51cceda2"
+    },
+    {
+      "bytes": 155136,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_tools.cp312-win_amd64.pyd",
+      "sha256": "bbe80ea9f718dc39cc4b18654371c6e924fafaf74c8cba588ba2723ce30ae9cd"
+    },
+    {
+      "bytes": 344576,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/csgraph/_traversal.cp312-win_amd64.pyd",
+      "sha256": "1817674c68d6db6f67b7b0343cae803fb789b9410d13db53b3d6b64a1ced6715"
+    },
+    {
+      "bytes": 542208,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/linalg/_dsolve/_superlu.cp312-win_amd64.pyd",
+      "sha256": "075d7ab28c49252f4ee5980ce9ae5ca804c6859649f650405813ff8649368e17"
+    },
+    {
+      "bytes": 339968,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/linalg/_eigen/arpack/_arpacklib.cp312-win_amd64.pyd",
+      "sha256": "f532cab33e8ee89eef19e8a3e2bd31485487c4b172beaf52446f2bd2af3b110c"
+    },
+    {
+      "bytes": 288768,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/sparse/linalg/_propack.cp312-win_amd64.pyd",
+      "sha256": "7f8f73cc897677ef5825214f3a26d56f266c55efa45fdeceb0c733a1956db096"
+    },
+    {
+      "bytes": 1523200,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_ckdtree.cp312-win_amd64.pyd",
+      "sha256": "8894f6d534e6d514926a8272eb3a1088c02502a921e1cd890390865097ed4813"
+    },
+    {
+      "bytes": 1382912,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_distance_pybind.cp312-win_amd64.pyd",
+      "sha256": "d42a4996f4aa38699d8f148571a5360704801f3c0525fae4489f6d040a283b51"
+    },
+    {
+      "bytes": 107008,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_distance_wrap.cp312-win_amd64.pyd",
+      "sha256": "4f46b39f8da613b30e99174ce294069e8f14f86df38e6bb2a0c0d5481d92dfbe"
+    },
+    {
+      "bytes": 95744,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_hausdorff.cp312-win_amd64.pyd",
+      "sha256": "f2cd4ab4bdd825a5672a83df4f0b71fd80cf19954373c692a1e4916622bb14a9"
+    },
+    {
+      "bytes": 846336,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_qhull.cp312-win_amd64.pyd",
+      "sha256": "28f1c8b17398c7066e30ea40c6b035e47ef65039c503eb635307d0337144e333"
+    },
+    {
+      "bytes": 85504,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/_voronoi.cp312-win_amd64.pyd",
+      "sha256": "5609f28d114b61cf12e1613da4c9072ed5ebbe400d65d38f17c79d8d9b835c1a"
+    },
+    {
+      "bytes": 242688,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/transform/_rigid_transform_cy.cp312-win_amd64.pyd",
+      "sha256": "8de630dfc038d90734a7f027bceb530bcd4cd41f713ca1a06ecade83511041ad"
+    },
+    {
+      "bytes": 557568,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/spatial/transform/_rotation_cy.cp312-win_amd64.pyd",
+      "sha256": "4f68115dad53da6a532a54d81e334931f14455e523a3fe78caf1523f1fead01e"
+    },
+    {
+      "bytes": 46080,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_comb.cp312-win_amd64.pyd",
+      "sha256": "82ada506eca2932774300cc9012eadf31875da5ba1ad8cd6e096621ac881d16a"
+    },
+    {
+      "bytes": 139264,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_ellip_harm_2.cp312-win_amd64.pyd",
+      "sha256": "d543824c8e47d5c0ab9097d590425845099b6cbae5e293630375d36ce8e286e0"
+    },
+    {
+      "bytes": 1515008,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_gufuncs.cp312-win_amd64.pyd",
+      "sha256": "2ba405a2ecd205798bedc38cde6245eceff1555939d3405c71a5c773a4a76caa"
+    },
+    {
+      "bytes": 294400,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_specfun.cp312-win_amd64.pyd",
+      "sha256": "92f64cc95773ea0b05c570004ab74d85415e513949536f874a4d7b214ad40794"
+    },
+    {
+      "bytes": 2292224,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_special_ufuncs.cp312-win_amd64.pyd",
+      "sha256": "b8ab31cc0efdc8edb2b54051344d36eeddbf45b326a462f20666e33369e626a5"
+    },
+    {
+      "bytes": 93696,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_test_internal.cp312-win_amd64.pyd",
+      "sha256": "ba136bee38b3fca732cf2dc50649f3535a32670f13c6966cef2b3d8cf0ee59c9"
+    },
+    {
+      "bytes": 1398784,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_ufuncs.cp312-win_amd64.pyd",
+      "sha256": "6eca0912fdbc826e8779e604c08f19cdffbb6d6b60f1b198ad31cdc99e58d339"
+    },
+    {
+      "bytes": 2404864,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/_ufuncs_cxx.cp312-win_amd64.pyd",
+      "sha256": "f89da2936994df638b028977e664f50aad6a48a999d18ae5f7bf519d5b5a2479"
+    },
+    {
+      "bytes": 2196480,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/special/cython_special.cp312-win_amd64.pyd",
+      "sha256": "7708b736984c88478ae991d5a71c649fd93b50f868f793b455b141cd1f2c0976"
+    },
+    {
+      "bytes": 107008,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_ansari_swilk_statistics.cp312-win_amd64.pyd",
+      "sha256": "145cfe092095639cf1dbaa516f999dbb04bbd05a997858563bcce8b9c84bd37e"
+    },
+    {
+      "bytes": 349696,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_biasedurn.cp312-win_amd64.pyd",
+      "sha256": "ebfdf10213b9d76455807f767d614b9d5dbbe1d2070cda62a69df6156959e934"
+    },
+    {
+      "bytes": 51200,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_levy_stable/levyst.cp312-win_amd64.pyd",
+      "sha256": "2de6bcecfee01e58636c7b081810c25aac7d8d05933111e90afdd8b2c4a07b4f"
+    },
+    {
+      "bytes": 278528,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_qmc_cy.cp312-win_amd64.pyd",
+      "sha256": "1cf44a4b588797fd7d60bbdd51cdd9edde76bdc792d6179e6f69cb42490c308e"
+    },
+    {
+      "bytes": 128000,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_qmvnt_cy.cp312-win_amd64.pyd",
+      "sha256": "555de14acbde9924146c2b20e8ddabdbcb86e88591d7a3cc6a4b3b34310150c0"
+    },
+    {
+      "bytes": 109568,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_rcont/rcont.cp312-win_amd64.pyd",
+      "sha256": "3f757ef287d8171155cd0557b13ad1e8c9b3f05cc3885b3aaceb9dbdc4a0ef15"
+    },
+    {
+      "bytes": 192512,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_sobol.cp312-win_amd64.pyd",
+      "sha256": "eb481e44503e8b1720102539a6d6b93fcc8bbc63e570851dc5a6a08ca3cf0287"
+    },
+    {
+      "bytes": 484352,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_stats.cp312-win_amd64.pyd",
+      "sha256": "d32a2011e311b1e269ec5277c14c1e6e8a88a973c9915f8cdea739e362074bd0"
+    },
+    {
+      "bytes": 1107968,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_stats_pythran.cp312-win_amd64.pyd",
+      "sha256": "60a27e71341812d0ffa05cbb3b35167b5429d9db90ac28063f1abdf76dfe028a"
+    },
+    {
+      "bytes": 1262080,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy/stats/_unuran/unuran_wrapper.cp312-win_amd64.pyd",
+      "sha256": "db29ada784cfe6f9539aa2bf93aa42f489cdad011b55591dfa503f42cf269ab8"
+    },
+    {
+      "bytes": 20260864,
+      "component": "body",
+      "path": "body/Lib/site-packages/scipy.libs/libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll",
+      "sha256": "64eda39e79589aedb16f58e5547eb599f0b5855505d56b9d40022e2eee354a0b"
+    },
+    {
+      "bytes": 11776,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/cli-32.exe",
+      "sha256": "32acc1bc543116cbe2cff10cb867772df2f254ff2634c870aef0b46c4b696fdb"
+    },
+    {
+      "bytes": 14336,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/cli-64.exe",
+      "sha256": "bbb3de5707629e6a60a0c238cd477b28f07f0066982fda953fa6fcec39073a4a"
+    },
+    {
+      "bytes": 13824,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/cli-arm64.exe",
+      "sha256": "b9a7d08da880dfac8bcf548eba4b06fb59b6f09b17d33148a0f6618328926c61"
+    },
+    {
+      "bytes": 11776,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/cli.exe",
+      "sha256": "32acc1bc543116cbe2cff10cb867772df2f254ff2634c870aef0b46c4b696fdb"
+    },
+    {
+      "bytes": 11776,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/gui-32.exe",
+      "sha256": "85dae1e95d77845f2cb59bcac3d4afe74bbe4c91a9bcc5bf4a71cd43104dbe7c"
+    },
+    {
+      "bytes": 14336,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/gui-64.exe",
+      "sha256": "3471b6140eadc6412277dbbefe3fef8c345a0f1a59776086b80a3618c3a83e3b"
+    },
+    {
+      "bytes": 13824,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/gui-arm64.exe",
+      "sha256": "e694f4743405c8b5926ff457db6fe7f1a12dec7c16a9c3864784d3f4e07ae097"
+    },
+    {
+      "bytes": 11776,
+      "component": "body",
+      "path": "body/Lib/site-packages/setuptools/gui.exe",
+      "sha256": "85dae1e95d77845f2cb59bcac3d4afe74bbe4c91a9bcc5bf4a71cd43104dbe7c"
+    },
+    {
+      "bytes": 10240,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/_C.cp312-win_amd64.pyd",
+      "sha256": "597388df7a1d6e76acc2f6c16251f3134fe5bee6174af9ff71ee50a860ce9461"
+    },
+    {
+      "bytes": 358912,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/bin/asmjit.dll",
+      "sha256": "cfc690cc4684a5e27316e5fa263c86049d7ef9f5545d9fec27e36ed4079fa6cf"
+    },
+    {
+      "bytes": 4961280,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/bin/fbgemm.dll",
+      "sha256": "5c5eadb5d247929b860719cd3f1897bc7a7e7fd51516dd4e430baead518adb18"
+    },
+    {
+      "bytes": 2810880,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/bin/protoc.exe",
+      "sha256": "d4569852df662fd028d9f491866358cb37121a0ec6aefc79907c8472070e89ed"
+    },
+    {
+      "bytes": 358912,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/asmjit.dll",
+      "sha256": "cfc690cc4684a5e27316e5fa263c86049d7ef9f5545d9fec27e36ed4079fa6cf"
+    },
+    {
+      "bytes": 1010176,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/c10.dll",
+      "sha256": "439c5b79f5c9bb403e86c5101f718db88bbacb4dbb1d18f3669e5f39cc090901"
+    },
+    {
+      "bytes": 389120,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/c10_cuda.dll",
+      "sha256": "8d593f29ab150812c88abbc5d62d0b8788aae7f18f9d3d60df02b0e8a0ca8433"
+    },
+    {
+      "bytes": 16384,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/caffe2_nvrtc.dll",
+      "sha256": "d935b99ed5a9a18765a46b1a3431e18774a77fb2ab8051fc439d3d0548e8abdd"
+    },
+    {
+      "bytes": 113712640,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cublas64_12.dll",
+      "sha256": "0a60a7ecbf906f7f3842826fecaf412f1587ff6269729339245a1ec224364161"
+    },
+    {
+      "bytes": 692441600,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cublasLt64_12.dll",
+      "sha256": "a21ddfc1c9cd090ab07d2c6aad235aa4f15fe60fe896d5db28adf7a279c09ef3"
+    },
+    {
+      "bytes": 573952,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudart64_12.dll",
+      "sha256": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768"
+    },
+    {
+      "bytes": 265760,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn64_9.dll",
+      "sha256": "3568726e0b6255a88f8e3d0dd6536bba7e0e4d7f793a668e5d2165957fba5387"
+    },
+    {
+      "bytes": 326072352,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_adv64_9.dll",
+      "sha256": "063c988638e3c5f935507360013209c448070407a854885a2cdd8e707389cef0"
+    },
+    {
+      "bytes": 4254776,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_cnn64_9.dll",
+      "sha256": "e9217e4ea5060b12e452cc3a27898848c1e6e2879c6082f4d8d1cfe61c6a36fb"
+    },
+    {
+      "bytes": 528766000,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_engines_precompiled64_9.dll",
+      "sha256": "9d1ff785535d91d4074448cd19538662c087d7d60ad7b3cdc49c7ba885e34a21"
+    },
+    {
+      "bytes": 24718368,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_engines_runtime_compiled64_9.dll",
+      "sha256": "88c87be6a55902768d6d73f7b40a0077459194fabc064485c1af7050587da63d"
+    },
+    {
+      "bytes": 2199608,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_graph64_9.dll",
+      "sha256": "8fb2dad5ef130661ccf464f7d062c1500d4186e54a30217392474a58d1a255c5"
+    },
+    {
+      "bytes": 60222000,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_heuristic64_9.dll",
+      "sha256": "9e5507f112cd45ba1ce96ebfe864895ebc00b16e8fda94055c2ded431c4a7646"
+    },
+    {
+      "bytes": 116958752,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cudnn_ops64_9.dll",
+      "sha256": "035c07683b4a5e7c56ce92029ca334f1335c77b4f006f43cbdd193dc4b5a6d99"
+    },
+    {
+      "bytes": 276121088,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cufft64_11.dll",
+      "sha256": "619fcb005c8a18ffad478ff68b7a9cd154fa170e835dce9d41ff4fc0c0692113"
+    },
+    {
+      "bytes": 163328,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cufftw64_11.dll",
+      "sha256": "dd778bc18c2050c937279656cdbbdd2a37623ea5bf38c09ebcf6451771b7fbe3"
+    },
+    {
+      "bytes": 4482632,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cupti64_2025.1.0.dll",
+      "sha256": "4e6a6cfe76cf5c56ef6d3c49d41747266af561f890a6926cb7e2c5fe75d3172b"
+    },
+    {
+      "bytes": 71955456,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/curand64_10.dll",
+      "sha256": "fec6ea4051b892c94f450a35d7dd6844d5d59564fed2a174a273862e627db143"
+    },
+    {
+      "bytes": 220286976,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cusolver64_11.dll",
+      "sha256": "ae41c92c426bc0390b25a2f362a66c81a3ef7e1211bcfbca54abcd1910dba948"
+    },
+    {
+      "bytes": 151604736,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cusolverMg64_11.dll",
+      "sha256": "419c4d60152069490716532d7acaa7db9b06a19d9972dd2cae1e2de8905886d7"
+    },
+    {
+      "bytes": 385082880,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/cusparse64_12.dll",
+      "sha256": "6d885e2bc6c7f50eed34a649491c4f44ce68ee2ba79ca9b901bda4795b9811b1"
+    },
+    {
+      "bytes": 4961280,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/fbgemm.dll",
+      "sha256": "5c5eadb5d247929b860719cd3f1897bc7a7e7fd51516dd4e430baead518adb18"
+    },
+    {
+      "bytes": 1602416,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/libiomp5md.dll",
+      "sha256": "15e6f874a53cb54a8e266099c8da92484c6f50301d117f9a5443846e9ece90b5"
+    },
+    {
+      "bytes": 43888,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/libiompstubs5md.dll",
+      "sha256": "92be85f03b359588d69d68b090880551c222e4a3837b1d2dedede767c3b6be2f"
+    },
+    {
+      "bytes": 77834752,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/nvJitLink_120_0.dll",
+      "sha256": "4bc81414f0c91119061aa1207d329ceb7f94959a647f865a3c44e23fb27c7907"
+    },
+    {
+      "bytes": 6356480,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/nvrtc-builtins64_128.dll",
+      "sha256": "96a28201dbffd4eff6dc93f310417b981bf7a141d46f2839036f5dbfd83b33ae"
+    },
+    {
+      "bytes": 86768640,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/nvrtc64_120_0.alt.dll",
+      "sha256": "239d04b4263d7e2c50f45d16672f6bbf78eb89e110adb5afb36eab875d126678"
+    },
+    {
+      "bytes": 86702592,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/nvrtc64_120_0.dll",
+      "sha256": "ec2a860422b7d0396b45c29a1848faecc3788041ba52f166f0fc52c1b47e8245"
+    },
+    {
+      "bytes": 48128,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/nvToolsExt64_1.dll",
+      "sha256": "0fe54f1b80ad3e44da2a3d9f0956e7c3903029d6319689ce1c4068f7a20932f3"
+    },
+    {
+      "bytes": 14848,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/shm.dll",
+      "sha256": "ffaf0fabc79b697c81df17577f09e2c8c973b4a066601455900dff758420b6cb"
+    },
+    {
+      "bytes": 9728,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/torch.dll",
+      "sha256": "c53ef9369d2eaf0df20eb8c2db1552eefcf1a77e9822e8e49ccc33a7c33269b9"
+    },
+    {
+      "bytes": 252323840,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/torch_cpu.dll",
+      "sha256": "2a41a9813efe2a343c19822473669c16fb5a33c6546da9a0ae409b4dc93fc2a1"
+    },
+    {
+      "bytes": 1311574528,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/torch_cuda.dll",
+      "sha256": "ad098b2b439331ec4aa170ed895bee0bf2280b84c5bf8e3563b535850db922ae"
+    },
+    {
+      "bytes": 9728,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/torch_global_deps.dll",
+      "sha256": "b42d9d21976c3e2f2644471e9fdf901c73f028cc3dcab8b3411863c63719aebc"
+    },
+    {
+      "bytes": 17246720,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/torch_python.dll",
+      "sha256": "b7e5deca194acf3a359450ca62c6820cdfc46bf8fc031c494119f94e2df3396b"
+    },
+    {
+      "bytes": 195072,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/uv.dll",
+      "sha256": "d6e517084425092066d4b26678320eb60edf2c79ade855bd67b829113f999da6"
+    },
+    {
+      "bytes": 89088,
+      "component": "body",
+      "path": "body/Lib/site-packages/torch/lib/zlibwapi.dll",
+      "sha256": "1f047faec08d9a35c304fb4a7cf13853589359a8f7cbfdd48c5d5807712dcf05"
+    },
+    {
+      "bytes": 8945664,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/_C.pyd",
+      "sha256": "89d96f8975e14351afd442389591551344a72b0feb6d64795d56dcb4d762ab8d"
+    },
+    {
+      "bytes": 573952,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/cudart64_12.dll",
+      "sha256": "9d9b868955149875ac4ef43442aaaa8913d4a7b3e4d6dd60ee871626aa045768"
+    },
+    {
+      "bytes": 202752,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/image.pyd",
+      "sha256": "864b8f31fd2f66d18e00e702f15012b4c4692c723cb30321039d13847cdae73b"
+    },
+    {
+      "bytes": 552448,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/jpeg8.dll",
+      "sha256": "68cf8a8f6324add1c8d20920a477e1f3afe272e336e9788cbba8323067ae2a28"
+    },
+    {
+      "bytes": 284944,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/libjpeg.dll",
+      "sha256": "f394e4d3b7b3281b26123b791fa62ee7768ef9c9203dd4fa0b11ba0be558cb1f"
+    },
+    {
+      "bytes": 192512,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/libpng16.dll",
+      "sha256": "9cfc6eeee22b3b182911708b5328cfeeb4010a084154fb0bfa1f0ec5e02bbdcd"
+    },
+    {
+      "bytes": 34576,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/libsharpyuv.dll",
+      "sha256": "e8bcf8127ce1731f548965010b2730a931d38bf0fedf960e33ea7ccdbc01d903"
+    },
+    {
+      "bytes": 389392,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/libwebp.dll",
+      "sha256": "84dd611ba2cffbb861e830a96d8b57f36413586d0a4f6105b52697db0ac9a8e7"
+    },
+    {
+      "bytes": 6171136,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/nvjpeg64_12.dll",
+      "sha256": "8b783f6d9957c0fa98f042395f3256d2eaa315afb0945e9c358675950f02115c"
+    },
+    {
+      "bytes": 99608,
+      "component": "body",
+      "path": "body/Lib/site-packages/torchvision/zlib.dll",
+      "sha256": "8dbfd6ef7374a831158bddccb79e3d5665e9625c81af557f15b4150b7877f687"
+    },
+    {
+      "bytes": 253952,
+      "component": "body",
+      "path": "body/Lib/site-packages/yaml/_yaml.cp312-win_amd64.pyd",
+      "sha256": "4fd0e84f50261ed0886cffcdd8008b055af3352546e649c3d741b50eae1f9b5f"
+    },
+    {
+      "bytes": 274424,
+      "component": "body",
+      "path": "body/Lib/venv/scripts/nt/python.exe",
+      "sha256": "0b471133e110cfb53a061cad528ce8e517d7b9ac41a0a396c39ad795a487fc14"
+    },
+    {
+      "bytes": 263400,
+      "component": "body",
+      "path": "body/Lib/venv/scripts/nt/pythonw.exe",
+      "sha256": "c946a75fdc676012b084f6dc056506bfca5098dad04c407419ce7605bd85108c"
+    },
+    {
+      "bytes": 104952,
+      "component": "body",
+      "path": "body/Scripts/python.exe",
+      "sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a"
+    },
+    {
+      "bytes": 70376,
+      "component": "body",
+      "path": "body/Scripts/python3.dll",
+      "sha256": "fb975a606e7fbf74f64260e3f60c3490b4f74a183c0926fd6ed1ac4c52ac7b1c"
+    },
+    {
+      "bytes": 6945272,
+      "component": "body",
+      "path": "body/Scripts/python312.dll",
+      "sha256": "9a0e3435aaa680d868150f87ab3e388ad2eebc22f87e036155c7b4eda8cd2120"
+    },
+    {
+      "bytes": 120400,
+      "component": "body",
+      "path": "body/Scripts/vcruntime140.dll",
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+    },
+    {
+      "bytes": 49776,
+      "component": "body",
+      "path": "body/Scripts/vcruntime140_1.dll",
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+    },
+    {
+      "bytes": 74096,
+      "component": "control",
+      "path": "control/DLLs/_asyncio.pyd",
+      "sha256": "c77de90cad749087a0c5dc5e19d78d24f6ef44e7e5ac19b8420cfc0cea62395d"
+    },
+    {
+      "bytes": 86896,
+      "component": "control",
+      "path": "control/DLLs/_bz2.pyd",
+      "sha256": "65f610646d10d5babea080e060d244b546ec52c54012e5e937dc72dcc2e2e7bc"
+    },
+    {
+      "bytes": 127480,
+      "component": "control",
+      "path": "control/DLLs/_ctypes.pyd",
+      "sha256": "0e56107a891100535f2da79d85a5ae65ff1227b4765bd108f8593ac1a1110d81"
+    },
+    {
+      "bytes": 262000,
+      "component": "control",
+      "path": "control/DLLs/_decimal.pyd",
+      "sha256": "aeacfead2befcc0768063a037bb64bd32109ae09cb144e5f571b04dd7965db9d"
+    },
+    {
+      "bytes": 135160,
+      "component": "control",
+      "path": "control/DLLs/_elementtree.pyd",
+      "sha256": "5009a9a53c03ef8387443b5cf6ce08e5c3a79727466a0b931c5bbca915bf89ca"
+    },
+    {
+      "bytes": 68976,
+      "component": "control",
+      "path": "control/DLLs/_hashlib.pyd",
+      "sha256": "03d233dbace599168eaffec823de6ed7beec8c2a4ebfe9b8a3d8e042a59af3ba"
+    },
+    {
+      "bytes": 161136,
+      "component": "control",
+      "path": "control/DLLs/_lzma.pyd",
+      "sha256": "e3deecc1f59a3b811c608861decd84de1e8df8bafd5e2b39188861318c5a38cf"
+    },
+    {
+      "bytes": 46584,
+      "component": "control",
+      "path": "control/DLLs/_msi.pyd",
+      "sha256": "b49332bae154ebdd8c3d5e7ddfdde336d9c47f91ba028dc67bafb2420b3dbb5c"
+    },
+    {
+      "bytes": 37368,
+      "component": "control",
+      "path": "control/DLLs/_multiprocessing.pyd",
+      "sha256": "2c636df7059cb0dd7e978dd735c7c5c8ddb09cf94754cf9e232296b96c5c545a"
+    },
+    {
+      "bytes": 57336,
+      "component": "control",
+      "path": "control/DLLs/_overlapped.pyd",
+      "sha256": "662126ff80c3a1b4cedf74074029c12ae4743e6d3b37376e39ac70aacb7d4d3c"
+    },
+    {
+      "bytes": 33784,
+      "component": "control",
+      "path": "control/DLLs/_queue.pyd",
+      "sha256": "48e76e0ad63f6932b4a77b5819f41c1e7595636ca8d9e824f0943a14b8bb5035"
+    },
+    {
+      "bytes": 85496,
+      "component": "control",
+      "path": "control/DLLs/_socket.pyd",
+      "sha256": "3efa4636cf9e350856f6927d67a4c2564bf9bd2758a00bbf17d3aece5b60016d"
+    },
+    {
+      "bytes": 126184,
+      "component": "control",
+      "path": "control/DLLs/_sqlite3.pyd",
+      "sha256": "64b51df2805c58b023a875e8ae3be7ac7f61ef664f32ca6c90f6315da47ef0bc"
+    },
+    {
+      "bytes": 179432,
+      "component": "control",
+      "path": "control/DLLs/_ssl.pyd",
+      "sha256": "0bc527d2dbc50009f43b2ed5d5982c4f63f4b647647ffa9eda612dcda80f6040"
+    },
+    {
+      "bytes": 68600,
+      "component": "control",
+      "path": "control/DLLs/_tkinter.pyd",
+      "sha256": "ed2f7b2c9984032cfb046923b45bb745f6e819730c086e559777665b45e8390e"
+    },
+    {
+      "bytes": 27128,
+      "component": "control",
+      "path": "control/DLLs/_uuid.pyd",
+      "sha256": "acce4f281d7ffb2dec0997527faf25b1df62ad7bd3032c568ddcf65c90edc867"
+    },
+    {
+      "bytes": 40304,
+      "component": "control",
+      "path": "control/DLLs/_wmi.pyd",
+      "sha256": "a980f1e7a29842bd946863fc2693fbeb555a9dc0f9e1630dfed9a2fcdef3ece2"
+    },
+    {
+      "bytes": 49656,
+      "component": "control",
+      "path": "control/DLLs/_zoneinfo.pyd",
+      "sha256": "76f1439cda82ab6976df6ba505c4079444703f6d44d8b0259ce59c0ff4279fb4"
+    },
+    {
+      "bytes": 5231472,
+      "component": "control",
+      "path": "control/DLLs/libcrypto-3.dll",
+      "sha256": "ccfffddcd3defb8d899026298af9af43bc186130f8483d77e97c93233d5f27d7"
+    },
+    {
+      "bytes": 39696,
+      "component": "control",
+      "path": "control/DLLs/libffi-8.dll",
+      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a"
+    },
+    {
+      "bytes": 794992,
+      "component": "control",
+      "path": "control/DLLs/libssl-3.dll",
+      "sha256": "007142039f04d04e0ed607bda53de095e5bc6a8a10d26ecedde94ea7d2d7eefe"
+    },
+    {
+      "bytes": 205304,
+      "component": "control",
+      "path": "control/DLLs/pyexpat.pyd",
+      "sha256": "d615e193d1affcdbfe504e90d3621cbdcff94bf72b79d899126534507fd6d27a"
+    },
+    {
+      "bytes": 33136,
+      "component": "control",
+      "path": "control/DLLs/select.pyd",
+      "sha256": "d4d7181b11db0bd22a6cd5cda6f8583d1f5c77615fd0a6ca33350619d6e0438a"
+    },
+    {
+      "bytes": 1583608,
+      "component": "control",
+      "path": "control/DLLs/sqlite3.dll",
+      "sha256": "8daa45684bf6688fca28d956b2e8942f2fa98f656675ce68e6d61dd869848a7a"
+    },
+    {
+      "bytes": 1841896,
+      "component": "control",
+      "path": "control/DLLs/tcl86t.dll",
+      "sha256": "b894e0c9a7d2b56f9f202de5044221cfc0938cbd9ffaca6b6793bba486e28081"
+    },
+    {
+      "bytes": 1590776,
+      "component": "control",
+      "path": "control/DLLs/tk86t.dll",
+      "sha256": "3883976d6270c44cf43b0f4e3b925259a36c42f586680a93dfe6a3fdfb5b4939"
+    },
+    {
+      "bytes": 1140592,
+      "component": "control",
+      "path": "control/DLLs/unicodedata.pyd",
+      "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488"
+    },
+    {
+      "bytes": 31736,
+      "component": "control",
+      "path": "control/DLLs/winsound.pyd",
+      "sha256": "100e8d676777603c7258daf9b2f23ef001f09f1596d8708de359326fff72bddd"
+    },
+    {
+      "bytes": 148336,
+      "component": "control",
+      "path": "control/DLLs/zlib1.dll",
+      "sha256": "a3a9487dd7a27be0296731513a5c1d9005bd3acf5861ccbe0aabca3984f51c4f"
+    },
+    {
+      "bytes": 274424,
+      "component": "control",
+      "path": "control/Lib/venv/scripts/nt/python.exe",
+      "sha256": "0b471133e110cfb53a061cad528ce8e517d7b9ac41a0a396c39ad795a487fc14"
+    },
+    {
+      "bytes": 263400,
+      "component": "control",
+      "path": "control/Lib/venv/scripts/nt/pythonw.exe",
+      "sha256": "c946a75fdc676012b084f6dc056506bfca5098dad04c407419ce7605bd85108c"
+    },
+    {
+      "bytes": 104952,
+      "component": "control",
+      "path": "control/python.exe",
+      "sha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a"
+    },
+    {
+      "bytes": 70376,
+      "component": "control",
+      "path": "control/python3.dll",
+      "sha256": "fb975a606e7fbf74f64260e3f60c3490b4f74a183c0926fd6ed1ac4c52ac7b1c"
+    },
+    {
+      "bytes": 6945272,
+      "component": "control",
+      "path": "control/python312.dll",
+      "sha256": "9a0e3435aaa680d868150f87ab3e388ad2eebc22f87e036155c7b4eda8cd2120"
+    },
+    {
+      "bytes": 120400,
+      "component": "control",
+      "path": "control/vcruntime140.dll",
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+    },
+    {
+      "bytes": 49776,
+      "component": "control",
+      "path": "control/vcruntime140_1.dll",
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+    },
+    {
+      "bytes": 86896,
+      "component": "engine",
+      "path": "engine/_bz2.pyd",
+      "sha256": "65f610646d10d5babea080e060d244b546ec52c54012e5e937dc72dcc2e2e7bc"
+    },
+    {
+      "bytes": 127480,
+      "component": "engine",
+      "path": "engine/_ctypes.pyd",
+      "sha256": "0e56107a891100535f2da79d85a5ae65ff1227b4765bd108f8593ac1a1110d81"
+    },
+    {
+      "bytes": 262000,
+      "component": "engine",
+      "path": "engine/_decimal.pyd",
+      "sha256": "aeacfead2befcc0768063a037bb64bd32109ae09cb144e5f571b04dd7965db9d"
+    },
+    {
+      "bytes": 68976,
+      "component": "engine",
+      "path": "engine/_hashlib.pyd",
+      "sha256": "03d233dbace599168eaffec823de6ed7beec8c2a4ebfe9b8a3d8e042a59af3ba"
+    },
+    {
+      "bytes": 161136,
+      "component": "engine",
+      "path": "engine/_lzma.pyd",
+      "sha256": "e3deecc1f59a3b811c608861decd84de1e8df8bafd5e2b39188861318c5a38cf"
+    },
+    {
+      "bytes": 85496,
+      "component": "engine",
+      "path": "engine/_socket.pyd",
+      "sha256": "3efa4636cf9e350856f6927d67a4c2564bf9bd2758a00bbf17d3aece5b60016d"
+    },
+    {
+      "bytes": 179432,
+      "component": "engine",
+      "path": "engine/_ssl.pyd",
+      "sha256": "0bc527d2dbc50009f43b2ed5d5982c4f63f4b647647ffa9eda612dcda80f6040"
+    },
+    {
+      "bytes": 27128,
+      "component": "engine",
+      "path": "engine/_uuid.pyd",
+      "sha256": "acce4f281d7ffb2dec0997527faf25b1df62ad7bd3032c568ddcf65c90edc867"
+    },
+    {
+      "bytes": 40304,
+      "component": "engine",
+      "path": "engine/_wmi.pyd",
+      "sha256": "a980f1e7a29842bd946863fc2693fbeb555a9dc0f9e1630dfed9a2fcdef3ece2"
+    },
+    {
+      "bytes": 5231472,
+      "component": "engine",
+      "path": "engine/libcrypto-3.dll",
+      "sha256": "ccfffddcd3defb8d899026298af9af43bc186130f8483d77e97c93233d5f27d7"
+    },
+    {
+      "bytes": 39696,
+      "component": "engine",
+      "path": "engine/libffi-8.dll",
+      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a"
+    },
+    {
+      "bytes": 794992,
+      "component": "engine",
+      "path": "engine/libssl-3.dll",
+      "sha256": "007142039f04d04e0ed607bda53de095e5bc6a8a10d26ecedde94ea7d2d7eefe"
+    },
+    {
+      "bytes": 63488,
+      "component": "engine",
+      "path": "engine/numpy/_core/_multiarray_tests.pyd",
+      "sha256": "0a9efe20d2ac4da1683f8d4e96a5faf78a33bce00e6a546ae20a5255cdd9cd12"
+    },
+    {
+      "bytes": 4529152,
+      "component": "engine",
+      "path": "engine/numpy/_core/_multiarray_umath.pyd",
+      "sha256": "3f6e41b6062981b9196dbf6b1e78e66bdb4debdfec170bfd6f5a99cc1c9ad221"
+    },
+    {
+      "bytes": 276480,
+      "component": "engine",
+      "path": "engine/numpy/fft/_pocketfft_umath.pyd",
+      "sha256": "de7115424c54c7bfb6096d9a1bde713442785e7e19adb5d05463f9c9f49fc8c6"
+    },
+    {
+      "bytes": 112128,
+      "component": "engine",
+      "path": "engine/numpy/linalg/_umath_linalg.pyd",
+      "sha256": "4dba4f8b8b5436e576f1a3b259a3acdd7792b8ec488afe6d80cfc84bb35b5673"
+    },
+    {
+      "bytes": 210432,
+      "component": "engine",
+      "path": "engine/numpy/random/_bounded_integers.pyd",
+      "sha256": "ddc239ebe7f77a944abc250f2ff224189fe059b81a9e871fb351dc86776ce63d"
+    },
+    {
+      "bytes": 165376,
+      "component": "engine",
+      "path": "engine/numpy/random/_common.pyd",
+      "sha256": "0364d61f89810d762cef259fd3417eb1b52f894d88296e28cf9a640c1a1ca07b"
+    },
+    {
+      "bytes": 719872,
+      "component": "engine",
+      "path": "engine/numpy/random/_generator.pyd",
+      "sha256": "44b0e5ad35ef7701547057561b50af9abbfc4c846133f0fc83525b21622974ca"
+    },
+    {
+      "bytes": 86528,
+      "component": "engine",
+      "path": "engine/numpy/random/_mt19937.pyd",
+      "sha256": "8760282ddda3cc6e3022cd312f09ec0f01fe97cfe992c47e344e33e9d5df40bb"
+    },
+    {
+      "bytes": 96256,
+      "component": "engine",
+      "path": "engine/numpy/random/_pcg64.pyd",
+      "sha256": "5a525a5800bcb83233efa78514e08de055acd9d0d8ebafd51a9327463e3c673c"
+    },
+    {
+      "bytes": 80384,
+      "component": "engine",
+      "path": "engine/numpy/random/_philox.pyd",
+      "sha256": "c0cb6ef87612e349799d34067ed64676c3467eae07b6215f874f2dd07f17dc9f"
+    },
+    {
+      "bytes": 60928,
+      "component": "engine",
+      "path": "engine/numpy/random/_sfc64.pyd",
+      "sha256": "0af16f065d5cf59e5a9bfdb0f0ad229a2a5317ceff892c016d79d189b3d45d9f"
+    },
+    {
+      "bytes": 167936,
+      "component": "engine",
+      "path": "engine/numpy/random/bit_generator.pyd",
+      "sha256": "f8436523b9565bae33aa3b5f350648d562c74a61c8ce6f47e063168d6bd7a351"
+    },
+    {
+      "bytes": 606208,
+      "component": "engine",
+      "path": "engine/numpy/random/mtrand.pyd",
+      "sha256": "c3ad3672e51d0b9a5c3b087c5a7426b310afd20fe173a47840e2e68062c9877f"
+    },
+    {
+      "bytes": 20403712,
+      "component": "engine",
+      "path": "engine/numpy.libs/libscipy_openblas64_-860d95b1c38e637ce4509f5fa24fbf2a.dll",
+      "sha256": "860d95b1c38e637ce4509f5fa24fbf2a98ba8696f9f3d28bf184bee74ad9a325"
+    },
+    {
+      "bytes": 575056,
+      "component": "engine",
+      "path": "engine/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll",
+      "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
+    },
+    {
+      "bytes": 70376,
+      "component": "engine",
+      "path": "engine/python3.dll",
+      "sha256": "fb975a606e7fbf74f64260e3f60c3490b4f74a183c0926fd6ed1ac4c52ac7b1c"
+    },
+    {
+      "bytes": 6945272,
+      "component": "engine",
+      "path": "engine/python312.dll",
+      "sha256": "9a0e3435aaa680d868150f87ab3e388ad2eebc22f87e036155c7b4eda8cd2120"
+    },
+    {
+      "bytes": 33136,
+      "component": "engine",
+      "path": "engine/select.pyd",
+      "sha256": "d4d7181b11db0bd22a6cd5cda6f8583d1f5c77615fd0a6ca33350619d6e0438a"
+    },
+    {
+      "bytes": 1140592,
+      "component": "engine",
+      "path": "engine/unicodedata.pyd",
+      "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488"
+    },
+    {
+      "bytes": 120400,
+      "component": "engine",
+      "path": "engine/vcruntime140.dll",
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+    },
+    {
+      "bytes": 49776,
+      "component": "engine",
+      "path": "engine/vcruntime140_1.dll",
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+    },
+    {
+      "bytes": 24141824,
+      "component": "engine",
+      "path": "engine/vta_engine.exe",
+      "sha256": "a07d4989bdb37b00f12d150e8f894ee5f0ca9eedb93608af227536a0dd2421fa"
+    }
+  ],
+  "private_commit": "f7f214ffaf3f5a1c5dc4cee04b35264ded38ac36",
+  "public_commit": "1062d043a9d46c134017e53e4cd7aaaa34fb7445",
+  "schema": "studiofree-native-payload-audit-snapshot",
+  "source_package_sha256": "d7d73d1d9caf59a2312b0e21a6c022455ca2c0d3a0a0441f6ec2ca2ca2568813",
+  "status": "internal-test stage; not redistribution approval"
+}
