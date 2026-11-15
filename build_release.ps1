@@ -10,6 +10,7 @@ param(
     [string]$Blender = 'C:\Design\Programs\Blender5.2\blender.exe',
     [string]$Python = 'C:\Users\dsguf\AppData\Local\Python\bin\python.exe',
     [string]$NuitkaPython = '',
+    [string]$ProbePython = '',
     [string]$Iscc = '',
     [string]$SignToolName = '',
     [string]$SignToolCommand = '',
@@ -37,6 +38,9 @@ if (-not $Iscc) {
 }
 $python = (Resolve-Path -LiteralPath $Python).Path
 $nuitka = (Resolve-Path -LiteralPath $NuitkaPython).Path
+$probePython = if ($ProbePython) { (Resolve-Path -LiteralPath $ProbePython).Path } else { $nuitka }
+& $probePython -c 'import cv2, numpy'
+if ($LASTEXITCODE -ne 0) { throw 'Compiled worker-flow probes require -ProbePython with cv2 and numpy.' }
 $blenderExe = (Resolve-Path -LiteralPath $Blender).Path
 $componentsFile = (Resolve-Path -LiteralPath $Components).Path
 $testTemp = New-Item -ItemType Directory -Force -Path (Join-Path $public '.build\test-temp')
@@ -68,7 +72,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Compiled engine probe failed.' }
     & $nuitka tools\probe_compiled_license.py (Join-Path $dist 'vta_engine.exe') $public $GumroadProductId
     if ($LASTEXITCODE -ne 0) { throw 'Compiled licensing probe failed.' }
-    & $nuitka tools\probe_compiled_flows.py (Join-Path $dist 'vta_engine.exe') $public $nuitka
+    & $probePython tools\probe_compiled_flows.py (Join-Path $dist 'vta_engine.exe') $public $probePython $GumroadProductId
     if ($LASTEXITCODE -ne 0) { throw 'Compiled worker-flow probe failed.' }
 } finally { Pop-Location }
 Push-Location $public

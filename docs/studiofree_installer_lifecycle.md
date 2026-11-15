@@ -20,6 +20,10 @@ Normal development still runs the private source, source tests and development
 adapter without an installer. The release path is: commit source → source tests
 → Nuitka compile → compiled probes → extension build → approved component stage
 → hash manifest → Inno Setup compile. `build_release.ps1` is the entry point.
+Its `-ProbePython` argument selects a developer test interpreter with OpenCV
+and NumPy for the disposable compiled worker-flow probe; the customer installer
+does not use that interpreter. The build fails early if those probe packages
+are unavailable.
 The commercial licensing gate is the intentional compiled-mode difference;
 application logic remains in one private source tree.
 
@@ -115,6 +119,10 @@ extension while preserving entitlement and projects. Support events go to
 
 Source tests cover A→B update, rollback, failure before switch, corrupt stage,
 missing dependency, repair, uninstall ownership and entitlement preservation.
+The committed licensed compiled build passed control IPC, DPAPI licensing and
+offline-gate probes, plus disposable durable generation, candidate-analysis
+and camera-cleanup worker probes. Those probes create a test entitlement in an
+isolated local profile; they do not contact Gumroad or read the owner's key.
 The disposable CLI probe uses the **real Blender 5.2 CLI and real compiled
 engine** with synthetic tiny dependency placeholders in a temporary profile.
 It proves extension installation/removal, compiled status, runtime selection,
