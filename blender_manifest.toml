@@ -2,8 +2,8 @@ schema_version = "1.0.0"
 
 # Unique add-on id (lowercase). Becomes the module name bl_ext.<repo>.blendcap.
 id = "blendcap"
-# Provisional pre-1.0 adapter display version, not an upstream BlendCap version.
-version = "0.9.0"
+# Product version is shared with vta_protocol/runtime.py in both repositories.
+version = "1.0.0-dev.m5"
 name = "StudioFree MoCap"
 tagline = "Video to reviewed, editable Character animation"
 maintainer = "StudioFree MoCap contributors"
@@ -11,9 +11,8 @@ type = "add-on"
 
 website = "https://github.com/dsguffey/BlendCap-Assisted-MultiPerson"
 
-# First Blender version with the extension/manifest system. BlendCap's code
-# also uses Blender 5.x APIs with 4.3/4.4 fallbacks already in place.
-blender_version_min = "4.2.0"
+# The customer package currently targets the directly tested Blender line.
+blender_version_min = "5.2.0"
 
 # The BlendCap-derived public integration remains GPL-3.0-or-later.
 # The model weights and retained third-party
@@ -33,7 +32,7 @@ tags = [
 ]
 
 [permissions]
-files = "Read video/project data, manage MoCap job artifacts, and export animation."
+files = "Read video and project data; write animation and job files"
 
 [build]
 # Only consulted by `blender --command extension build`. Keeps runtime

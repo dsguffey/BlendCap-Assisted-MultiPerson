@@ -1,7 +1,10 @@
 # StudioFree MoCap — current checkpoint and Public 1.0 roadmap
 
-Updated **2026-11-10**. This is a development checkpoint before fresh-clip
-end-to-end testing, not Public 1.0 or a release. **StudioFree MoCap** is the
+Updated **2026-11-14**. This remains development work, not Public 1.0 or a
+release. The compiled private-engine and Gumroad licensing prototypes have
+passed their bounded checks. The Windows installer architecture has an Inno
+Setup source and disposable lifecycle probes; a portable approved AI payload
+and clean-machine QA remain open. **StudioFree MoCap** is the
 tentative public name; **MoCap** is the user-facing shorthand. Name/trademark
 clearance remains open. Internal `VTA`/`vta` identifiers intentionally remain.
 
@@ -26,7 +29,7 @@ models may stay resident within a job. No persistent authoritative daemon is
 planned for 1.0. M5 runtime/package layout remains the accepted foundation;
 final installer/distribution readiness is not implied.
 
-Current compatibility: protocol **7**, package layout **1**, ProjectState **0.9**,
+Current compatibility: protocol **8**, package layout **1**, ProjectState **0.9**,
 development build **1.0.0-dev.m5**. See [engine ownership](vta_engine_boundary.md)
 and [runtime/setup foundation](vta_runtime_installation.md).
 
@@ -117,18 +120,17 @@ The remaining broad sequence is:
 1. **Fresh end-to-end workflow** on a new clip/project.
 2. **Workflow-driven bug/performance cleanup** for demonstrated problems, avoiding
    speculative optimization.
-3. **Private-engine compilation/IP-protection prototype**: ideally distribute a
-   compiled proprietary engine while public/GPL Blender code stays source-visible.
-   Technology is undecided; compilation is deterrence, not perfect protection.
-4. **Lightweight Gumroad-oriented licensing prototype**: Gumroad is currently
-   preferred, subject to API/behavior/terms/pricing validation at implementation.
-   Forgiving activation, practical offline use, no every-launch online check or
-   aggressive hardware locking; prefer enforcement in the protected private runtime.
-5. **Installer/package/update/repair/uninstall implementation**, including supported
-   side-by-side immutable releases, authenticated updates and known-good rollback.
-   Users install Blender separately; provision required runtime/provider/assets
-   only where terms permit. Full release packages are acceptable; no binary-delta
-   patching requirement for 1.0.
+3. **Private-engine compilation/IP-protection prototype**: bounded Nuitka
+   source-free release and private worker gates accepted. Compilation is a
+   deterrent, not perfect protection.
+4. **Lightweight Gumroad-oriented licensing prototype**: bounded live activation,
+   DPAPI persistence, offline grace and compiled enforcement accepted. The
+   disposable test Product ID must not ship as the commercial Product ID.
+5. **Installer/package/update/repair/uninstall implementation**: Inno Setup 7
+   source, allowlisted release stage and disposable lifecycle probes are in
+   progress. See [installer lifecycle](studiofree_installer_lifecycle.md).
+   Portable model/runtime payloads, true customer installer QA and signed
+   authenticity remain open. Users install Blender separately.
 6. **Security / ARAP T2 release assurance**, including package/update/recovery
    hardening and explicit compatibility/authenticity checks.
 7. **Licensing/compliance/provenance final pass**: exact third-party provenance,
@@ -146,8 +148,7 @@ The remaining broad sequence is:
 
 The [approved release strategy](vta_release_strategy.md) consolidates licensing
 failure philosophy, private-runtime protection, update UX/security and rollback
-requirements. It is documentation of direction, not an implemented updater/license
-system. Exact storefront, compiler, activation limits, offline grace/revalidation,
-update entitlement/pricing, signing infrastructure, retention/rollback policy and
-installer/updater UX remain open. Final product name, exceptional presence-state
-treatment and final UI wording/polish also remain unresolved.
+requirements. It predates the accepted prototypes. Final storefront,
+update entitlement/pricing, signing infrastructure, portable asset provenance
+and clean-machine installer QA remain open. Final product name, exceptional
+presence-state treatment and final UI wording/polish also remain unresolved.
