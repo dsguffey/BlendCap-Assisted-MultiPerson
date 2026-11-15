@@ -1,13 +1,19 @@
 # StudioFree MoCap 1.0 — third-party notices draft
 
-**Draft for the audited internal Windows payload; not a customer notice or
+**Source baseline for the audited internal Windows payload; not a customer notice or
 redistribution approval.** The authoritative file list is `manifest.json`.
 Each entry has the complete, unedited license or notice bytes, its SHA-256, and
 the source from which it was copied. `payload/` paths mirror the inspected
-component tree; `blendcap-zip/` paths mirror the extension ZIP. The three
-`additional/` license texts for MHR, ANTLR and pycocotools and the two CLIP
-notices close identified omissions in the staged payload. The Fast-SAM-3D-Body
-MIT text was copied from the public source tree because the stage omitted it.
+component tree; `blendcap-zip/` paths mirror the extension ZIP. Additional
+texts cover MHR, ANTLR, pycocotools, OpenAI CLIP, open_clip, and the
+Fast-SAM-3D-Body MIT terms that the stage omitted.
+
+Four additional complete, version-specific NVIDIA CUDA/cuDNN agreement HTML
+pages were copied from official NVIDIA documentation on 2026-11-15 and pinned
+in the manifest. The `tools/studiofree_compliance.py` builder validates all 182
+texts against the candidate payload and includes exact copies in the offline
+legal sidecar. It rejects any new or changed license/notice file until this
+reviewed baseline is updated.
 
 The inspected package is an **older internal test stage** (public `1062d043`,
 private `f7f214f`), identified by `inspected_package_sha256` in the manifest.

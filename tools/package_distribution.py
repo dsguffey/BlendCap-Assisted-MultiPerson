@@ -25,6 +25,11 @@ def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool 
     manifest = verify_stage(payload)
     if not test_fixture:
         verify_payload(payload, complete=True)
+        try:
+            from .studiofree_compliance import verify as verify_compliance
+        except ImportError:
+            from studiofree_compliance import verify as verify_compliance
+        verify_compliance(payload)
     if not installer.is_file() or installer.suffix.lower() != ".exe":
         raise ValueError("An Inno installer EXE is required")
     if output.exists():

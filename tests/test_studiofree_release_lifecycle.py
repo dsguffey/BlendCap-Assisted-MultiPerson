@@ -205,6 +205,20 @@ class ReleaseLifecycleTests(unittest.TestCase):
             self.assertEqual(len(archive.namelist()), receipt["payload_files"] + 3)
         self.assertTrue(receipt["test_fixture"])
 
+    def test_customer_distribution_rejects_missing_compliance_bundle(self):
+        installer = self.root / "installer" / "StudioFreeMoCap.exe"
+        write(installer, b"synthetic installer")
+        with self.assertRaises((FileNotFoundError, ValueError)):
+            package_distribution.package(installer, self.a, self.root / "customer.zip")
+
+    def test_marked_customer_stage_rejects_missing_compliance_bundle(self):
+        path = self.a / "package.json"
+        manifest = json.loads(path.read_text())
+        manifest["compliance_required"] = True
+        path.write_text(json.dumps(manifest))
+        with self.assertRaises((FileNotFoundError, ValueError)):
+            release.verify_stage(self.a)
+
     def test_missing_dependency_and_private_source_fail_closed(self):
         (self.b / "models" / "sam3.pt").unlink()
         with self.assertRaisesRegex(ValueError, "missing"):

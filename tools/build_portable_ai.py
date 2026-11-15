@@ -24,6 +24,12 @@ else:
     from build_portable_control import CPYTHON_31210_SHA256, build as build_control, digest
 
 
+EXCLUDED_NATIVE = {
+    "body": {"torch/lib/nvrtc64_120_0.alt.dll", "torch/lib/cusolverMg64_11.dll"},
+    "analysis": {"torch/lib/nvrtc64_130_0.alt.dll", "torch/lib/nvperf_host.dll",
+                 "torch/lib/cusolverMg64_12.dll"},
+}
+
 PACKAGES = {
     "body": (
         "antlr4-python3-runtime", "attrs", "braceexpand", "brotli", "certifi",
@@ -150,13 +156,19 @@ def build(archive: Path, site: Path, role: str, output: Path, lock: Path | None)
             "..\\Lib\n..\\DLLs\n..\\Lib\\site-packages\nimport site\n", encoding="ascii")
         destination = output / "Lib" / "site-packages"
         report_files = []
+        excluded_seen = set()
         for source, _row_hash, owner in source_files:
             rel = source.relative_to(site)
+            if rel.as_posix() in EXCLUDED_NATIVE[role]:
+                excluded_seen.add(rel.as_posix())
+                continue
             target = destination / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
             report_files.append({"path": rel.as_posix(), "owner": owner,
                                  "bytes": target.stat().st_size, "sha256": digest(target)})
+        if excluded_seen != EXCLUDED_NATIVE[role]:
+            raise ValueError("Expected excluded NVIDIA members differ from wheel input")
         environment = os.environ.copy()
         for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "CONDA_PREFIX"):
             environment.pop(name, None)

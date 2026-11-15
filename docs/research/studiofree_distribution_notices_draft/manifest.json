@@ -4,12 +4,26 @@
   "inspected_package_sha256": "d7d73d1d9caf59a2312b0e21a6c022455ca2c0d3a0a0441f6ec2ca2ca2568813",
   "inspected_public_commit": "1062d043a9d46c134017e53e4cd7aaaa34fb7445",
   "inspected_private_commit": "f7f214ffaf3f5a1c5dc4cee04b35264ded38ac36",
+  "portable_ai_lock_sha256": "57daa9d97d4ce26246192cc4bc0570f7a674eda43219b458de71d6b61c79df82",
+  "portable_assets_lock_sha256": "4b6a0ce43c4adf0fd7d880965d9540ebe3f70a3d2a7601608df1568064e87df8",
   "files": [
     {
       "path": "additional/ANTLR-4.9.3-LICENSE.txt",
       "bytes": 2699,
       "sha256": "b1b379fcaf3219593a4c433feb1b35c780bed23fafaae440b1ae2771a9521e3a",
       "origin": "https://raw.githubusercontent.com/antlr/antlr4/4.9.3/LICENSE.txt"
+    },
+    {
+      "path": "additional/CUDA-12.8-EULA.html",
+      "bytes": 103460,
+      "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c",
+      "origin": "https://docs.nvidia.com/cuda/archive/12.8.0/eula/index.html"
+    },
+    {
+      "path": "additional/CUDA-13.0-EULA.html",
+      "bytes": 104490,
+      "sha256": "f8babe932f92aa7a25dd560b22d13c0d30c48b280b918eccc62ddb836142cabe",
+      "origin": "https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html"
     },
     {
       "path": "additional/Fast-SAM-3D-Body-LICENSE.txt",
@@ -28,6 +42,18 @@
       "bytes": 1064,
       "sha256": "987e63b32f6c89ff5160e429458a872ff048e6860b590a3912e938f9da8f14db",
       "origin": "https://raw.githubusercontent.com/openai/CLIP/main/LICENSE"
+    },
+    {
+      "path": "additional/cuDNN-9.19.0-EULA.html",
+      "bytes": 43991,
+      "sha256": "a28ad049b0fc356d7d9f7f5fa81d38d482f966eef95e7d6a276bc5c12f36cf23",
+      "origin": "https://docs.nvidia.com/deeplearning/cudnn/backend/v9.19.0/reference/eula.html"
+    },
+    {
+      "path": "additional/cuDNN-9.7.1-EULA.html",
+      "bytes": 44101,
+      "sha256": "2213d6b6807958c644c842d6aff9f4c1029ba9f7312a8be9eb031b119084fcb0",
+      "origin": "https://docs.nvidia.com/deeplearning/cudnn/backend/v9.7.1/reference/eula.html"
     },
     {
       "path": "additional/open_clip-LICENSE.txt",

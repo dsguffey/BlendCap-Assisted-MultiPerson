@@ -1,0 +1,38 @@
+{
+  "schema": "studiofree-corresponding-source-lock",
+  "version": 1,
+  "opencv_ffmpeg": {
+    "analysis": {
+      "source_commit": "02a08baa7b8d330364c35477ba50524db8e4d335",
+      "opencv_commit": "09892c9d1706f40342bda0bc404580f63492d9f8",
+      "opencv_archive_sha256": "2d6b99bf756a03b81caed7223fdf1bbe1c60bf34c6babee6e734cf6b7afd33e2",
+      "dll_path": "analysis/Lib/site-packages/cv2/opencv_videoio_ffmpeg4110_64.dll",
+      "dll_sha256": "f0460320ac08c074bdf6d5a19f5c13d204e585e85030fdd40e20a3c0b3adeb67",
+      "archives": {
+        "sources/opencv_ffmpeg.tar.xz": "84f6f5cfb71b6729cd19669acd1d8f399f706cdc81d5fddaedc06b24de3559b9",
+        "sources/opencv/opencv-videoio-ffmpeg.tar.xz": "04434d8dc49f2baac9c9e3e04e0660c6cdc27fa5a8619bc29de761f5bee8d961",
+        "sources/build/ffmpeg/ffmpeg-src-n4.4.5.tar.xz": "ed9e77cc24570d66881b058af06e7e86586a9c960d6f6712ce086fce881888ed",
+        "sources/build/libvpx/libvpx-src-v1.15.0.tar.xz": "6c32d367e9330c43850e371af6aa2018eb1045b987fc6253b3d2d90cf16a66c2",
+        "sources/build/aom/aom-src-v3.11.0.tar.xz": "a11e9d5c61a6b0aa415cf9de16c6c18c41b7dbe1b5beb91631f54a13a79ff0c2",
+        "sources/build/openh264/openh264-api-headers-v1.8.0.tar.xz": "90c9333fe8dd9ce8f6585b7a2dae595276338f42b2850dbe2a75218e2957d1db"
+      }
+    },
+    "body": {
+      "source_commit": "664c0098dcb47b361f20c1d6a518653c23f5f2b5",
+      "opencv_commit": "a0a660fcb1e58a295e6caa6aee64ed4d369b0181",
+      "opencv_archive_sha256": "5d97bddd4c5d2895dddafe6aff211b9fc1add564887263b7c062f2699660bf1d",
+      "dll_path": "body/Lib/site-packages/cv2/opencv_videoio_ffmpeg500_64.dll",
+      "dll_sha256": "7aabff029d1fa47cf56ede4dbbe05dc62da3208f07cd16471d4c966a33f9aa31",
+      "archives": {
+        "sources/opencv_ffmpeg.tar.xz": "b8ed5b293311441de369160f047f277b606452fb604f5c35a7ea1edcb3ba6539",
+        "sources/opencv/opencv-videoio-ffmpeg.tar.xz": "8ca839350bbf7be6bf10c82f538303d59718ebf71aef32644c60132bd142f893",
+        "sources/build/ffmpeg/ffmpeg-src-n7.1.tar.xz": "65dcebb9ab64dea97f37bdd25a1b43dba807cb8d7c67e9a111729d836354fd8c",
+        "sources/build/libvpx/libvpx-src-v1.16.0.tar.xz": "60ea79ec7a99e5e7750482c1288b3a3015b4824df45be13bb208f3bd35dde003",
+        "sources/build/aom/aom-src-v3.14.1.tar.xz": "f3dbb5ee8367f948ae4c90f09e8fac703dc064ab4529bf854e208633a4e9e3c7",
+        "sources/build/openh264/openh264-api-headers-v2.5.0.tar.xz": "0040f94d11d0039505328a90b2ff48968db873e9e7967307631bf40ef5679275"
+      }
+    }
+  },
+  "openh264_2_5_commit": "8c7008aeb6335e7d36ab0d9a023a63f82a8eaac0",
+  "openh264_2_5_headers_sha256": "b826bfb9e15295858e1e23c640d3f0770ca62a4cabccfeffbe1b8574ceecbae6"
+}

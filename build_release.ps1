@@ -7,6 +7,11 @@ param(
     [Parameter(Mandatory = $true)][string]$BuildId,
     [Parameter(Mandatory = $true)][string]$GumroadProductId,
     [Parameter(Mandatory = $true)][string]$Components,
+    [Parameter(Mandatory = $true)][string]$FFmpeg4Source,
+    [Parameter(Mandatory = $true)][string]$FFmpeg5Source,
+    [Parameter(Mandatory = $true)][string]$OpenCV4Archive,
+    [Parameter(Mandatory = $true)][string]$OpenCV5Archive,
+    [Parameter(Mandatory = $true)][string]$OpenH264Source,
     [string]$Blender = 'C:\Design\Programs\Blender5.2\blender.exe',
     [string]$Python = 'C:\Users\dsguf\AppData\Local\Python\bin\python.exe',
     [string]$NuitkaPython = '',
@@ -43,6 +48,11 @@ $probePython = if ($ProbePython) { (Resolve-Path -LiteralPath $ProbePython).Path
 if ($LASTEXITCODE -ne 0) { throw 'Compiled worker-flow probes require -ProbePython with cv2 and numpy.' }
 $blenderExe = (Resolve-Path -LiteralPath $Blender).Path
 $componentsFile = (Resolve-Path -LiteralPath $Components).Path
+$ffmpeg4Source = (Resolve-Path -LiteralPath $FFmpeg4Source).Path
+$ffmpeg5Source = (Resolve-Path -LiteralPath $FFmpeg5Source).Path
+$opencv4Archive = (Resolve-Path -LiteralPath $OpenCV4Archive).Path
+$opencv5Archive = (Resolve-Path -LiteralPath $OpenCV5Archive).Path
+$openh264Source = (Resolve-Path -LiteralPath $OpenH264Source).Path
 $testTemp = New-Item -ItemType Directory -Force -Path (Join-Path $public '.build\test-temp')
 $env:TEMP = $testTemp.FullName
 $env:TMP = $testTemp.FullName
@@ -77,7 +87,14 @@ try {
 } finally { Pop-Location }
 Push-Location $public
 try {
-    & $python tools\studiofree_release.py --dist $dist --private $private --blender $blenderExe --output $stage --components $componentsFile --complete
+    $releaseArgs = @(
+        '--dist', $dist, '--private', $private, '--blender', $blenderExe,
+        '--output', $stage, '--components', $componentsFile,
+        '--ffmpeg4-source', $ffmpeg4Source, '--ffmpeg5-source', $ffmpeg5Source,
+        '--opencv4-archive', $opencv4Archive, '--opencv5-archive', $opencv5Archive,
+        '--openh264-source', $openh264Source, '--complete'
+    )
+    & $python tools\studiofree_release.py @releaseArgs
     if ($LASTEXITCODE -ne 0) { throw 'Release staging failed.' }
     & $python tools\studiofree_release.py --verify (Join-Path $stage 'payload')
     if ($LASTEXITCODE -ne 0) { throw 'Staged package validation failed.' }
