@@ -112,6 +112,14 @@ class ReleaseLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe"):
             maintenance.verify_payload(self.b)
 
+    def test_internal_component_stage_cannot_be_installed(self):
+        manifest = json.loads((self.a / "package.json").read_text())
+        manifest["internal_test"] = True
+        (self.a / "package.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "Internal technical-test"):
+            maintenance.verify_payload(self.a)
+        self.assertEqual(maintenance.verify_payload(self.a, allow_internal=True)["build_id"], "A")
+
     def test_release_names_cannot_escape_or_alias_windows_paths(self):
         for name in ("..", "A.", "CON", "com1.txt", "A/B"):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Invalid release ID"):

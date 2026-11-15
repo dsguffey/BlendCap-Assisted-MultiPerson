@@ -51,9 +51,9 @@ print("STUDIOFREE_OFFLINE_PROBE=" + json.dumps({"role": role, "python": sys.vers
 '''
 
 
-def probe(payload: Path) -> list[dict]:
+def probe(payload: Path, *, internal_test: bool = False) -> list[dict]:
     payload = payload.resolve(strict=True)
-    verify_payload(payload, complete=True)
+    verify_payload(payload, complete=True, allow_internal=internal_test)
     routes = json.loads((payload / "runtime-routes.json").read_text(encoding="utf-8"))
     reports = []
     for role in ("control", "body", "analysis"):
@@ -68,7 +68,7 @@ def probe(payload: Path) -> list[dict]:
         system_root = Path(os.environ.get("SystemRoot", "C:/Windows"))
         environment["PATH"] = os.pathsep.join((str(executable.parent), str(root),
                                                  str(system_root / "System32")))
-        result = subprocess.run((str(executable), "-I", "-c", PROBE,
+        result = subprocess.run((str(executable), "-I", "-B", "-c", PROBE,
                                  str(root), role, str(payload / "analysis_source")),
                                 cwd=payload, env=environment, capture_output=True,
                                 text=True, timeout=180, check=False)
@@ -84,8 +84,10 @@ def probe(payload: Path) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("payload", type=Path)
+    parser.add_argument("--internal-test", action="store_true",
+                        help="Probe a non-installable internal technical payload")
     args = parser.parse_args()
-    print(json.dumps(probe(args.payload), indent=2))
+    print(json.dumps(probe(args.payload, internal_test=args.internal_test), indent=2))
 
 
 if __name__ == "__main__":

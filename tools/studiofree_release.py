@@ -22,8 +22,8 @@ sys.path.insert(0, str(ROOT))
 PRIVATE_DEFAULT = ROOT.parent / "Video-to-Animation"
 COMPONENTS = ("control", "body", "analysis", "analysis_source", "models")
 SOURCE_SUFFIXES = {".py", ".json", ".toml", ".yaml", ".yml", ".txt", ".md", ".csv", ".blend"}
-FORBIDDEN_PARTS = {".git", "__pycache__", ".build", "tests", "tools", "research", "logs"}
-EXTENSION_FORBIDDEN = FORBIDDEN_PARTS | {"checkpoints", "venv"}
+FORBIDDEN_PARTS = {".git", "__pycache__", ".build", "tests", "research", "logs"}
+EXTENSION_FORBIDDEN = FORBIDDEN_PARTS | {"tools", "checkpoints", "venv"}
 ROOT_EXCLUDE = {"vta_package.py", "save_face_data.py", "convert_source.py", "overlay_track.py"}
 
 
@@ -185,7 +185,7 @@ def copy_maintenance(target: Path) -> None:
         shutil.copyfile(source, protocol / source.name)
 
 
-def add_approved_components(spec_path: Path, destination: Path) -> None:
+def add_pinned_components(spec_path: Path, destination: Path, *, redistribution: str = "approved") -> None:
     """Copy only explicitly reviewed, content-pinned external payload files."""
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     if set(spec) != {"components", "routes"} or set(spec["components"]) != set(COMPONENTS):
@@ -203,8 +203,8 @@ def add_approved_components(spec_path: Path, destination: Path) -> None:
     (destination / "runtime-routes.json").write_text(json.dumps(spec["routes"], sort_keys=True), encoding="utf-8")
     for component in COMPONENTS:
         row = spec["components"][component]
-        if set(row) != {"root", "files", "redistribution"} or row["redistribution"] != "approved":
-            raise ValueError(f"{component} lacks explicit redistribution approval")
+        if set(row) != {"root", "files", "redistribution"} or row["redistribution"] != redistribution:
+            raise ValueError(f"{component} lacks the required {redistribution} disposition")
         root = Path(row["root"]).resolve(strict=True)
         if not isinstance(row["files"], list) or not row["files"]:
             raise ValueError(f"Empty component inventory: {component}")
@@ -222,6 +222,12 @@ def add_approved_components(spec_path: Path, destination: Path) -> None:
                 raise ValueError(f"Component integrity mismatch: {component}/{rel}")
             target = destination / component / rel
             target.parent.mkdir(parents=True, exist_ok=True)
+            if redistribution == "internal-test-only":
+                try:
+                    os.link(source, target)
+                    continue
+                except OSError:
+                    pass
             shutil.copyfile(source, target)
     from vta_protocol.runtime import BODY_MODELS, BODY_REQUIRED_CODE
     required = [destination / "body" / "save_mhr_data.py",
@@ -232,7 +238,8 @@ def add_approved_components(spec_path: Path, destination: Path) -> None:
             raise ValueError(f"Required runtime/model component missing: {path.relative_to(destination)}")
 
 
-def package_manifest(root: Path, release: dict, public_commit: str, private_commit: str) -> dict:
+def package_manifest(root: Path, release: dict, public_commit: str, private_commit: str,
+                     *, internal_test: bool = False) -> dict:
     files = []
     for path in sorted(root.rglob("*")):
         if path.is_dir():
@@ -244,12 +251,14 @@ def package_manifest(root: Path, release: dict, public_commit: str, private_comm
                 or path.suffix.lower() in {".pth", ".pdb", ".map"}):
             raise ValueError(f"Machine-local or debug file in package: {rel}")
         if (any(part in FORBIDDEN_PARTS for part in Path(rel).parts)
+                or Path(rel).parts[0] == "tools"
                 or (rel.startswith(("engine/", "maintenance/")) and any(part in {"checkpoints", "venv"} for part in Path(rel).parts))
                 or (path.suffix.lower() in {".blend", ".blend1", ".log", ".pdb", ".pyc"}
                     and not rel.startswith("engine/vta_protocol/"))):
             raise ValueError(f"Forbidden staged file: {rel}")
         files.append(dict(path=rel, bytes=path.stat().st_size, sha256=sha256(path), component=rel.split("/")[0]))
-    return dict(schema="studiofree-package", version=1, product_version=release["product_version"],
+    return dict(schema="studiofree-package", version=1, internal_test=internal_test,
+                product_version=release["product_version"],
                 build_id=release["build_id"], fingerprint=release["fingerprint"],
                 protocol=8, public_commit=public_commit, private_commit=private_commit, files=files)
 
@@ -275,6 +284,8 @@ def verify_stage(stage: Path) -> dict:
 
 
 def stage(args: argparse.Namespace) -> Path:
+    if args.complete and args.internal_components:
+        raise ValueError("Internal technical components cannot enter a complete customer build")
     private = args.private.resolve(strict=True)
     dist = args.dist.resolve(strict=True)
     blender = args.blender.resolve(strict=True)
@@ -312,10 +323,14 @@ def stage(args: argparse.Namespace) -> Path:
                     info.get("release_fingerprint") != release["fingerprint"]):
                 raise ValueError("Compiled engine provenance differs from private source commit")
         if args.components:
-            add_approved_components(args.components.resolve(strict=True), stage_root)
+            add_pinned_components(args.components.resolve(strict=True), stage_root)
+        if args.internal_components:
+            add_pinned_components(args.internal_components.resolve(strict=True), stage_root,
+                                  redistribution="internal-test-only")
         if args.complete and not args.components:
             raise ValueError("A customer installer requires approved runtime/model component inventories")
-        data = package_manifest(stage_root, release, public_commit, private_commit)
+        data = package_manifest(stage_root, release, public_commit, private_commit,
+                                internal_test=bool(args.internal_components))
         (stage_root / "package.json").write_text(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
         verify_stage(stage_root)
         (destination / "build-report.json").write_text(json.dumps({
@@ -324,6 +339,7 @@ def stage(args: argparse.Namespace) -> Path:
             "build_id": data["build_id"], "fingerprint": data["fingerprint"],
             "blender": str(blender), "blender_version": run(str(blender), "--version").splitlines()[0],
             "build_python": platform.python_version(), "complete": bool(args.components),
+            "internal_test": bool(args.internal_components),
             "files": len(data["files"]), "bytes": sum(r["bytes"] for r in data["files"]),
         }, indent=2) + "\n", encoding="utf-8")
         return stage_root
@@ -339,9 +355,15 @@ def main() -> None:
     parser.add_argument("--blender", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--components", type=Path, help="Explicit approved pinned component inventories")
+    parser.add_argument("--internal-components", type=Path,
+                        help="Pinned internal technical-test components; never a customer build")
     parser.add_argument("--complete", action="store_true", help="Require all customer runtime/model payloads")
     parser.add_argument("--verify", type=Path, help="Verify an existing payload directory instead of building")
     args = parser.parse_args()
+    if args.components and args.internal_components:
+        parser.error("Choose approved customer components or internal technical components")
+    if args.complete and args.internal_components:
+        parser.error("Internal technical components cannot enter a complete customer build")
     if args.verify:
         data = verify_stage(args.verify)
         print(f"Verified {len(data['files'])} package files")

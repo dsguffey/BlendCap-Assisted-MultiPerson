@@ -107,14 +107,19 @@ def safe_destination(root: Path, rel: Path) -> Path:
     return current
 
 
-def verify_payload(root: Path, *, complete: bool = True, allow_extra: bool = False) -> dict:
+def verify_payload(root: Path, *, complete: bool = True, allow_extra: bool = False,
+                   allow_internal: bool = False) -> dict:
     if root.is_symlink() or getattr(root, "is_junction", lambda: False)():
         raise ValueError("Linked package root rejected")
     root = root.resolve(strict=True)
-    manifest = read_json(root / "package.json")
+    # Portable AI wheels add tens of thousands of hashed members. The generic
+    # metadata limit is too small for a complete release inventory.
+    manifest = read_json(root / "package.json", 32_000_000)
     if (manifest.get("schema") != "studiofree-package" or manifest.get("version") != 1
             or manifest.get("product_version") != PRODUCT or manifest.get("protocol") != PROTOCOL):
         raise ValueError("Package version or protocol mismatch")
+    if manifest.get("internal_test") and not allow_internal:
+        raise ValueError("Internal technical-test payload cannot be installed")
     release_id(manifest.get("build_id"))
     files = manifest.get("files")
     if not isinstance(files, list) or not files or len(files) > 100_000:

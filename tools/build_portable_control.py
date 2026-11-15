@@ -59,7 +59,7 @@ def build(archive: Path, output: Path) -> dict:
                               "sha256": digest(target)})
         if not ROOT_FILES.issubset({row["path"] for row in files}):
             raise ValueError("CPython archive lacks a required control-runtime file")
-        result = subprocess.run((str(output / "python.exe"), "-I", "-c",
+        result = subprocess.run((str(output / "python.exe"), "-I", "-B", "-c",
                                  "import ctypes,ssl,sys,pathlib; "
                                  "r=pathlib.Path(sys.argv[1]).resolve(); "
                                  "assert pathlib.Path(sys.base_prefix).resolve()==r; "
