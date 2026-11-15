@@ -41,6 +41,9 @@ def main() -> None:
                                 ("models", "sam3.pt")):
             write(payload / component / name)
         write(payload / "body" / "save_mhr_data.py")
+        from vta_protocol.runtime import BODY_REQUIRED_CODE
+        for name in BODY_REQUIRED_CODE:
+            write(payload / "body" / name)
         for name in ("checkpoints/sam-3d-body-dinov3/model.ckpt",
                      "checkpoints/sam-3d-body-dinov3/model_config.yaml",
                      "checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt",

@@ -83,14 +83,8 @@ class Dinov3Backbone(nn.Module):
                 drop_path=self.cfg.MODEL.BACKBONE.DROP_PATH_RATE,
             )
         else:
-            # No local copy found — last-resort online fetch (needs internet).
-            self.encoder = torch.hub.load(
-                "facebookresearch/dinov3",
-                self.name,
-                source="github",
-                pretrained=False,
-                drop_path=self.cfg.MODEL.BACKBONE.DROP_PATH_RATE,
-                trust_repo=True,
+            raise FileNotFoundError(
+                "The packaged DINOv3 architecture is missing; run StudioFree repair."
             )
         self.patch_size = self.encoder.patch_size
         self.embed_dim = self.embed_dims = self.encoder.embed_dim

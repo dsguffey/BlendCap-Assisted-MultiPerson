@@ -13,6 +13,10 @@ BODY_MODELS=('checkpoints/sam-3d-body-dinov3/model.ckpt',
     'checkpoints/sam-3d-body-dinov3/model_config.yaml',
     'checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt',
     'checkpoints/moge-2-vits-normal/model.pt')
+BODY_REQUIRED_CODE=('npz_to_bvh.py',
+    'models/fast-sam-3d-body/sam_3d_body/__init__.py',
+    'models/fast-sam-3d-body/tools/build_fov_estimator.py',
+    'models/dinov3_hub/facebookresearch_dinov3_main/hubconf.py')
 
 def user_data_root(environ=None):
     env=os.environ if environ is None else environ
@@ -65,6 +69,8 @@ def resolve(value, *, check_files=True):
                 'Compiled release identity is missing. Run repair.','RUNTIME_MISSING')
         for name in BODY_MODELS:
             require(contained(result['body_root'],name).is_file(),'VTA body/calibration model is missing: '+name+'. Run repair.','MODEL_MISSING')
+        for name in BODY_REQUIRED_CODE:
+            require(contained(result['body_root'],name).is_file(),'VTA body runtime code is missing: '+name+'. Run repair.','RUNTIME_MISSING')
     return result
 
 def provider_runtime(resolved):

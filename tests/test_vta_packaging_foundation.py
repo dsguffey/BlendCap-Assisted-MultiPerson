@@ -18,7 +18,7 @@ def configuration(root):
             path=Path(roots[owner])/routes[name];path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'fixture-only')
     for owner,name in (('adapter','blendcap_vta_provider_worker.py'),('engine','vta_engine.py'),('analysis_source','src/sam_3d_pose_estimation/stream_detector.py'),('body','save_mhr_data.py')):
         path=Path(roots[owner])/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'fixture-only')
-    for name in contract.BODY_MODELS:
+    for name in contract.BODY_MODELS + contract.BODY_REQUIRED_CODE:
         path=Path(roots['body'])/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'model-fixture')
     return dict(schema='vta-runtime',version=1,product_version=contract.PRODUCT_VERSION,protocol=[contract.PROTOCOL_MIN,contract.PROTOCOL_MAX],mode='test',roots=roots,routes=routes)
 
