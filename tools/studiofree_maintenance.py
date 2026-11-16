@@ -34,6 +34,11 @@ def safe_member(name: str) -> Path:
     if (not isinstance(name, str) or not name or len(name) > 512 or name.startswith("/")
             or "\\" in name or ":" in name or any(part in ("", ".", "..") for part in name.split("/"))):
         raise ValueError("Unsafe package path")
+    for part in name.split("/"):
+        if (part.endswith((" ", ".")) or
+                re.fullmatch(r"(?i)(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?", part) or
+                any(character in part for character in '<>"|?*')):
+            raise ValueError("Windows-ambiguous package path")
     return Path(*name.split("/"))
 
 
@@ -108,11 +113,12 @@ def safe_destination(root: Path, rel: Path) -> Path:
     return current
 
 
-def verify_payload(root: Path, *, complete: bool = True, allow_extra: bool = False,
+def verify_payload(root: Path, *, complete: bool = True, allow_owner_blend: bool = False,
                    allow_internal: bool = False) -> dict:
     if root.is_symlink() or getattr(root, "is_junction", lambda: False)():
         raise ValueError("Linked package root rejected")
     root = root.resolve(strict=True)
+    regular(root / "package.json", root)
     # Portable AI wheels add tens of thousands of hashed members. The generic
     # metadata limit is too small for a complete release inventory.
     manifest = read_json(root / "package.json", PACKAGE_MANIFEST_LIMIT)
@@ -138,8 +144,15 @@ def verify_payload(root: Path, *, complete: bool = True, allow_extra: bool = Fal
         regular(path, root)
         if path.stat().st_size != row["bytes"] or digest(path) != row["sha256"]:
             raise ValueError(f"Package hash mismatch: {name}")
-    actual = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()} - {"package.json"}
-    if not allow_extra and actual != {row["path"] for row in files}:
+    actual = set()
+    for member in root.rglob("*"):
+        if member.is_symlink() or getattr(member, "is_junction", lambda: False)():
+            raise ValueError("Linked package member rejected")
+        if member.is_file():
+            actual.add(member.relative_to(root).as_posix())
+    actual.discard("package.json")
+    extras = actual - {row["path"] for row in files}
+    if extras and (not allow_owner_blend or any(Path(name).suffix.lower() != ".blend" for name in extras)):
         raise ValueError("Undeclared file in package")
     release = read_json(root / "engine" / "release.json", 16384)
     if (release.get("fingerprint") != manifest.get("fingerprint") or
@@ -170,8 +183,10 @@ def remove_owned(root: Path, manifest: dict) -> None:
     """Remove only inventoried files and now-empty directories."""
     if root.is_symlink() or getattr(root, "is_junction", lambda: False)():
         raise ValueError("Linked release directory rejected")
-    for row in manifest["files"]:
-        path = safe_destination(root, safe_member(row["path"]))
+    # Validate every target before removing any file, so a late junction or
+    # malformed ownership row cannot leave an avoidably partial uninstall.
+    targets = [safe_destination(root, safe_member(row["path"])) for row in manifest["files"]]
+    for path in targets:
         path.unlink(missing_ok=True)
     (root / "package.json").unlink(missing_ok=True)
     for directory in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
@@ -198,7 +213,7 @@ def copy_release(payload: Path, staging: Path, manifest: dict, previous: Path | 
     prior = {}
     if previous is not None and previous.is_dir():
         try:
-            previous_manifest = verify_payload(previous, allow_extra=True,
+            previous_manifest = verify_payload(previous, allow_owner_blend=True,
                                                allow_internal=allow_internal)
         except (OSError, ValueError, KeyError, TypeError):
             # An update must still be able to replace a damaged old release.
@@ -345,7 +360,7 @@ class Lifecycle:
             raise ValueError("An unmanaged StudioFree extension already exists; choose a clean Blender profile or migrate it first")
         destination = self.release(identity)
         if destination.exists():
-            verify_payload(destination, allow_extra=True,
+            verify_payload(destination, allow_owner_blend=True,
                            allow_internal=self.internal_validation)
         else:
             staging = self.program / "staging" / uuid4().hex
@@ -437,7 +452,7 @@ class Lifecycle:
                 changed.append(row["path"])
         if not (destination / "package.json").is_file():
             shutil.copyfile(payload / "package.json", destination / "package.json")
-        verify_payload(destination, allow_extra=True,
+        verify_payload(destination, allow_owner_blend=True,
                        allow_internal=self.internal_validation)
         self.smoke(destination)
         adapter = self.blender.install(destination / "blendcap.zip")
@@ -451,7 +466,7 @@ class Lifecycle:
         if Path(current["blender"]).resolve() != self.blender.exe:
             raise ValueError("Rollback must use the Blender installation selected for the active release")
         previous = self.release(current["previous"])
-        verify_payload(previous, allow_extra=True,
+        verify_payload(previous, allow_owner_blend=True,
                        allow_internal=self.internal_validation)
         self.smoke(previous)
         old = self.release(current["active"])

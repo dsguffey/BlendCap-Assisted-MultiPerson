@@ -2,6 +2,7 @@
 # someone copies a full working tree in here by accident.
 /installer/*
 !/installer/studiofree_mocap.iss
+!/installer/verify_sidecar.ps1
 _offline_stash/
 venv/
 checkpoints/

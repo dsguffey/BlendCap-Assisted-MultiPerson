@@ -8,7 +8,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 import zipfile
 
 try:
@@ -19,8 +22,23 @@ except ImportError:
     from studiofree_maintenance import verify_payload
 
 
+def verify_publisher(installer: Path, thumbprint: str) -> None:
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", thumbprint):
+        raise ValueError("A customer distribution requires an expected publisher certificate thumbprint")
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    script = ("$s=Get-AuthenticodeSignature -LiteralPath $env:STUDIOFREE_VERIFY_TARGET; "
+              "if ($s.Status -ne 'Valid' -or -not $s.SignerCertificate -or "
+              "$s.SignerCertificate.Thumbprint -ne $env:STUDIOFREE_EXPECTED_PUBLISHER) { exit 3 }")
+    environment = {**os.environ, "STUDIOFREE_VERIFY_TARGET": str(installer),
+                   "STUDIOFREE_EXPECTED_PUBLISHER": thumbprint.upper()}
+    result = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", script],
+                            env=environment, capture_output=True, timeout=30, check=False)
+    if result.returncode:
+        raise ValueError("Installer signature is missing, untrusted, or from a different publisher")
+
+
 def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool = False,
-            internal_validation: bool = False) -> dict:
+            internal_validation: bool = False, expected_publisher_thumbprint: str = "") -> dict:
     installer = installer.resolve(strict=True)
     payload = payload.resolve(strict=True)
     manifest = verify_stage(payload)
@@ -38,6 +56,8 @@ def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool 
         verify_compliance(payload)
     if not installer.is_file() or installer.suffix.lower() != ".exe":
         raise ValueError("An Inno installer EXE is required")
+    if not test_fixture and not internal_validation:
+        verify_publisher(installer, expected_publisher_thumbprint)
     if output.exists():
         raise FileExistsError("Distribution output already exists")
     if output.is_relative_to(payload) or output.is_relative_to(installer.parent):
@@ -80,10 +100,13 @@ def main() -> None:
                         help="Allow a disposable core-only fixture; never distribute it")
     parser.add_argument("--internal-validation", action="store_true",
                         help="Package only a marked full internal-test stage")
+    parser.add_argument("--expected-publisher-thumbprint", default="",
+                        help="Required SHA-1 certificate thumbprint for a customer distribution")
     args = parser.parse_args()
     receipt = package(args.installer, args.payload, args.output,
                       test_fixture=args.test_fixture,
-                      internal_validation=args.internal_validation)
+                      internal_validation=args.internal_validation,
+                      expected_publisher_thumbprint=args.expected_publisher_thumbprint)
     print(f"Offline distribution: {args.output} ({receipt['payload_files']} payload files)")
 
 

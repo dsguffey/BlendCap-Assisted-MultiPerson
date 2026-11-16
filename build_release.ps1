@@ -19,6 +19,7 @@ param(
     [string]$Iscc = '',
     [string]$SignToolName = '',
     [string]$SignToolCommand = '',
+    [string]$ExpectedPublisherThumbprint = '',
     [switch]$TestProduct,
     [switch]$InternalValidation,
     [switch]$SkipInstaller
@@ -36,8 +37,17 @@ if (-not $TestProduct -and $BuildId -match '(test|probe|dev)' ) {
 if ($InternalValidation -and -not $TestProduct) {
     throw 'Internal validation requires -TestProduct and internal-test component inventories.'
 }
+if ($TestProduct -and -not $InternalValidation -and -not $SkipInstaller) {
+    throw 'Test installers require -InternalValidation so they cannot use the customer AppId or installation root.'
+}
 if ([bool]$SignToolName -ne [bool]$SignToolCommand) {
     throw 'Provide both -SignToolName and -SignToolCommand to enable Inno Setup signing.'
+}
+if (-not $TestProduct -and -not $SignToolName) {
+    throw 'A production installer requires Authenticode signing. Provide -SignToolName and -SignToolCommand.'
+}
+if (-not $TestProduct -and $ExpectedPublisherThumbprint -notmatch '^[0-9a-fA-F]{40}$') {
+    throw 'A production installer requires the expected publisher certificate SHA-1 thumbprint.'
 }
 if (-not $NuitkaPython) {
     $NuitkaPython = Join-Path $private '.build\nuitka-tooling\Scripts\python.exe'
@@ -116,7 +126,9 @@ try {
     } elseif (Test-Path -LiteralPath $Iscc) {
         $compiler = (Resolve-Path -LiteralPath $Iscc).Path
         $output = New-Item -ItemType Directory -Force -Path (Join-Path $stage 'installer')
-        $innoArgs = @('/DProductVersion=' + $productVersion, '/O' + $output.FullName)
+        $manifestHash = (Get-FileHash -LiteralPath (Join-Path $stage 'payload\package.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $innoArgs = @('/DProductVersion=' + $productVersion,
+                      '/DExpectedPackageSHA256=' + $manifestHash, '/O' + $output.FullName)
         if ($InternalValidation) { $innoArgs += '/DInternalValidation=1' }
         if ($SignToolName) {
             $innoArgs += '/DSignToolName=' + $SignToolName
@@ -127,10 +139,23 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
         $installer = Get-ChildItem -LiteralPath $output.FullName -Filter '*.exe' -File |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        if ($SignToolName) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {
+                throw 'Installer Authenticode signature is not trusted on this build machine.'
+            }
+            if ($ExpectedPublisherThumbprint -and
+                $signature.SignerCertificate.Thumbprint -ne $ExpectedPublisherThumbprint) {
+                throw 'Installer signer does not match the expected publisher certificate.'
+            }
+        }
         $distribution = Join-Path $stage ('StudioFreeMoCap-' + $productVersion + '-' + $BuildId + '.zip')
         $packageArgs = @('tools\package_distribution.py', '--installer', $installer.FullName,
                          '--payload', (Join-Path $stage 'payload'), '--output', $distribution)
         if ($InternalValidation) { $packageArgs += '--internal-validation' }
+        if (-not $InternalValidation) {
+            $packageArgs += @('--expected-publisher-thumbprint', $ExpectedPublisherThumbprint)
+        }
         & $python @packageArgs
         if ($LASTEXITCODE -ne 0) { throw 'Offline distribution ZIP failed.' }
         $info = [ordered]@{

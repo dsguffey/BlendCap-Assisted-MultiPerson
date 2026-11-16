@@ -88,6 +88,7 @@ class EngineClient:
         try:
             process=subprocess.Popen(command,
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                cwd=str(endpoint.launcher.parent),
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),shell=False)
         except OSError as exc:raise EngineError('ENGINE_UNAVAILABLE','Engine process could not start.') from exc
         self.last_pid=process.pid

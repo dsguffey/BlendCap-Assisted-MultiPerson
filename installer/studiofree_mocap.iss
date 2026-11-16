@@ -6,6 +6,16 @@
 #ifndef ProductVersion
   #error ProductVersion is required
 #endif
+#ifndef ExpectedPackageSHA256
+  #error ExpectedPackageSHA256 is required
+#endif
+#if Len(ExpectedPackageSHA256) != 64
+  #error ExpectedPackageSHA256 must be a SHA-256 hex digest
+#endif
+#if !defined(InternalValidation) && !defined(SignToolName)
+  #error Customer installers require Authenticode signing
+#endif
+#define VerifierSHA256 GetSHA256OfFile("verify_sidecar.ps1")
 
 [Setup]
 #ifdef InternalValidation
@@ -40,13 +50,14 @@ RestartApplications=no
 SetupLogging=yes
 UninstallLogging=yes
 UninstallDisplayName=StudioFree MoCap
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
 #ifdef SignToolName
 SignTool={#SignToolName}
 SignedUninstaller=yes
 #endif
 
 [Files]
+Source: "verify_sidecar.ps1"; DestDir: "{app}"; Flags: ignoreversion noencryption
 Source: "{src}\payload\*"; DestDir: "{app}\payload"; Flags: external recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
@@ -103,9 +114,19 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
+  Params: String;
 begin
   Result := '';
   NeedsRestart := False;
+  ExtractTemporaryFile('verify_sidecar.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\verify_sidecar.ps1') + '" -InstallTarget "' +
+    ExpandConstant('{app}\payload') + '"';
+  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)) or (ExitCode <> 0) then begin
+    Result := 'Installation target contains a link or cannot be validated. Choose a clean StudioFree installation directory.';
+    Exit;
+  end;
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -Command "if (Get-Process blender -ErrorAction SilentlyContinue) { exit 5 } else { exit 0 }"',
     '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then begin
@@ -123,6 +144,16 @@ var
   Params: String;
 begin
   if CurStep <> ssPostInstall then Exit;
+  WizardForm.StatusLabel.Caption := 'Authenticating StudioFree MoCap package...';
+  ExtractTemporaryFile('verify_sidecar.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\verify_sidecar.ps1') + '" -Payload "' +
+    ExpandConstant('{app}\payload') + '" -ExpectedManifestSha256 "{#ExpectedPackageSHA256}"';
+  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)) or (ExitCode <> 0) then begin
+    MsgBox('StudioFree MoCap package authentication failed. No package code was started. Re-extract the complete distribution ZIP and retry.', mbError, MB_OK);
+    RaiseException('StudioFree MoCap package authentication failed.');
+  end;
   WizardForm.StatusLabel.Caption := 'Verifying and installing StudioFree MoCap components...';
   Params := '"' + ExpandConstant('{app}\payload\maintenance\studiofree_maintenance.py') + '" apply' +
     ' --payload "' + ExpandConstant('{app}\payload') + '"' +
@@ -148,6 +179,19 @@ var
   Params: String;
 begin
   Result := False;
+  if not FileExists(ExpandConstant('{app}\verify_sidecar.ps1')) or
+      not SameText(GetSHA256OfFile(ExpandConstant('{app}\verify_sidecar.ps1')), '{#VerifierSHA256}') then begin
+    MsgBox('The installed package verifier is missing or changed. Repair StudioFree before uninstalling.', mbError, MB_OK);
+    Exit;
+  end;
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\verify_sidecar.ps1') + '" -Payload "' +
+    ExpandConstant('{app}\payload') + '" -ExpectedManifestSha256 "{#ExpectedPackageSHA256}"';
+  if (not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)) or (ExitCode <> 0) then begin
+    MsgBox('Installed package authentication failed. No package code was started. Repair StudioFree before uninstalling.', mbError, MB_OK);
+    Exit;
+  end;
 #ifdef InternalValidation
   if not RegQueryStringValue(HKCU, 'Software\StudioFree\MoCap-InternalTest', 'InstallerPython', PythonExe) then begin
 #else

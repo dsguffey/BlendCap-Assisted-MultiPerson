@@ -58,7 +58,8 @@ user_default -e` and `extension remove` commands.
 
 | Path / data | Owner | Update / repair | Uninstall |
 |---|---|---|---|
-| `%LOCALAPPDATA%/Programs/VTA/Installer/payload` | Inno Setup | Replaced by full installer | Removed |
+| `%LOCALAPPDATA%/Programs/VTA/Installer/payload` | Inno Setup | Replaced by full installer after linked-target check | Removed |
+| `%LOCALAPPDATA%/Programs/VTA/Installer/verify_sidecar.ps1` | Inno Setup | Installed from the EXE; hash checked before uninstall | Removed |
 | `%LOCALAPPDATA%/Programs/VTA/releases/<build>` | StudioFree setup | New immutable release beside old; exact-file repair | Owned files removed |
 | `%LOCALAPPDATA%/Programs/VTA/install-record.json` | StudioFree setup | Updated with release IDs | Removed |
 | `%LOCALAPPDATA%/VTA/config/runtime.json`, `current.json` | StudioFree setup | Switches compatible engine/adapter; previous retained | Removed only when pointing to owned release |
@@ -146,10 +147,12 @@ repair and preservation. It does **not** prove GPU inference or an end-user
 installer transaction. Inno Setup 7.1.1 compiled the installer source against a
 synthetic fixture; the resulting EXE is explicitly an unsigned test artifact.
 
-Operational SHA-256 hashes detect corruption; they are not publisher
-authentication. Authenticode signing through Inno Setup `SignTool` (including
-signed uninstall/temp copies), signed release/payload provenance, and a
-timestamped production signing process belong to the security milestone.
+Operational SHA-256 hashes alone detect corruption; they do not authenticate
+the publisher. The [ARAP T2 security pass](research/studiofree_arap_t2_security_20261116.md)
+now binds the manifest digest to the Inno EXE, verifies the copied sidecar
+before executing its code, and requires a trusted Authenticode publisher
+signature and expected certificate thumbprint for production builds. Real
+signed-payload and clean-machine checks remain release gates.
 The package has a place for public source and notices, but final Third-Party
 Notices and asset provenance are also deferred. No auto-updater or telemetry is
 part of the 1.0 full-installer update strategy.
