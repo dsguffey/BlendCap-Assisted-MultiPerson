@@ -288,12 +288,16 @@ def verify_stage(stage: Path) -> dict:
 
 
 def stage(args: argparse.Namespace) -> Path:
+    internal_validation = bool(args.internal_validation)
+    full_payload = bool(args.complete or internal_validation)
     if args.complete and args.internal_components:
         raise ValueError("Internal technical components cannot enter a complete customer build")
-    if args.complete and not all((args.ffmpeg4_source, args.ffmpeg5_source,
-                                  args.opencv4_archive, args.opencv5_archive,
-                                  args.openh264_source)):
-        raise ValueError("Complete release requires both FFmpeg/OpenCV source sets and OpenH264 source")
+    if internal_validation and (args.complete or args.components or not args.internal_components):
+        raise ValueError("Internal validation requires only internal-test component inventories")
+    if full_payload and not all((args.ffmpeg4_source, args.ffmpeg5_source,
+                                 args.opencv4_archive, args.opencv5_archive,
+                                 args.openh264_source)):
+        raise ValueError("Full release stage requires both FFmpeg/OpenCV source sets and OpenH264 source")
     private = args.private.resolve(strict=True)
     dist = args.dist.resolve(strict=True)
     blender = args.blender.resolve(strict=True)
@@ -302,7 +306,7 @@ def stage(args: argparse.Namespace) -> Path:
         raise FileExistsError("Release stage must be a new directory")
     if not (private / "vta_engine.py").is_file():
         raise ValueError("Private source checkout missing")
-    if args.complete:
+    if full_payload:
         require_committed_source(ROOT)
         require_committed_source(private)
         for name in ("__init__.py", "runtime.py"):
@@ -322,7 +326,7 @@ def stage(args: argparse.Namespace) -> Path:
         build_extension(blender, source, stage_root / "blendcap.zip", destination / "blender-profile")
         release = copy_engine(dist, stage_root / "engine")
         copy_maintenance(stage_root / "maintenance")
-        if args.complete:
+        if full_payload:
             info_path = stage_root / "engine" / "build-info.json"
             if not info_path.is_file():
                 raise ValueError("Complete release requires compiled build provenance")
@@ -337,7 +341,7 @@ def stage(args: argparse.Namespace) -> Path:
                                   redistribution="internal-test-only")
         if args.complete and not args.components:
             raise ValueError("A customer installer requires approved runtime/model component inventories")
-        if args.complete:
+        if full_payload:
             from tools.studiofree_compliance import build as build_compliance
             build_compliance(stage_root, source,
                              {"analysis": args.ffmpeg4_source, "body": args.ffmpeg5_source},
@@ -345,7 +349,7 @@ def stage(args: argparse.Namespace) -> Path:
                              args.openh264_source, stage_root / "legal")
         data = package_manifest(stage_root, release, public_commit, private_commit,
                                 internal_test=bool(args.internal_components),
-                                compliance_required=bool(args.complete))
+                                compliance_required=full_payload)
         (stage_root / "package.json").write_text(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
         verify_stage(stage_root)
         (destination / "build-report.json").write_text(json.dumps({
@@ -373,6 +377,8 @@ def main() -> None:
     parser.add_argument("--internal-components", type=Path,
                         help="Pinned internal technical-test components; never a customer build")
     parser.add_argument("--complete", action="store_true", help="Require all customer runtime/model payloads")
+    parser.add_argument("--internal-validation", action="store_true",
+                        help="Full, compliance-checked internal-test stage; never a customer build")
     parser.add_argument("--ffmpeg4-source", type=Path, help="Pinned OpenCV 4.11 FFmpeg _src checkout")
     parser.add_argument("--ffmpeg5-source", type=Path, help="Pinned OpenCV 5.0 FFmpeg _src checkout")
     parser.add_argument("--opencv4-archive", type=Path, help="Full OpenCV source at the 4.11 FFmpeg submodule commit")

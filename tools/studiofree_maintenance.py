@@ -186,7 +186,8 @@ def remove_owned(root: Path, manifest: dict) -> None:
         pass
 
 
-def copy_release(payload: Path, staging: Path, manifest: dict, previous: Path | None) -> int:
+def copy_release(payload: Path, staging: Path, manifest: dict, previous: Path | None,
+                 *, allow_internal: bool = False) -> int:
     """Reuse identical large immutable model bytes without retaining prior paths.
 
     NTFS hardlinks are ref-counted, so uninstalling either release cannot remove
@@ -196,7 +197,8 @@ def copy_release(payload: Path, staging: Path, manifest: dict, previous: Path | 
     prior = {}
     if previous is not None and previous.is_dir():
         try:
-            previous_manifest = verify_payload(previous, allow_extra=True)
+            previous_manifest = verify_payload(previous, allow_extra=True,
+                                               allow_internal=allow_internal)
         except (OSError, ValueError, KeyError, TypeError):
             # An update must still be able to replace a damaged old release.
             # Never reuse bytes from a release that did not verify in full.
@@ -269,13 +271,15 @@ class BlenderCLI:
 
 
 class Lifecycle:
-    def __init__(self, program: Path, data: Path, blender: BlenderCLI, *, smoke=None):
+    def __init__(self, program: Path, data: Path, blender: BlenderCLI, *, smoke=None,
+                 internal_validation: bool = False):
         self.program = program.resolve()
         self.data = data.resolve()
         if self.program == self.data or self.program.is_relative_to(self.data) or self.data.is_relative_to(self.program):
             raise ValueError("Program and user-state roots must be separate")
         self.blender = blender
         self.smoke = smoke or self._engine_smoke
+        self.internal_validation = internal_validation
         self.record_path = self.program / "install-record.json"
         self.current_path = self.data / "current.json"
         self.runtime_path = self.data / "config" / "runtime.json"
@@ -331,7 +335,7 @@ class Lifecycle:
 
     def install(self, payload: Path, *, fail_after: str = "") -> str:
         self.blender.check_version()
-        manifest = verify_payload(payload)
+        manifest = verify_payload(payload, allow_internal=self.internal_validation)
         identity = manifest["build_id"]
         old = self.current()
         if old and Path(old["blender"]).resolve() != self.blender.exe:
@@ -340,14 +344,16 @@ class Lifecycle:
             raise ValueError("An unmanaged StudioFree extension already exists; choose a clean Blender profile or migrate it first")
         destination = self.release(identity)
         if destination.exists():
-            verify_payload(destination, allow_extra=True)
+            verify_payload(destination, allow_extra=True,
+                           allow_internal=self.internal_validation)
         else:
             staging = self.program / "staging" / uuid4().hex
             staging.parent.mkdir(parents=True, exist_ok=True)
             try:
                 prior_root = self.release(old["active"]) if old else None
-                copy_release(payload, staging, manifest, prior_root)
-                verify_payload(staging)
+                copy_release(payload, staging, manifest, prior_root,
+                             allow_internal=self.internal_validation)
+                verify_payload(staging, allow_internal=self.internal_validation)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(staging, destination)
             finally:
@@ -406,7 +412,7 @@ class Lifecycle:
 
     def repair(self, payload: Path) -> list[str]:
         self.blender.check_version()
-        manifest = verify_payload(payload)
+        manifest = verify_payload(payload, allow_internal=self.internal_validation)
         current = self.current()
         if current is None or manifest["build_id"] != current["active"]:
             raise ValueError("Repair requires the matching active full installer")
@@ -430,7 +436,8 @@ class Lifecycle:
                 changed.append(row["path"])
         if not (destination / "package.json").is_file():
             shutil.copyfile(payload / "package.json", destination / "package.json")
-        verify_payload(destination, allow_extra=True)
+        verify_payload(destination, allow_extra=True,
+                       allow_internal=self.internal_validation)
         self.smoke(destination)
         adapter = self.blender.install(destination / "blendcap.zip")
         atomic_json(self.runtime_path, self._runtime(destination, adapter))
@@ -443,7 +450,8 @@ class Lifecycle:
         if Path(current["blender"]).resolve() != self.blender.exe:
             raise ValueError("Rollback must use the Blender installation selected for the active release")
         previous = self.release(current["previous"])
-        verify_payload(previous, allow_extra=True)
+        verify_payload(previous, allow_extra=True,
+                       allow_internal=self.internal_validation)
         self.smoke(previous)
         old = self.release(current["active"])
         try:
@@ -487,6 +495,8 @@ def main() -> None:
     parser.add_argument("--program-root", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--blender", type=Path)
+    parser.add_argument("--internal-validation", action="store_true",
+                        help="Explicitly permit a marked internal-test payload in an isolated install")
     args = parser.parse_args()
     if args.operation in ("apply", "install", "repair") and args.payload is None:
         parser.error("install/repair requires --payload")
@@ -497,11 +507,14 @@ def main() -> None:
         if current_path.is_file():
             args.blender = Path(read_json(current_path, 4096)["blender"])
     cli = BlenderCLI(args.blender, allow_missing=args.operation == "uninstall") if args.blender else None
-    lifecycle = Lifecycle(args.program_root, args.data_root, cli)
+    lifecycle = Lifecycle(args.program_root, args.data_root, cli,
+                          internal_validation=args.internal_validation)
     try:
         log_event(args.data_root, args.operation, "started")
         if args.operation == "apply":
-            incoming = verify_payload(args.payload)
+            incoming = verify_payload(args.payload, allow_internal=args.internal_validation)
+            if args.internal_validation and not incoming.get("internal_test"):
+                raise ValueError("Internal validation requires an internal-test payload")
             current = lifecycle.current()
             if current and current["active"] == incoming["build_id"]:
                 print("Repaired", len(lifecycle.repair(args.payload)), "files")

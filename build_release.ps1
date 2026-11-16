@@ -20,6 +20,7 @@ param(
     [string]$SignToolName = '',
     [string]$SignToolCommand = '',
     [switch]$TestProduct,
+    [switch]$InternalValidation,
     [switch]$SkipInstaller
 )
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,9 @@ if (-not $TestProduct -and $GumroadProductId -eq $disposable) {
 }
 if (-not $TestProduct -and $BuildId -match '(test|probe|dev)' ) {
     throw 'Production builds require a non-test build ID.'
+}
+if ($InternalValidation -and -not $TestProduct) {
+    throw 'Internal validation requires -TestProduct and internal-test component inventories.'
 }
 if ([bool]$SignToolName -ne [bool]$SignToolCommand) {
     throw 'Provide both -SignToolName and -SignToolCommand to enable Inno Setup signing.'
@@ -89,16 +93,23 @@ Push-Location $public
 try {
     $releaseArgs = @(
         '--dist', $dist, '--private', $private, '--blender', $blenderExe,
-        '--output', $stage, '--components', $componentsFile,
+        '--output', $stage,
         '--ffmpeg4-source', $ffmpeg4Source, '--ffmpeg5-source', $ffmpeg5Source,
         '--opencv4-archive', $opencv4Archive, '--opencv5-archive', $opencv5Archive,
-        '--openh264-source', $openh264Source, '--complete'
+        '--openh264-source', $openh264Source
     )
+    if ($InternalValidation) {
+        $releaseArgs += @('--internal-components', $componentsFile, '--internal-validation')
+    } else {
+        $releaseArgs += @('--components', $componentsFile, '--complete')
+    }
     & $python tools\studiofree_release.py @releaseArgs
     if ($LASTEXITCODE -ne 0) { throw 'Release staging failed.' }
     & $python tools\studiofree_release.py --verify (Join-Path $stage 'payload')
     if ($LASTEXITCODE -ne 0) { throw 'Staged package validation failed.' }
-    & $python tools\probe_offline_components.py (Join-Path $stage 'payload')
+    $probeArgs = @('tools\probe_offline_components.py', (Join-Path $stage 'payload'))
+    if ($InternalValidation) { $probeArgs += '--internal-test' }
+    & $python @probeArgs
     if ($LASTEXITCODE -ne 0) { throw 'Packaged Python import closure failed.' }
     if ($SkipInstaller) {
         Write-Output "Verified release stage: $stage"
@@ -106,6 +117,7 @@ try {
         $compiler = (Resolve-Path -LiteralPath $Iscc).Path
         $output = New-Item -ItemType Directory -Force -Path (Join-Path $stage 'installer')
         $innoArgs = @('/DProductVersion=' + $productVersion, '/O' + $output.FullName)
+        if ($InternalValidation) { $innoArgs += '/DInternalValidation=1' }
         if ($SignToolName) {
             $innoArgs += '/DSignToolName=' + $SignToolName
             $innoArgs += '/S' + $SignToolName + '=' + $SignToolCommand
@@ -116,7 +128,10 @@ try {
         $installer = Get-ChildItem -LiteralPath $output.FullName -Filter '*.exe' -File |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         $distribution = Join-Path $stage ('StudioFreeMoCap-' + $productVersion + '-' + $BuildId + '.zip')
-        & $python tools\package_distribution.py --installer $installer.FullName --payload (Join-Path $stage 'payload') --output $distribution
+        $packageArgs = @('tools\package_distribution.py', '--installer', $installer.FullName,
+                         '--payload', (Join-Path $stage 'payload'), '--output', $distribution)
+        if ($InternalValidation) { $packageArgs += '--internal-validation' }
+        & $python @packageArgs
         if ($LASTEXITCODE -ne 0) { throw 'Offline distribution ZIP failed.' }
         $info = [ordered]@{
             schema = 'studiofree-installer-build'; version = 1
@@ -125,6 +140,7 @@ try {
             installer_sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             distribution_sha256 = (Get-FileHash -LiteralPath $distribution -Algorithm SHA256).Hash.ToLowerInvariant()
             signed = [bool]$SignToolName
+            internal_test = [bool]$InternalValidation
         }
         $info | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'installer-build-info.json') -Encoding utf8
         $signLabel = if ($SignToolName) { 'signed' } else { 'unsigned test' }

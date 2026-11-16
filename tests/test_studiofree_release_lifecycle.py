@@ -119,6 +119,13 @@ class ReleaseLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Internal technical-test"):
             maintenance.verify_payload(self.a)
         self.assertEqual(maintenance.verify_payload(self.a, allow_internal=True)["build_id"], "A")
+        with self.assertRaisesRegex(ValueError, "Internal technical-test"):
+            self.lifecycle.install(self.a)
+        internal = maintenance.Lifecycle(self.program, self.data, self.blender,
+                                         smoke=lambda path: None, internal_validation=True)
+        self.assertEqual(internal.install(self.a), "A")
+        self.assertEqual(internal.repair(self.a), [])
+        internal.uninstall()
 
     def test_release_names_cannot_escape_or_alias_windows_paths(self):
         for name in ("..", "A.", "CON", "com1.txt", "A/B"):
@@ -210,6 +217,9 @@ class ReleaseLifecycleTests(unittest.TestCase):
         write(installer, b"synthetic installer")
         with self.assertRaises((FileNotFoundError, ValueError)):
             package_distribution.package(installer, self.a, self.root / "customer.zip")
+        with self.assertRaisesRegex(ValueError, "Internal distribution requires"):
+            package_distribution.package(installer, self.a, self.root / "internal.zip",
+                                         internal_validation=True)
 
     def test_marked_customer_stage_rejects_missing_compliance_bundle(self):
         path = self.a / "package.json"

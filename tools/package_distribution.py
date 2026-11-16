@@ -19,12 +19,18 @@ except ImportError:
     from studiofree_maintenance import verify_payload
 
 
-def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool = False) -> dict:
+def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool = False,
+            internal_validation: bool = False) -> dict:
     installer = installer.resolve(strict=True)
     payload = payload.resolve(strict=True)
     manifest = verify_stage(payload)
+    if test_fixture and internal_validation:
+        raise ValueError("Fixture and internal-validation modes cannot be combined")
+    if internal_validation and (not manifest.get("internal_test") or
+                                not manifest.get("compliance_required")):
+        raise ValueError("Internal distribution requires a marked, compliance-checked payload")
     if not test_fixture:
-        verify_payload(payload, complete=True)
+        verify_payload(payload, complete=True, allow_internal=internal_validation)
         try:
             from .studiofree_compliance import verify as verify_compliance
         except ImportError:
@@ -47,6 +53,7 @@ def package(installer: Path, payload: Path, output: Path, *, test_fixture: bool 
                 archive.write(source, arcname=name)
             receipt = dict(schema="studiofree-offline-distribution", version=1,
                            test_fixture=test_fixture,
+                           internal_test=bool(manifest.get("internal_test")),
                            product_version=manifest["product_version"],
                            build_id=manifest["build_id"],
                            installer=installer.name, installer_sha256=sha256(installer),
@@ -71,8 +78,12 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--test-fixture", action="store_true",
                         help="Allow a disposable core-only fixture; never distribute it")
+    parser.add_argument("--internal-validation", action="store_true",
+                        help="Package only a marked full internal-test stage")
     args = parser.parse_args()
-    receipt = package(args.installer, args.payload, args.output, test_fixture=args.test_fixture)
+    receipt = package(args.installer, args.payload, args.output,
+                      test_fixture=args.test_fixture,
+                      internal_validation=args.internal_validation)
     print(f"Offline distribution: {args.output} ({receipt['payload_files']} payload files)")
 
 

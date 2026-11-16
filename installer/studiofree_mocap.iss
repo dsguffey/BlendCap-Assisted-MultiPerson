@@ -8,16 +8,27 @@
 #endif
 
 [Setup]
+#ifdef InternalValidation
+AppId={{A83B7D2A-0AD5-4B37-A30B-57429D193E29}
+AppName=StudioFree MoCap INTERNAL TEST
+#else
 AppId={{D377EBD6-3302-4AC4-A49E-7F4247FE2321}
 AppName=StudioFree MoCap
+#endif
 AppVersion={#ProductVersion}
 AppPublisher=Arcomade
+#ifdef InternalValidation
+DefaultDirName={localappdata}\Programs\VTA-InternalTest\Installer
+#else
 DefaultDirName={localappdata}\Programs\VTA\Installer
+#endif
 DisableDirPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-#ifdef SignToolName
+#ifdef InternalValidation
+OutputBaseFilename=StudioFreeMoCap-{#ProductVersion}-INTERNAL-TEST
+#elif defined(SignToolName)
 OutputBaseFilename=StudioFreeMoCap-{#ProductVersion}
 #else
 OutputBaseFilename=StudioFreeMoCap-{#ProductVersion}-unsigned-test
@@ -43,11 +54,27 @@ Source: "{src}\payload\*"; DestDir: "{app}\payload"; Flags: external recursesubd
 Type: filesandordirs; Name: "{app}\payload"
 
 [Registry]
+#ifdef InternalValidation
+Root: HKA; Subkey: "Software\StudioFree\MoCap-InternalTest"; ValueType: string; ValueName: "InstallerPython"; ValueData: "{app}\payload\control\python.exe"; Flags: uninsdeletevalue
+#else
 Root: HKA; Subkey: "Software\StudioFree\MoCap"; ValueType: string; ValueName: "InstallerPython"; ValueData: "{app}\payload\control\python.exe"; Flags: uninsdeletevalue
+#endif
 
 [Code]
 var
   BlenderPage: TInputFileWizardPage;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := True;
+#ifdef InternalValidation
+  Result := (GetEnv('STUDIOFREE_INTERNAL_VALIDATION') = '1') and
+            (GetEnv('BLENDER_USER_CONFIG') <> '') and
+            (GetEnv('BLENDER_USER_EXTENSIONS') <> '');
+  if not Result then
+    MsgBox('INTERNAL TEST installer requires isolated Blender profile environment variables.', mbError, MB_OK);
+#endif
+end;
 
 procedure InitializeWizard;
 begin
@@ -99,8 +126,14 @@ begin
   WizardForm.StatusLabel.Caption := 'Verifying and installing StudioFree MoCap components...';
   Params := '"' + ExpandConstant('{app}\payload\maintenance\studiofree_maintenance.py') + '" apply' +
     ' --payload "' + ExpandConstant('{app}\payload') + '"' +
+#ifdef InternalValidation
+    ' --program-root "' + ExpandConstant('{localappdata}\Programs\VTA-InternalTest') + '"' +
+    ' --data-root "' + ExpandConstant('{localappdata}\VTA-InternalTest') + '"' +
+    ' --internal-validation' +
+#else
     ' --program-root "' + ExpandConstant('{localappdata}\Programs\VTA') + '"' +
     ' --data-root "' + ExpandConstant('{localappdata}\VTA') + '"' +
+#endif
     ' --blender "' + BlenderPage.Values[0] + '"';
   if (not Exec(ExpandConstant('{app}\payload\control\python.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)) or (ExitCode <> 0) then begin
     MsgBox('StudioFree MoCap installation did not finish. The previous active release was kept. Rerun this installer to repair or retry. See %LOCALAPPDATA%\VTA\logs\maintenance.jsonl for details.', mbError, MB_OK);
@@ -115,7 +148,11 @@ var
   Params: String;
 begin
   Result := False;
+#ifdef InternalValidation
+  if not RegQueryStringValue(HKCU, 'Software\StudioFree\MoCap-InternalTest', 'InstallerPython', PythonExe) then begin
+#else
   if not RegQueryStringValue(HKCU, 'Software\StudioFree\MoCap', 'InstallerPython', PythonExe) then begin
+#endif
     MsgBox('The StudioFree control Python path is missing. Reinstall StudioFree before uninstalling.', mbError, MB_OK);
     Exit;
   end;
@@ -124,8 +161,13 @@ begin
     Exit;
   end;
   Params := '"' + ExpandConstant('{app}\payload\maintenance\studiofree_maintenance.py') + '" uninstall' +
+#ifdef InternalValidation
+    ' --program-root "' + ExpandConstant('{localappdata}\Programs\VTA-InternalTest') + '"' +
+    ' --data-root "' + ExpandConstant('{localappdata}\VTA-InternalTest') + '"';
+#else
     ' --program-root "' + ExpandConstant('{localappdata}\Programs\VTA') + '"' +
     ' --data-root "' + ExpandConstant('{localappdata}\VTA') + '"';
+#endif
   if (not Exec(PythonExe, Params, '', SW_HIDE, ewWaitUntilTerminated, ExitCode)) or (ExitCode <> 0) then begin
     MsgBox('StudioFree cleanup failed. Application files were kept for repair. See %LOCALAPPDATA%\VTA\logs\maintenance.jsonl.', mbError, MB_OK);
     Exit;
