@@ -152,6 +152,17 @@ class ReleaseLifecycleTests(unittest.TestCase):
         self.assertIn("extension-removal-deferred",
                       (self.data / "logs" / "maintenance.jsonl").read_text())
 
+    def test_uninstall_accepts_full_size_release_manifest(self):
+        self.lifecycle.install(self.a)
+        package = self.lifecycle.release("A") / "package.json"
+        manifest = json.loads(package.read_text())
+        manifest["release_notes"] = "x" * 2_000_000
+        package.write_text(json.dumps(manifest))
+        self.assertGreater(package.stat().st_size, 2_000_000)
+        self.lifecycle.uninstall()
+        self.assertFalse(self.lifecycle.release("A").exists())
+        self.assertFalse(self.lifecycle.current_path.exists())
+
     def test_large_identical_model_is_reused_by_hash(self):
         probe = self.root / "link-probe"
         probe.write_bytes(b"probe")

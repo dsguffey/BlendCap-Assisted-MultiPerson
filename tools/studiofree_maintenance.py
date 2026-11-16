@@ -24,6 +24,7 @@ from vta_protocol import VERSION as PROTOCOL  # noqa: E402
 from vta_protocol.runtime import PRODUCT_VERSION as PRODUCT  # noqa: E402
 COMPONENTS = ("engine", "control", "body", "analysis", "analysis_source", "models")
 REUSE_MIN_BYTES = 64 * 1024 * 1024
+PACKAGE_MANIFEST_LIMIT = 32_000_000
 ROUTE_OWNER = {"control_python": "control", "body_python": "body",
                "analysis_python": "analysis", "body_root": "body",
                "kinesia_root": "analysis_source", "sam3_checkpoint": "models"}
@@ -114,7 +115,7 @@ def verify_payload(root: Path, *, complete: bool = True, allow_extra: bool = Fal
     root = root.resolve(strict=True)
     # Portable AI wheels add tens of thousands of hashed members. The generic
     # metadata limit is too small for a complete release inventory.
-    manifest = read_json(root / "package.json", 32_000_000)
+    manifest = read_json(root / "package.json", PACKAGE_MANIFEST_LIMIT)
     if (manifest.get("schema") != "studiofree-package" or manifest.get("version") != 1
             or manifest.get("product_version") != PRODUCT or manifest.get("protocol") != PROTOCOL):
         raise ValueError("Package version or protocol mismatch")
@@ -482,7 +483,7 @@ class Lifecycle:
             root = self.release(identity)
             if not root.exists():
                 continue
-            manifest = read_json(root / "package.json")
+            manifest = read_json(root / "package.json", PACKAGE_MANIFEST_LIMIT)
             remove_owned(root, manifest)
         self.record_path.unlink(missing_ok=True)
         # License, settings, logs, model caches and project roots are retained.
