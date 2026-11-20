@@ -1,6 +1,13 @@
 # StudioFree MoCap Windows installer lifecycle (Public 1.0 work)
 
-Status: **release architecture and disposable transaction proof; customer payload incomplete**.
+Status note (2026-11-20): this document records the earlier installer-design
+checkpoint. Later [internal full-payload validation](research/studiofree_internal_installer_validation_20261115.md)
+and [test signing](research/studiofree_test_signed_installer_20261120.md)
+supersede its statements that portable AI components or notices are unassembled.
+The complete package is still **internal-test-only**; production signing,
+distribution approval and actual clean-machine Inno EXE execution remain open.
+See [current status](current_status.md) and the [customer draft](studiofree_customer_guide.md).
+
 No owner QA file, installed Blender profile, or active VTA runtime is used by the
 tests in this document. The current development build is not a customer release.
 

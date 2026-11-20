@@ -1,10 +1,11 @@
 # StudioFree MoCap — current checkpoint and Public 1.0 roadmap
 
-Updated **2026-11-14**. This remains development work, not Public 1.0 or a
-release. The compiled private-engine and Gumroad licensing prototypes have
-passed their bounded checks. The Windows installer architecture has an Inno
-Setup source and disposable lifecycle probes; a portable approved AI payload
-and clean-machine QA remain open. **StudioFree MoCap** is the
+Updated **2026-11-20**. This remains development work, not Public 1.0 or a
+commercial release. The compiled engine, licensing prototype, portable AI
+runtimes, offline internal package, maintenance lifecycle, source-level
+security hardening and isolated test signing have passed their stated bounded
+checks. Production signing, commercial approval and actual signed-installer
+execution on a clean disposable Windows environment remain open. **StudioFree MoCap** is the
 tentative public name; **MoCap** is the user-facing shorthand. Name/trademark
 clearance remains open. Internal `VTA`/`vta` identifiers intentionally remain.
 
@@ -106,48 +107,28 @@ UI/registration/regression tests. Run broad suites when changes touch shared
 lifecycle, authority, persistence, architecture or other broad behavior, rather
 than automatically for each layout edit.
 
-## Next major milestone and remaining Public 1.0 sequence
+## Engineering evidence and remaining Public 1.0 work
 
-**Next: Fresh-clip end-to-end StudioFree MoCap workflow.** Start with a new
-clip/project, retaining the longstanding QA fixture for regression testing:
+| Area | Current evidence | Remaining gate |
+| --- | --- | --- |
+| Architecture, UI, compilation and licensing | M1–M5, stabilized workflow, source-free compiled workers, Gumroad live prototype and owner-visible activation feedback are implemented and have focused tests/QA. | Final full-workflow and release-candidate Blender GUI acceptance. |
+| Portable AI runtime | Separate pinned CPython 3.12 control/body/analysis environments passed relocated import and representative GPU inference checks. | Clean-machine GPU/driver compatibility and final package verification. |
+| Offline installer and maintenance | Complete internal-only ZIP (10.58 GB compressed, 15.60 GB payload); actual packaged AI inference and synthetic/disposable CLI install, update, repair, rollback and uninstall checks passed. | Production-signed full Inno EXE execution and clean-machine transaction tests. |
+| Distribution compliance | Component provenance, draft notices and corresponding-source delivery are prepared and internally gated. | Resolve remaining component permissions and owner/legal/commercial approvals before customer distribution. |
+| Security and signing | ARAP T2 source hardening and pre-execution sidecar checks passed focused tests; a synthetic Inno EXE passed isolated test-certificate signing and tamper checks. | Production publisher identity/certificate, commercial Inno license and signed clean-machine validation. |
+| Documentation | [Maintainer architecture](maintainer_architecture.md), [customer guide](studiofree_customer_guide.md) and [support guide](studiofree_support.md) are drafted. | Owner review of customer wording, support channel, terms and final build-specific requirements. |
 
-**Create workspace → choose video → Analyze → create/manage Characters → assign
-Candidates → Update Tracking as useful → Generate Animation → edit/cleanup →
-Export/Retarget.** Test coherence of the whole product, not only isolated features.
+The next concrete milestone is a **production-signed installer in a disposable
+Windows environment**, followed by clean-machine Blender 5.2 installation,
+activation and an end-to-end project on fresh footage: Create workspace →
+choose video → Analyze → manage Characters → assign Candidates → Update
+Tracking → Generate Animation → edit/cleanup → Export/Retarget. Use a
+disposable project; preserve the owner QA fixture. Then run proportionate
+final regression and release acceptance. Do not repeat completed compilation,
+licensing or runtime-consolidation research without a concrete defect.
 
-The remaining broad sequence is:
-
-1. **Fresh end-to-end workflow** on a new clip/project.
-2. **Workflow-driven bug/performance cleanup** for demonstrated problems, avoiding
-   speculative optimization.
-3. **Private-engine compilation/IP-protection prototype**: bounded Nuitka
-   source-free release and private worker gates accepted. Compilation is a
-   deterrent, not perfect protection.
-4. **Lightweight Gumroad-oriented licensing prototype**: bounded live activation,
-   DPAPI persistence, offline grace and compiled enforcement accepted. The
-   disposable test Product ID must not ship as the commercial Product ID.
-5. **Installer/package/update/repair/uninstall implementation**: Inno Setup 7
-   source, allowlisted release stage and disposable lifecycle probes are in
-   progress. See [installer lifecycle](studiofree_installer_lifecycle.md).
-   Portable model/runtime payloads, true customer installer QA and signed
-   authenticity remain open. Users install Blender separately.
-6. **Security / ARAP T2 release assurance**, including package/update/recovery
-   hardening and explicit compatibility/authenticity checks.
-7. **Licensing/compliance/provenance final pass**: exact third-party provenance,
-   notices and source delivery. Visible Credits do not replace legal notices.
-8. **Code Documentation / Maintainability Pass**: maintainer maps now cover
-   [host architecture](maintainer_architecture.md) and the private engine's
-   `docs/maintainer_engine.md`, including authority, lifecycle, IPC, timeline,
-   licensing, packaging and recovery invariants. Keep these maps current when
-   changing those boundaries; avoid blanket syntax comments.
-9. **Final regression and clean-machine release QA**, including recovery,
-   export/retarget and difficult multi-person cases.
-10. **Release documentation/support**: installation, first run, limitations,
-   troubleshooting/log collection, version and support information.
-
-The [approved release strategy](vta_release_strategy.md) consolidates licensing
-failure philosophy, private-runtime protection, update UX/security and rollback
-requirements. It predates the accepted prototypes. Final storefront,
-update entitlement/pricing, signing infrastructure, portable asset provenance
-and clean-machine installer QA remain open. Final product name, exceptional
-presence-state treatment and final UI wording/polish also remain unresolved.
+The [approved release strategy](vta_release_strategy.md) predates accepted
+prototypes. Final storefront/customer terms, signing identity, distribution
+permissions and clean-machine QA remain open. Product name/trademark and final
+support channel require owner approval. Historical research reports record
+their own checkpoint and are not current release-status assertions.

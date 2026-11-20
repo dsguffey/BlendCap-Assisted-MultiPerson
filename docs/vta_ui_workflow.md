@@ -1,8 +1,9 @@
 # StudioFree MoCap — current UI workflow
 
-Updated 2026-11-09; UI Pass 5 is locally deployed. This is not full owner manual
-acceptance or Public 1.0. StudioFree MoCap is tentative; MoCap is shorthand and
-internal VTA identifiers are retained. See [current status and roadmap](current_status.md).
+UI workflow checkpoint updated 2026-11-09; UI Pass 5 is locally deployed. This
+is not full owner manual acceptance or Public 1.0. StudioFree MoCap is
+tentative; MoCap is shorthand and internal VTA identifiers are retained.
+Later release-engineering status is in [current status and roadmap](current_status.md).
 
 ## Sidebar order and setup
 
@@ -83,5 +84,6 @@ Credits and upstream attribution. Credits do not replace legal notices.
 There is no required pre-release UI freeze. Continue proportionate focused
 UI/registration/regression checks; broaden validation for lifecycle, authority,
 persistence, architecture or other broad behavior changes. Avoid structural churn.
-Next is a new clip/project through the complete workflow; Desktop QA.blend/QA_vta
-remain the preserved regression fixture, not evidence of full build acceptance.
+Final release QA still needs a new clip/project through the complete workflow;
+Desktop QA.blend/QA_vta remain the preserved regression fixture, not evidence
+of full build acceptance.
