@@ -1,7 +1,9 @@
-> **Current StudioFree MoCap checkpoint — 2026-11-09:** tentative name, shorthand
-> MoCap; internal VTA identifiers retained. M1–M5 separation and UI Passes 1–5
-> are locally deployed. Next is a fresh-clip end-to-end workflow, not a release.
-> See [current status/roadmap](docs/current_status.md) and
+> **StudioFree MoCap development checkpoint — 2026-11-20:** M1–M5 separation,
+> the accepted UI workflow, portable runtimes and internal installer validation
+> are complete enough for release engineering. Test signing has been exercised;
+> production signing and clean-machine installer QA remain open. This is not
+> a customer release. See [current status/roadmap](docs/current_status.md),
+> [maintainer architecture](docs/maintainer_architecture.md) and
 > [current UI workflow](docs/vta_ui_workflow.md). Manual acceptance is partial.
 > The BlendCap branding, marketing and paid-build links below are inherited
 > upstream context, not the StudioFree MoCap release offer or supported feature list.

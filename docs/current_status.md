@@ -135,12 +135,11 @@ The remaining broad sequence is:
    hardening and explicit compatibility/authenticity checks.
 7. **Licensing/compliance/provenance final pass**: exact third-party provenance,
    notices and source delivery. Visible Credits do not replace legal notices.
-8. **Code Documentation / Maintainability Pass** after core lifecycle and UI
-   behavior stabilizes. Document architectural intent, lifecycle assumptions,
-   invariants, authoritative versus derived state, Scene/Character ownership,
-   custom Dope Sheet viewport and scrolling, marker ownership, public/private
-   boundaries, recovery/reconciliation assumptions, and non-obvious edge cases.
-   Explain why behavior exists and what must remain true; avoid blanket comments.
+8. **Code Documentation / Maintainability Pass**: maintainer maps now cover
+   [host architecture](maintainer_architecture.md) and the private engine's
+   `docs/maintainer_engine.md`, including authority, lifecycle, IPC, timeline,
+   licensing, packaging and recovery invariants. Keep these maps current when
+   changing those boundaries; avoid blanket syntax comments.
 9. **Final regression and clean-machine release QA**, including recovery,
    export/retarget and difficult multi-person cases.
 10. **Release documentation/support**: installation, first run, limitations,
