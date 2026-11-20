@@ -113,13 +113,13 @@ than automatically for each layout edit.
 | --- | --- | --- |
 | Architecture, UI, compilation and licensing | M1–M5, stabilized workflow, source-free compiled workers, Gumroad live prototype and owner-visible activation feedback are implemented and have focused tests/QA. | Final full-workflow and release-candidate Blender GUI acceptance. |
 | Portable AI runtime | Separate pinned CPython 3.12 control/body/analysis environments passed relocated import and representative GPU inference checks. | Clean-machine GPU/driver compatibility and final package verification. |
-| Offline installer and maintenance | Complete internal-only ZIP (10.58 GB compressed, 15.60 GB payload); actual packaged AI inference and synthetic/disposable CLI install, update, repair, rollback and uninstall checks passed. | Production-signed full Inno EXE execution and clean-machine transaction tests. |
+| Offline installer and maintenance | Complete internal-only ZIP (10.58 GB compressed, 15.60 GB payload); actual packaged AI inference and synthetic/disposable CLI install, update, repair, rollback and uninstall checks passed. A [2026-11-20 isolated Blender CLI check](research/studiofree_final_installer_qa_20261120.md) installed the packaged extension, resolved the E compiled runtime and saved/reopened a blank MoCap Scene. | Actual Inno EXE execution, clean-machine transaction and full real-clip Blender workflow tests. The final staged internal EXE is unsigned; separate synthetic test signing does not sign it. |
 | Distribution compliance | Component provenance, draft notices and corresponding-source delivery are prepared and internally gated. | Resolve remaining component permissions and owner/legal/commercial approvals before customer distribution. |
 | Security and signing | ARAP T2 source hardening and pre-execution sidecar checks passed focused tests; a synthetic Inno EXE passed isolated test-certificate signing and tamper checks. | Production publisher identity/certificate, commercial Inno license and signed clean-machine validation. |
 | Documentation | [Maintainer architecture](maintainer_architecture.md), [customer guide](studiofree_customer_guide.md) and [support guide](studiofree_support.md) are drafted. | Owner review of customer wording, support channel, terms and final build-specific requirements. |
 
-The next concrete milestone is a **production-signed installer in a disposable
-Windows environment**, followed by clean-machine Blender 5.2 installation,
+The next concrete milestone is **actual test-signed installer execution in a disposable
+Windows environment** (none was available in the 2026-11-20 checkpoint), followed by clean-machine Blender 5.2 installation,
 activation and an end-to-end project on fresh footage: Create workspace →
 choose video → Analyze → manage Characters → assign Candidates → Update
 Tracking → Generate Animation → edit/cleanup → Export/Retarget. Use a
