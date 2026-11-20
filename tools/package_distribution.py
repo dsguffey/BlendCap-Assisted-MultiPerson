@@ -28,9 +28,14 @@ def verify_publisher(installer: Path, thumbprint: str) -> None:
     powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
     script = ("$s=Get-AuthenticodeSignature -LiteralPath $env:STUDIOFREE_VERIFY_TARGET; "
               "if ($s.Status -ne 'Valid' -or -not $s.SignerCertificate -or "
-              "$s.SignerCertificate.Thumbprint -ne $env:STUDIOFREE_EXPECTED_PUBLISHER) { exit 3 }")
-    environment = {**os.environ, "STUDIOFREE_VERIFY_TARGET": str(installer),
-                   "STUDIOFREE_EXPECTED_PUBLISHER": thumbprint.upper()}
+              "$s.SignerCertificate.Thumbprint -ne $env:STUDIOFREE_EXPECTED_PUBLISHER -or "
+              "$s.SignerCertificate.Subject -eq $s.SignerCertificate.Issuer) { exit 3 }")
+    # An inherited PowerShell 7 module path can break Windows PowerShell's
+    # Security-module autoload. Let the child construct its own system path.
+    environment = {key: value for key, value in os.environ.items()
+                   if key.upper() != "PSMODULEPATH"}
+    environment.update({"STUDIOFREE_VERIFY_TARGET": str(installer),
+                        "STUDIOFREE_EXPECTED_PUBLISHER": thumbprint.upper()})
     result = subprocess.run([str(powershell), "-NoProfile", "-NonInteractive", "-Command", script],
                             env=environment, capture_output=True, timeout=30, check=False)
     if result.returncode:

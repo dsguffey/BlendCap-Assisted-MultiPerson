@@ -20,6 +20,8 @@ param(
     [string]$SignToolName = '',
     [string]$SignToolCommand = '',
     [string]$ExpectedPublisherThumbprint = '',
+    [string]$TestTrustPem = '',
+    [string]$TestSignatureVerifier = '',
     [switch]$TestProduct,
     [switch]$InternalValidation,
     [switch]$SkipInstaller
@@ -48,6 +50,13 @@ if (-not $TestProduct -and -not $SignToolName) {
 }
 if (-not $TestProduct -and $ExpectedPublisherThumbprint -notmatch '^[0-9a-fA-F]{40}$') {
     throw 'A production installer requires the expected publisher certificate SHA-1 thumbprint.'
+}
+if ([bool]$TestTrustPem -ne [bool]$TestSignatureVerifier) {
+    throw 'Provide both -TestTrustPem and -TestSignatureVerifier for isolated test-signature verification.'
+}
+if ($TestTrustPem -and (-not $TestProduct -or -not $InternalValidation -or -not $SignToolName -or
+                       $ExpectedPublisherThumbprint -notmatch '^[0-9a-fA-F]{40}$')) {
+    throw 'Isolated test trust requires a signed internal test build and an expected test publisher thumbprint.'
 }
 if (-not $NuitkaPython) {
     $NuitkaPython = Join-Path $private '.build\nuitka-tooling\Scripts\python.exe'
@@ -132,21 +141,39 @@ try {
         if ($InternalValidation) { $innoArgs += '/DInternalValidation=1' }
         if ($SignToolName) {
             $innoArgs += '/DSignToolName=' + $SignToolName
-            $innoArgs += '/S' + $SignToolName + '=' + $SignToolCommand
+            $innoArgs += '--signtool=' + $SignToolName + '=' + $SignToolCommand
         }
         $innoArgs += 'installer\studiofree_mocap.iss'
-        & $compiler @innoArgs
-        if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+        # Windows PowerShell can split quoted SignTool commands before ISCC sees
+        # them. Python's subprocess passes each compiler argument intact.
+        $innoArgsFile = Join-Path $testTemp.FullName ('inno-args-' + [guid]::NewGuid().ToString('N') + '.json')
+        try {
+            ConvertTo-Json -InputObject $innoArgs -Compress | Set-Content -LiteralPath $innoArgsFile -Encoding UTF8
+            & $python -c 'import json, subprocess, sys; args=json.load(open(sys.argv[2], encoding="utf-8-sig")); sys.exit(subprocess.call([sys.argv[1]] + args))' $compiler $innoArgsFile
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+        } finally {
+            Remove-Item -LiteralPath $innoArgsFile -ErrorAction SilentlyContinue
+        }
         $installer = Get-ChildItem -LiteralPath $output.FullName -Filter '*.exe' -File |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         if ($SignToolName) {
             $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-            if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) {
-                throw 'Installer Authenticode signature is not trusted on this build machine.'
-            }
+            if (-not $signature.SignerCertificate) { throw 'Installer has no Authenticode signer.' }
             if ($ExpectedPublisherThumbprint -and
                 $signature.SignerCertificate.Thumbprint -ne $ExpectedPublisherThumbprint) {
                 throw 'Installer signer does not match the expected publisher certificate.'
+            }
+            if (-not $TestProduct -and
+                $signature.SignerCertificate.Subject -eq $signature.SignerCertificate.Issuer) {
+                throw 'A production publisher certificate cannot be self-signed.'
+            }
+            if ($TestTrustPem) {
+                $testRoot = (Resolve-Path -LiteralPath $TestTrustPem).Path
+                $testVerifier = (Resolve-Path -LiteralPath $TestSignatureVerifier).Path
+                & $testVerifier verify -CAfile $testRoot -require-leaf-hash ('sha1:' + $ExpectedPublisherThumbprint) -in $installer.FullName
+                if ($LASTEXITCODE -ne 0) { throw 'Installer failed isolated test-signature verification.' }
+            } elseif ($signature.Status -ne 'Valid') {
+                throw 'Installer Authenticode signature is not trusted on this build machine.'
             }
         }
         $distribution = Join-Path $stage ('StudioFreeMoCap-' + $productVersion + '-' + $BuildId + '.zip')

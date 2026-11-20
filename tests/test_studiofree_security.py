@@ -58,6 +58,11 @@ class SidecarSecurityTests(unittest.TestCase):
         (self.payload / "engine" / "sitecustomize.py").write_text("# injected", encoding="utf-8")
         self.assertNotEqual(self._check(anchor).returncode, 0)
 
+    def test_missing_payload_executable_is_rejected(self):
+        anchor = self._manifest()
+        (self.payload / "engine" / "vta_engine.exe").unlink()
+        self.assertNotEqual(self._check(anchor).returncode, 0)
+
     def test_manifest_path_escape_is_rejected_even_with_matching_digest(self):
         self.assertNotEqual(self._check(self._manifest(path="../outside.exe")).returncode, 0)
 
@@ -99,6 +104,24 @@ class SidecarSecurityTests(unittest.TestCase):
             verify_publisher(installer, "")
         with self.assertRaisesRegex(ValueError, "signature"):
             verify_publisher(installer, "a" * 40)
+
+    def test_customer_publisher_gate_accepts_windows_trust_and_rejects_mismatch(self):
+        # The OS PowerShell binary supplies a real trusted Authenticode fixture.
+        environment = {key: value for key, value in os.environ.items()
+                       if key.upper() != "PSMODULEPATH"}
+        result = subprocess.run(
+            [str(POWERSHELL), "-NoProfile", "-NonInteractive", "-Command",
+             "$s=Get-AuthenticodeSignature -LiteralPath $env:STUDIOFREE_FIXTURE; "
+             "if ($s.Status -ne 'Valid') { exit 2 }; $s.SignerCertificate.Thumbprint"],
+            env={**environment, "STUDIOFREE_FIXTURE": str(POWERSHELL)},
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode:
+            self.skipTest("Windows PowerShell has no trusted Authenticode signer")
+        thumbprint = result.stdout.strip()
+        verify_publisher(POWERSHELL, thumbprint)
+        with self.assertRaisesRegex(ValueError, "publisher"):
+            verify_publisher(POWERSHELL, "0" * 40)
 
 
 if __name__ == "__main__":
