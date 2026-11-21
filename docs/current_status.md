@@ -1,11 +1,12 @@
 # StudioFree MoCap — current checkpoint and Public 1.0 roadmap
 
-Updated **2026-11-20**. This remains development work, not Public 1.0 or a
+Updated **2026-11-21**. This remains development work, not Public 1.0 or a
 commercial release. The compiled engine, licensing prototype, portable AI
 runtimes, offline internal package, maintenance lifecycle, source-level
 security hardening and isolated test signing have passed their stated bounded
-checks. Production signing, commercial approval and actual signed-installer
-execution on a clean disposable Windows environment remain open. **StudioFree MoCap** is the
+checks. The actual test-signed Inno EXE ran in VirtualBox but rolled back on a
+guest registry access error; successful installation remains unverified.
+Production signing and commercial approval remain open. **StudioFree MoCap** is the
 tentative public name; **MoCap** is the user-facing shorthand. Name/trademark
 clearance remains open. Internal `VTA`/`vta` identifiers intentionally remain.
 
@@ -113,13 +114,13 @@ than automatically for each layout edit.
 | --- | --- | --- |
 | Architecture, UI, compilation and licensing | M1–M5, stabilized workflow, source-free compiled workers, Gumroad live prototype and owner-visible activation feedback are implemented and have focused tests/QA. | Final full-workflow and release-candidate Blender GUI acceptance. |
 | Portable AI runtime | Separate pinned CPython 3.12 control/body/analysis environments passed relocated import and representative GPU inference checks. | Clean-machine GPU/driver compatibility and final package verification. |
-| Offline installer and maintenance | Complete internal-only ZIP (10.58 GB compressed, 15.60 GB payload); actual packaged AI inference and synthetic/disposable CLI install, update, repair, rollback and uninstall checks passed. A [2026-11-20 isolated Blender CLI check](research/studiofree_final_installer_qa_20261120.md) installed the packaged extension, resolved the E compiled runtime and saved/reopened a blank MoCap Scene. | Actual Inno EXE execution, clean-machine transaction and full real-clip Blender workflow tests. The final staged internal EXE is unsigned; separate synthetic test signing does not sign it. |
+| Offline installer and maintenance | Complete internal-only ZIP (10.58 GB compressed, 15.60 GB payload); actual packaged AI inference and synthetic/disposable CLI install, update, repair, rollback and uninstall checks passed. A [2026-11-20 isolated Blender CLI check](research/studiofree_final_installer_qa_20261120.md) installed the packaged extension, resolved the E compiled runtime and saved/reopened a blank MoCap Scene. A current test-signed Inno EXE ran in VirtualBox but rolled back on a guest registry access error. A corrected [owner-laptop QA package](research/studiofree_owner_laptop_qa_20261121.md) is prepared. | Successful normal-machine installer transaction and full real-clip Blender workflow tests. |
 | Distribution compliance | Component provenance, draft notices and corresponding-source delivery are prepared and internally gated. | Resolve remaining component permissions and owner/legal/commercial approvals before customer distribution. |
 | Security and signing | ARAP T2 source hardening and pre-execution sidecar checks passed focused tests; a synthetic Inno EXE passed isolated test-certificate signing and tamper checks. | Production publisher identity/certificate, commercial Inno license and signed clean-machine validation. |
 | Documentation | [Maintainer architecture](maintainer_architecture.md), [customer guide](studiofree_customer_guide.md) and [support guide](studiofree_support.md) are drafted. | Owner review of customer wording, support channel, terms and final build-specific requirements. |
 
-The next concrete milestone is **actual test-signed installer execution in a disposable
-Windows environment** (none was available in the 2026-11-20 checkpoint), followed by clean-machine Blender 5.2 installation,
+The next concrete milestone is **owner-laptop installation QA** with the internal
+test-signed package, followed by clean-machine Blender 5.2 installation,
 activation and an end-to-end project on fresh footage: Create workspace →
 choose video → Analyze → manage Characters → assign Candidates → Update
 Tracking → Generate Animation → edit/cleanup → Export/Retarget. Use a
