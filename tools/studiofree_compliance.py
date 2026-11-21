@@ -19,6 +19,7 @@ DRAFT = ROOT / "docs/research/studiofree_distribution_notices_draft"
 LOCK = ROOT / "tools/distribution_source_lock.json"
 BUILD_FILES = (
     "build_release.ps1", "installer/studiofree_mocap.iss",
+    "installer/verify_sidecar.ps1",
     "tools/build_portable_ai.py", "tools/build_portable_ai_assets.py",
     "tools/build_portable_control.py", "tools/package_distribution.py",
     "tools/portable_ai_lock.json", "tools/portable_assets_lock.json",

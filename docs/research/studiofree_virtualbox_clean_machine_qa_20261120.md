@@ -47,9 +47,10 @@ Windows baseline snapshot was taken before Blender and StudioFree. The official
 portable Blender ZIP was hash-checked in the guest, extracted into
 `C:\StudioFreeQA\blender-portable`, and its `blender.exe --version` reported
 Blender 5.2.4 LTS. The official MSI failed while writing a guest user registry
-key; testing proceeded with the portable ZIP as authorized. The Inno source
-accepts the portable executable path only in `InternalValidation` builds via
-`STUDIOFREE_INTERNAL_BLENDER_EXE`; customer builds retain the default path.
+key; testing proceeded with the portable ZIP as authorized. That VM test build
+temporarily accepted the portable executable path through
+`STUDIOFREE_INTERNAL_BLENDER_EXE`. The override was subsequently removed; the
+owner-QA build uses the normal Blender picker and default path.
 
 ## Execution results
 
