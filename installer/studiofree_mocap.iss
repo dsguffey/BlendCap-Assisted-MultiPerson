@@ -95,6 +95,10 @@ begin
     'Select the blender.exe for the Blender 5.2 installation you want to use. Blender is installed separately.');
   BlenderPage.Add('Blender executable:', 'Executables|*.exe', '.exe');
   BlenderPage.Values[0] := ExpandConstant('{autopf}\Blender Foundation\Blender 5.2\blender.exe');
+#ifdef InternalValidation
+  if GetEnv('STUDIOFREE_INTERNAL_BLENDER_EXE') <> '' then
+    BlenderPage.Values[0] := GetEnv('STUDIOFREE_INTERNAL_BLENDER_EXE');
+#endif
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
